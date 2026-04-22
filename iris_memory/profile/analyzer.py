@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 画像分析器
+Iris Chat Memory - 画像分析器
 
 使用 LLM 分析画像特征。
 仅保留中长期字段分析。

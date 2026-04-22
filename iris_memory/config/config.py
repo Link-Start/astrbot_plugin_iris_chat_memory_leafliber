@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 配置管理主类
+Iris Chat Memory - 配置管理主类
 
 提供统一的配置访问接口，支持：
 - 用户配置(AstrBotConfig)

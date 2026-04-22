@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 记忆合并任务
+Iris Chat Memory - 记忆合并任务
 
 定期检索相似记忆并使用 LLM 合并碎片化记忆。
 

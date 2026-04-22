@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - L2 记忆库模块
+Iris Chat Memory - L2 记忆库模块
 
 使用 ChromaDB 存储长期记忆向量，支持群聊隔离、人格隔离、降级兜底。
 """

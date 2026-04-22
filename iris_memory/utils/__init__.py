@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 公共工具模块
+Iris Chat Memory - 公共工具模块
 
 提供通用工具函数，供各模块使用。
 """

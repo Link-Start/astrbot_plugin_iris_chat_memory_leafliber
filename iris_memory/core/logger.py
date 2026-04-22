@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 日志模块
+Iris Chat Memory - 日志模块
 
 集成 AstrBot 日志系统，提供模块化日志输出功能。
 

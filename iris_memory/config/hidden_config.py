@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 隐藏配置管理器
+Iris Chat Memory - 隐藏配置管理器
 
 管理隐藏配置的存储、修改和持久化，提供：
 - 内存缓存 + 文件持久化

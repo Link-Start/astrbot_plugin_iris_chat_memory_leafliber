@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - L2 记忆数据模型
+Iris Chat Memory - L2 记忆数据模型
 
 定义 L2 记忆库的数据结构，包括记忆条目和检索结果。
 """

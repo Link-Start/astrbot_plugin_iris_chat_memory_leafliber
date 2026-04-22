@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - L2 记忆导入导出
+Iris Chat Memory - L2 记忆导入导出
 
 提供记忆的导入导出功能，支持：
 - JSON 格式导出/导入

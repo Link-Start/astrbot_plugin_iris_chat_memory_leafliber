@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 图片缓存清理任务
+Iris Chat Memory - 图片缓存清理任务
 
 定期清理过期的图片解析缓存。
 

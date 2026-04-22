@@ -1,3 +1,3 @@
 """
-Iris Tier Memory 测试模块
+Iris Chat Memory 测试模块
 """

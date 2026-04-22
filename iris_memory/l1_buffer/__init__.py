@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - L1 消息上下文缓冲模块
+Iris Chat Memory - L1 消息上下文缓冲模块
 
 提供消息队列管理、自动总结等功能。
 """

@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 平台适配器工厂
+Iris Chat Memory - 平台适配器工厂
 
 根据消息事件的平台类型，返回对应的平台适配器实例。
 

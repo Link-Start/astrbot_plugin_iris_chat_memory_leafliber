@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 画像存储组件
+Iris Chat Memory - 画像存储组件
 
 使用 AstrBot KV 存储 API 实现画像数据持久化。
 支持群聊隔离和人格隔离。

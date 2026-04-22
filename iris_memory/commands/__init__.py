@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 指令模块
+Iris Chat Memory - 指令模块
 
 提供管理员指令接口，支持：
 - L1/L2/L3 记忆管理

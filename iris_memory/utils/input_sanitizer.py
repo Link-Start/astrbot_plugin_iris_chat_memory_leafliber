@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 输入清理模块
+Iris Chat Memory - 输入清理模块
 
 对所有进入插件的外部输入统一执行 Prompt 注入过滤，
 过滤逻辑集中在输入网关层。

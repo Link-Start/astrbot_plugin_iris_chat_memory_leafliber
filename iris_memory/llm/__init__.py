@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - LLM 调用模块
+Iris Chat Memory - LLM 调用模块
 
 提供统一的 LLM 调用接口和统计管理。
 阶段 5 已完成，总结功能正式可用。

@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 图增强检索器
+Iris Chat Memory - 图增强检索器
 
 利用 L3 知识图谱扩展 L2 记忆检索结果，发现更多关联信息。
 

@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - LLM 调用记录
+Iris Chat Memory - LLM 调用记录
 
 定义 LLM 调用记录数据结构，用于追踪每次 LLM 调用。
 """

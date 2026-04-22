@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - L2 记忆检索器
+Iris Chat Memory - L2 记忆检索器
 
 提供记忆检索、写入和访问更新的高级接口。
 """

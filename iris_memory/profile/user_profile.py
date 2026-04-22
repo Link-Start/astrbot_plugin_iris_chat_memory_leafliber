@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 用户画像管理器
+Iris Chat Memory - 用户画像管理器
 
 封装用户画像的业务逻辑。
 仅保留中长期字段更新。

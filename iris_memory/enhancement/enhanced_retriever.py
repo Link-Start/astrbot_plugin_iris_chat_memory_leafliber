@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 整合增强检索器
+Iris Chat Memory - 整合增强检索器
 
 整合 L2 检索、图增强、重排序和 Token 预算控制，提供统一的增强检索接口。
 """

@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - L3 指令处理器
+Iris Chat Memory - L3 指令处理器
 
 处理 L3 知识图谱的管理指令。
 """

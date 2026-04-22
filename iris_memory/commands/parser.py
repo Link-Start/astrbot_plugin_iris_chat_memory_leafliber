@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 指令解析器
+Iris Chat Memory - 指令解析器
 
 解析用户输入的指令文本，提取参数和子指令。
 """

@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 记忆重排序器
+Iris Chat Memory - 记忆重排序器
 
 使用 LLM 对检索结果进行重排序，提升相关性。
 """

@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - OneBot11 平台适配器
+Iris Chat Memory - OneBot11 平台适配器
 
 实现 QQ 平台（OneBot11 协议）的适配器，从 AstrMessageEvent 提取平台信息。
 

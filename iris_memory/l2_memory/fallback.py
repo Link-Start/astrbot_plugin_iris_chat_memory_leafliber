@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - L2 记忆库降级逻辑
+Iris Chat Memory - L2 记忆库降级逻辑
 
 实现 L2 记忆库的降级和兜底机制。
 """

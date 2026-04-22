@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 图片解析缓存管理器
+Iris Chat Memory - 图片解析缓存管理器
 
 管理图片解析结果缓存，避免重复解析相同图片。
 """

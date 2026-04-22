@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 总结器
+Iris Chat Memory - 总结器
 
 负责触发总结逻辑，调用 LLM 生成总结。
 阶段 5：LLMManager 实现后，总结功能正式可用

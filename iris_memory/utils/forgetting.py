@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 遗忘权重算法
+Iris Chat Memory - 遗忘权重算法
 
 实现记忆遗忘评分算法，用于评估记忆的重要性和淘汰优先级。
 

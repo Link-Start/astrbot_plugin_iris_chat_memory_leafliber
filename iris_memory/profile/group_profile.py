@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 群聊画像管理器
+Iris Chat Memory - 群聊画像管理器
 
 封装群聊画像的业务逻辑。
 仅保留中长期字段更新。

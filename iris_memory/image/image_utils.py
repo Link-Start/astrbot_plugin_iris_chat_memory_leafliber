@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 图片工具模块
+Iris Chat Memory - 图片工具模块
 
 提供 pHash 感知哈希去重和无效图过滤功能。
 """

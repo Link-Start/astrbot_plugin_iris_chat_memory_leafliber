@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 图片解析配额管理组件
+Iris Chat Memory - 图片解析配额管理组件
 
 管理全局图片解析配额，支持每日自动重置。
 """

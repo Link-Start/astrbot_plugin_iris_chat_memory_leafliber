@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 存储适配器
+Iris Chat Memory - 存储适配器
 
 提供统一的 KV 存储接口，解耦组件与 AstrBot 的直接依赖。
 """

@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 配置管理模块
+Iris Chat Memory - 配置管理模块
 
 提供统一的配置管理接口，支持用户配置与隐藏配置的分层管理。
 

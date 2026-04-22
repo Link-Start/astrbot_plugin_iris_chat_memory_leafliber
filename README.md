@@ -1,10 +1,10 @@
-# Iris Tier Memory
+# Iris Chat Memory
 
 AstrBot 分层记忆系统插件
 
 ## 简介
 
-Iris Tier Memory 是一个为 AstrBot 设计的分层记忆系统插件，提供三阶段记忆管理和用户画像功能。
+Iris Chat Memory 是一个为 AstrBot 设计的分层记忆系统插件，提供三阶段记忆管理和用户画像功能。
 
 ## 功能特性
 
@@ -165,7 +165,7 @@ Iris Tier Memory 是一个为 AstrBot 设计的分层记忆系统插件，提供
 ## 项目结构
 
 ```
-astrbot_plugin_iris_tier_memory/
+astrbot_plugin_iris_chat_memory/
 ├── main.py                    # 插件入口
 ├── iris_memory/
 │   ├── commands/              # 指令模块

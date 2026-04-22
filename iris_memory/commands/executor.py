@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 指令执行器
+Iris Chat Memory - 指令执行器
 
 处理 iris_mem 指令的解析和执行。
 """

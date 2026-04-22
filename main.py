@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - AstrBot 分层记忆插件
+Iris Chat Memory - AstrBot 分层记忆插件
 
 提供三阶段记忆管理：
 - L1: 消息上下文缓冲
@@ -57,13 +57,13 @@ logger = get_logger("main")
 
 
 @register(
-    "astrbot_plugin_iris_tier_memory",
+    "astrbot_plugin_iris_chat_memory",
     "Leafiber",
-    "Iris Tier Memory",
+    "Iris Chat Memory",
     "1.0.0",
-    "https://github.com/Leafliber/astrbot_plugin_iris_tier_memory"
+    "https://github.com/Leafliber/astrbot_plugin_iris_chat_memory"
 )
-class IrisTierMemoryPlugin(Star):
+class IrisChatMemoryPlugin(Star):
     """AstrBot 分层记忆插件主类
     
     集成三阶段记忆系统，支持热重启和配置热修改。
@@ -74,7 +74,7 @@ class IrisTierMemoryPlugin(Star):
         self.context: Context = context
         
         # 初始化配置系统
-        data_dir = Path(get_astrbot_data_path()) / "plugin_data" / "astrbot_plugin_iris_tier_memory"
+        data_dir = Path(get_astrbot_data_path()) / "plugin_data" / "astrbot_plugin_iris_chat_memory"
         self.config: Config = init_config(config, data_dir)
         logger.info(f"插件数据目录：{data_dir}")
         
@@ -100,7 +100,7 @@ class IrisTierMemoryPlugin(Star):
         except Exception as e:
             logger.error(f"初始化 Web 服务器失败：{e}", exc_info=True)
         
-        logger.info("✅ Iris Tier Memory 插件已加载")
+        logger.info("✅ Iris Chat Memory 插件已加载")
     
     def _register_llm_tools(self) -> None:
         """注册 LLM Tool"""
@@ -152,7 +152,7 @@ class IrisTierMemoryPlugin(Star):
         if self.web_server:
             self.web_server.shutdown()
         await shutdown_components(self.component_manager)
-        logger.info("Iris Tier Memory 插件已卸载")
+        logger.info("Iris Chat Memory 插件已卸载")
     
     # ========================================================================
     # AstrBot 钩子

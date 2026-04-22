@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 任务调度器
+Iris Chat Memory - 任务调度器
 
 提供定时任务的生命周期管理和并发控制。
 

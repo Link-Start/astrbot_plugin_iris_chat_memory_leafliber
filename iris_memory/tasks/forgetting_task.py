@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 遗忘清洗任务
+Iris Chat Memory - 遗忘清洗任务
 
 定期计算记忆权重评分，批量清理评分低于阈值且超过保留期的条目。
 

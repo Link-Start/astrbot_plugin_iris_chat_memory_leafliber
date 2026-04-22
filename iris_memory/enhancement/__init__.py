@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 记忆增强模块
+Iris Chat Memory - 记忆增强模块
 
 提供记忆检索增强功能，包括：
 - Token 预算控制：根据 Token 预算控制注入记忆的数量

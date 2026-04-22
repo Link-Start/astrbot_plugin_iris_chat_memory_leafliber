@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - Token 计数工具
+Iris Chat Memory - Token 计数工具
 
 使用 tiktoken 实现文本 Token 计数，支持多种编码格式。
 采用单例模式缓存编码器，避免重复初始化。

@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 图片解析模块
+Iris Chat Memory - 图片解析模块
 
 提供图片解析、配额管理、缓存管理和消息集成功能。
 """

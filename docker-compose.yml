@@ -9,7 +9,7 @@ services:
       - "6199:6199"  # WebSocket 端口
     volumes:
       # 挂载插件目录（开发模式）
-      - .:/AstrBot/data/plugins/astrbot_plugin_iris_tier_memory
+      - .:/AstrBot/data/plugins/astrbot_plugin_iris_chat_memory
       # 持久化数据
       - ./docker-data/astrbot:/AstrBot/data
     environment:

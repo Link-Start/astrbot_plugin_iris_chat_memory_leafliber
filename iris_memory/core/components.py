@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 组件初始化框架
+Iris Chat Memory - 组件初始化框架
 
 提供统一的组件生命周期管理，支持：
 - 抽象基类定义

@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 指令注册中心
+Iris Chat Memory - 指令注册中心
 
 管理所有指令处理器的注册和分发。
 """
@@ -64,7 +64,7 @@ class CommandRegistry:
     def get_help_text(self) -> str:
         """获取所有指令的帮助文本"""
         lines = [
-            "📚 Iris Tier Memory 指令帮助",
+            "📚 Iris Chat Memory 指令帮助",
             "=" * 40,
             "",
             "用法: iris_mem <模块> <子指令> [参数]",

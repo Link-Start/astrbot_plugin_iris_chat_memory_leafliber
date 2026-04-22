@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - LLM 调用管理器
+Iris Chat Memory - LLM 调用管理器
 
 提供统一的 LLM 调用入口，支持 Token 统计与调用追踪。
 """

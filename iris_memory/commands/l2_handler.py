@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - L2 指令处理器
+Iris Chat Memory - L2 指令处理器
 
 处理 L2 记忆库的管理指令。
 """

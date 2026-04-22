@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 指令基础类
+Iris Chat Memory - 指令基础类
 
 定义指令处理器的基类和通用数据结构。
 """

@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - All 指令处理器
+Iris Chat Memory - All 指令处理器
 
 总删除开关，同时操作所有层级（L1、L2、L3、画像）。
 """

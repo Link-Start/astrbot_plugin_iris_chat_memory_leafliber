@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - Token 预算控制器
+Iris Chat Memory - Token 预算控制器
 
 根据 Token 预算控制注入记忆的数量，防止上下文溢出。
 支持字符估算和可选的真实 tokenizer。

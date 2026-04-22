@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - Token 统计管理
+Iris Chat Memory - Token 统计管理
 
 使用 AstrBot KV 存储持久化 Token 使用统计。
 """

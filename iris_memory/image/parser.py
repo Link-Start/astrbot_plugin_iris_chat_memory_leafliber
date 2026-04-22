@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 图片解析器
+Iris Chat Memory - 图片解析器
 
 使用 LLM Vision 模型解析图片内容。
 """

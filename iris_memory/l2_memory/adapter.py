@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - L2 记忆库 ChromaDB 适配器
+Iris Chat Memory - L2 记忆库 ChromaDB 适配器
 
 实现 L2 记忆库的存储和检索功能，支持：
 - ChromaDB 向量存储

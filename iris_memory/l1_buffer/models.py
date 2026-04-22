@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - L1 数据模型
+Iris Chat Memory - L1 数据模型
 
 定义 L1 消息上下文缓冲的数据结构。
 """

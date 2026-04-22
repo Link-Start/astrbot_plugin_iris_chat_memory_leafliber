@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 默认配置定义
+Iris Chat Memory - 默认配置定义
 
 使用 dataclass 提供类型安全的配置定义，支持：
 - IDE 自动补全

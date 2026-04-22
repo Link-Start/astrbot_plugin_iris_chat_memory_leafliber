@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - LLM 调用接口
+Iris Chat Memory - LLM 调用接口
 
 定义 LLM 调用协议接口，供各模块使用。
 阶段 5 已实现 LLMManager，总结功能正式可用。

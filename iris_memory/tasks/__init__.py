@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 定时任务模块
+Iris Chat Memory - 定时任务模块
 
 提供定时任务调度和执行功能，包括：
 - TaskScheduler: 任务调度器（管理后台任务生命周期）

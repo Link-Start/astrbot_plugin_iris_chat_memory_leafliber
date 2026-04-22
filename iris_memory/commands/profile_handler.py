@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - Profile 指令处理器
+Iris Chat Memory - Profile 指令处理器
 
 处理画像的管理指令。
 """

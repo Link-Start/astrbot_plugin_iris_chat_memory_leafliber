@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - L1 指令处理器
+Iris Chat Memory - L1 指令处理器
 
 处理 L1 消息缓冲的管理指令。
 """

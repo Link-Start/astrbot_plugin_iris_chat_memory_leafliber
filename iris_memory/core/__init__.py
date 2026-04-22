@@ -1,5 +1,5 @@
 """
-Iris Tier Memory - 核心模块
+Iris Chat Memory - 核心模块
 
 提供日志、组件管理、LLM 对话前处理、消息处理、插件生命周期管理等基础功能
 """
