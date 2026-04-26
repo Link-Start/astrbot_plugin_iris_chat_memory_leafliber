@@ -135,11 +135,14 @@ def calculate_isolation_degree(metadata: Dict[str, Any]) -> float:
     # 从 metadata 中获取连接数
     connected_count = metadata.get("connected_count", 0)
     
-    # 如果没有连接数信息，返回默认值
-    if connected_count == 0:
-        return 0.0  # L2 阶段返回 0，不参与评分
+    has_connected_count = "connected_count" in metadata
     
-    # 计算孤立度：连接越多，孤立度越低
+    if not has_connected_count:
+        return 0.0
+    
+    if connected_count == 0:
+        return 1.0
+    
     isolation = 1.0 / (connected_count + 1)
     
     return isolation
@@ -180,19 +183,25 @@ def calculate_forgetting_score(
     """
     config = get_config()
     
-    # 获取权重配置
     if weights is None:
-        weights = {
-            "w1": 0.3,  # 近因性权重
-            "w2": 0.3,  # 频率性权重
-            "w3": 0.2,  # 置信度权重
-            "w4": 0.2,  # 孤立度权重
-        }
+        D = calculate_isolation_degree(entry.metadata)
+        if D > 0:
+            weights = {
+                "w1": 0.3,
+                "w2": 0.3,
+                "w3": 0.2,
+                "w4": 0.2,
+            }
+        else:
+            weights = {
+                "w1": 0.4,
+                "w2": 0.35,
+                "w3": 0.25,
+                "w4": 0.0,
+            }
     
-    # 获取隐藏配置
-    lambda_decay = config.get("forgetting_lambda")
+    lambda_decay = float(config.get("forgetting_lambda", 0.1))  # type: ignore[arg-type]
     
-    # 计算各维度得分
     R = calculate_recency(
         entry.last_access_time,
         lambda_decay=lambda_decay
@@ -201,7 +210,6 @@ def calculate_forgetting_score(
     C = calculate_confidence(entry.confidence)
     D = calculate_isolation_degree(entry.metadata)
     
-    # 加权求和：S = w1·R + w2·F + w3·C + w4·(1 - D)
     score = (
         weights["w1"] * R +
         weights["w2"] * F +
@@ -221,10 +229,10 @@ def should_evict(
     
     综合考虑遗忘评分、保留期和低置信度标记，判断记忆是否应该被淘汰。
     
-    淘汰条件：
-    1. 遗忘评分低于阈值（默认 0.3）
-    2. 距上次访问超过保留期（默认 30 天）
-    3. 被标记为低置信度的记忆，阈值降低 30% 以加速淘汰
+    淘汰条件（满足任一即淘汰）：
+    1. 遗忘评分极低（低于 immediate_eviction_threshold），无需等待保留期直接淘汰
+    2. 遗忘评分低于阈值 且 距上次访问超过保留期
+    3. 被标记为低置信度的记忆，阈值提高 30% 以加速淘汰
     
     Args:
         entry: 记忆条目
@@ -249,16 +257,18 @@ def should_evict(
         True
     """
     config = get_config()
-    threshold = config.get("forgetting_threshold")
+    evict_threshold = float(config.get("forgetting_threshold", 0.3))  # type: ignore[arg-type]
+    immediate_threshold = float(config.get("forgetting_immediate_eviction_threshold", 0.1))  # type: ignore[arg-type]
     
-    # 低置信度标记的记忆，阈值提高 30%（更容易淘汰）
     if entry.metadata.get("low_confidence"):
-        threshold *= 1.3
+        evict_threshold *= 1.3
     
-    # 计算遗忘评分
     score = calculate_forgetting_score(entry)
     
-    if score < threshold:
+    if score < immediate_threshold:
+        return True
+    
+    if score < evict_threshold:
         # 评分低于阈值，检查保留期
         last_access = entry.last_access_time
         if last_access:

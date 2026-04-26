@@ -5,6 +5,7 @@ Iris Chat Memory - L2 记忆检索器
 """
 
 from typing import List, Optional, Dict, Any, cast, TYPE_CHECKING
+import asyncio
 
 from iris_memory.core import get_logger, ComponentManager
 from iris_memory.config import get_config
@@ -118,6 +119,10 @@ class MemoryRetriever:
                     f"(阈值={relevance_threshold})"
                 )
             results = filtered
+        
+        if results:
+            update_tasks = [adapter.update_access(r.entry.id) for r in results]
+            await asyncio.gather(*update_tasks, return_exceptions=True)
         
         logger.debug(f"检索到 {len(results)} 条记忆")
         return results

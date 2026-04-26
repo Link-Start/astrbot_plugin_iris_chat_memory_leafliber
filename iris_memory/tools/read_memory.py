@@ -89,7 +89,7 @@ class ReadMemoryTool(FunctionTool[AstrAgentContext]):
                 return ToolExecResult(result="L2记忆库当前不可用")
             
             # 检索记忆
-            results: List[MemorySearchResult] = await l2_adapter.search(
+            results: List[MemorySearchResult] = await l2_adapter.retrieve(
                 query=query,
                 top_k=top_k,
                 group_id=group_id

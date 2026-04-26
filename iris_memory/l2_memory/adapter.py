@@ -152,7 +152,7 @@ class L2MemoryAdapter(Component):
         self._embedding_func = None
         self._persist_dir: Optional[Path] = None
         self._persona_id = persona_id
-        self._similarity_threshold = 0.95
+        self._similarity_threshold = 0.90
         self._distance_space: str = "l2"
 
     @property
@@ -180,14 +180,13 @@ class L2MemoryAdapter(Component):
             return
 
         try:
-            # 延迟导入 ChromaDB
             _ensure_chromadb()
 
-            # 设置持久化目录
             self._persist_dir = config.data_dir / "chromadb"
             self._persist_dir.mkdir(parents=True, exist_ok=True)
 
-            # 创建客户端（在线程池中执行）
+            self._similarity_threshold = config.get("l2_similarity_threshold", 0.90)
+
             loop = asyncio.get_event_loop()
             self._client = await loop.run_in_executor(None, self._create_client)
 
@@ -440,6 +439,8 @@ class L2MemoryAdapter(Component):
             metadata["access_count"] = 0
         if "confidence" not in metadata:
             metadata["confidence"] = 0.5
+        if "last_access_time" not in metadata:
+            metadata["last_access_time"] = datetime.now().isoformat()
 
         try:
             # 去重检查
@@ -714,23 +715,6 @@ class L2MemoryAdapter(Component):
         except Exception as e:
             logger.error(f"批量检索失败：{e}", exc_info=True)
             return [[] for _ in queries]
-
-    async def search(
-        self, query: str, group_id: Optional[str] = None, top_k: int = 10
-    ) -> List[MemorySearchResult]:
-        """检索记忆（search 别名）
-
-        与 retrieve 方法功能一致，提供兼容性别名。
-
-        Args:
-            query: 查询文本
-            group_id: 群聊 ID（可选，用于隔离检索）
-            top_k: 返回数量
-
-        Returns:
-            检索结果列表
-        """
-        return await self.retrieve(query, group_id, top_k)
 
     # ========================================================================
     # 访问更新
@@ -1077,8 +1061,10 @@ class L2MemoryAdapter(Component):
             memory_ids_to_delete = []
             for i, metadata in enumerate(results["metadatas"]):
                 active_users = metadata.get("active_users", "")
-                if user_id in active_users.split(","):
-                    memory_ids_to_delete.append(results["ids"][i])
+                if active_users:
+                    users = [u.strip() for u in active_users.split(",") if u.strip()]
+                    if user_id in users:
+                        memory_ids_to_delete.append(results["ids"][i])
 
             if not memory_ids_to_delete:
                 logger.debug(f"用户 {user_id} 没有记忆记录")

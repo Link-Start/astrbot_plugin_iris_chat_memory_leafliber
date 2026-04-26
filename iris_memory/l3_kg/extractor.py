@@ -312,10 +312,7 @@ class EntityExtractor:
         existing_nodes: list[GraphNode],
         context: dict
     ) -> tuple[list[GraphNode], list[GraphEdge]]:
-        """为活跃用户创建 Person 节点
-        
-        仅创建用户节点，不创建 DISCUSSED/KNOWS 边，
-        避免产生大量低价值边导致图谱膨胀。
+        """为活跃用户创建 Person 节点，并与同批次提取的实体建立 DISCUSSED_BY 边
         
         Args:
             active_users: 活跃用户 ID 列表
@@ -323,9 +320,12 @@ class EntityExtractor:
             context: 上下文信息
         
         Returns:
-            (用户节点列表, 空边列表)
+            (用户节点列表, 用户相关边列表)
         """
         user_nodes = []
+        user_edges = []
+        
+        non_user_nodes = [n for n in existing_nodes if n.label != "Person"]
         
         for user_id in active_users:
             user_node = GraphNode(
@@ -340,10 +340,21 @@ class EntityExtractor:
             )
             user_node.id = user_node.generate_id()
             user_nodes.append(user_node)
+            
+            for entity_node in non_user_nodes:
+                edge = GraphEdge(
+                    source_id=entity_node.id,
+                    target_id=user_node.id,
+                    relation_type="DISCUSSED_BY",
+                    confidence=0.7,
+                    source_memory_id=context.get("source_memory_id")
+                )
+                user_edges.append(edge)
         
         if user_nodes:
             logger.info(
-                f"为 {len(user_nodes)} 个活跃用户创建了 Person 节点"
+                f"为 {len(user_nodes)} 个活跃用户创建了 Person 节点，"
+                f"关联 {len(user_edges)} 条 DISCUSSED_BY 边"
             )
         
-        return user_nodes, []
+        return user_nodes, user_edges

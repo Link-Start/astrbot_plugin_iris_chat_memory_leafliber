@@ -189,16 +189,15 @@ class ForgettingTask:
             
             logger.info(f"开始评估 {len(nodes)} 个 L3 节点...")
             
-            # 计算遗忘评分并筛选待淘汰节点
+            connection_counts = await l3_adapter.get_node_connection_counts()
+            
             to_evict_with_score = []
             config = get_config()
             
-            # 获取 L3 遗忘配置
-            threshold_kg = config.get("forgetting_threshold_kg")
-            retention_days = config.get("kg_retention_days")
+            threshold_kg = float(config.get("forgetting_threshold_kg", 0.3))
+            retention_days = int(config.get("kg_retention_days", 30))
             
             for node_dict in nodes:
-                # 转换为 GraphNode 对象（用于计算评分）
                 node = GraphNode(
                     id=node_dict["id"],
                     label=node_dict["label"],
@@ -213,9 +212,10 @@ class ForgettingTask:
                     properties=node_dict["properties"]
                 )
                 
-                # 检查是否应该淘汰
-                if self._should_evict_node(node, threshold_kg, retention_days):
-                    score = self._calculate_node_score(node)
+                connected_count = connection_counts.get(node.id, 0)
+                
+                if self._should_evict_node(node, threshold_kg, retention_days, connected_count):
+                    score = self._calculate_node_score(node, connected_count)
                     to_evict_with_score.append((node.id, node.content, score))
             
             if not to_evict_with_score:
@@ -244,11 +244,12 @@ class ForgettingTask:
         except Exception as e:
             logger.error(f"L3 图谱淘汰失败：{e}", exc_info=True)
     
-    def _calculate_node_score(self, node) -> float:
+    def _calculate_node_score(self, node, connected_count: int = 0) -> float:
         """计算图谱节点的遗忘评分
 
         Args:
             node: GraphNode 对象
+            connected_count: 节点连接边数
 
         Returns:
             遗忘评分
@@ -262,7 +263,8 @@ class ForgettingTask:
                 "last_access_time": node.last_access_time.isoformat() if node.last_access_time else None,
                 "access_count": node.access_count,
                 "confidence": node.confidence,
-                "low_confidence": node.properties.get("low_confidence", False)
+                "low_confidence": node.properties.get("low_confidence", False),
+                "connected_count": connected_count,
             }
         )
 
@@ -272,7 +274,8 @@ class ForgettingTask:
         self,
         node,
         threshold: float,
-        retention_days: int
+        retention_days: int,
+        connected_count: int = 0
     ) -> bool:
         """判断节点是否应该被淘汰
         
@@ -280,17 +283,13 @@ class ForgettingTask:
             node: 图谱节点
             threshold: 遗忘阈值
             retention_days: 保留天数
+            connected_count: 节点连接边数
         
         Returns:
             是否应该淘汰
         """
-        # 计算遗忘评分
-        # 注意：这里需要将 GraphNode 转换为类似 MemoryEntry 的结构
-        # 因为 calculate_forgetting_score 接受 MemoryEntry
-        
         from iris_memory.l2_memory.models import MemoryEntry
-        
-        # 创建临时 MemoryEntry 用于计算评分
+
         temp_entry = MemoryEntry(
             id=node.id,
             content=node.content,
@@ -298,22 +297,20 @@ class ForgettingTask:
                 "last_access_time": node.last_access_time.isoformat() if node.last_access_time else None,
                 "access_count": node.access_count,
                 "confidence": node.confidence,
-                "low_confidence": node.properties.get("low_confidence", False)
+                "low_confidence": node.properties.get("low_confidence", False),
+                "connected_count": connected_count,
             }
         )
         
-        # 计算评分
         score = calculate_forgetting_score(temp_entry)
         
         if score < threshold:
-            # 检查保留期
             last_access = node.last_access_time
             if last_access:
                 days_elapsed = (datetime.now() - last_access).days
                 if days_elapsed > retention_days:
                     return True
             else:
-                # 无访问记录，根据评分决定
                 return True
         
         return False

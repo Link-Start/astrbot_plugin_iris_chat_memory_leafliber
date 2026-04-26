@@ -96,8 +96,8 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
             try:
                 # 尝试通过ID检索记忆
                 # ChromaDB没有直接的get_by_id，我们使用where条件查询
-                results = await l2_adapter.search(
-                    query=memory_id,  # 使用memory_id作为查询
+                results = await l2_adapter.retrieve(
+                    query=memory_id,
                     top_k=1
                 )
                 

@@ -575,13 +575,10 @@ class L3KGAdapter(Component):
             return []
         
         try:
-            escaped_keyword = keyword.replace("\\", "\\\\").replace("'", "\\'")
-            result = self._conn.execute(f"""
-                MATCH (e:Entity)
-                WHERE e.name CONTAINS '{escaped_keyword}' OR e.content CONTAINS '{escaped_keyword}'
-                RETURN e.id, e.label, e.name, e.content, e.confidence
-                LIMIT {limit}
-            """)
+            result = self._conn.execute(
+                "MATCH (e:Entity) WHERE e.name CONTAINS $keyword OR e.content CONTAINS $keyword RETURN e.id, e.label, e.name, e.content, e.confidence LIMIT $limit",
+                {"keyword": keyword, "limit": limit}
+            )
             
             nodes = []
             for row in result:
@@ -614,13 +611,10 @@ class L3KGAdapter(Component):
             return []
         
         try:
-            escaped_keyword = keyword.replace("\\", "\\\\").replace("'", "\\'")
-            result = self._conn.execute(f"""
-                MATCH (a:Entity)-[r:Related]->(b:Entity)
-                WHERE r.relation_type CONTAINS '{escaped_keyword}'
-                RETURN a.id, a.label, a.name, b.id, b.label, b.name, r.relation_type, r.confidence
-                LIMIT {limit}
-            """)
+            result = self._conn.execute(
+                "MATCH (a:Entity)-[r:Related]->(b:Entity) WHERE r.relation_type CONTAINS $keyword RETURN a.id, a.label, a.name, b.id, b.label, b.name, r.relation_type, r.confidence LIMIT $limit",
+                {"keyword": keyword, "limit": limit}
+            )
             
             edges = []
             for row in result:
@@ -780,6 +774,31 @@ class L3KGAdapter(Component):
         except Exception as e:
             logger.error(f"从节点拓展失败：{e}")
             return [], []
+    
+    async def get_node_connection_counts(self) -> dict[str, int]:
+        """获取所有节点的连接数
+        
+        Returns:
+            {node_id: connection_count}
+        """
+        if not self._is_available:
+            return {}
+        
+        try:
+            result = self._conn.execute("""
+                MATCH (e:Entity)
+                OPTIONAL MATCH (e)-[r:Related]-()
+                RETURN e.id, COUNT(r) as conn_count
+            """)
+            
+            counts = {}
+            for row in result:
+                counts[row[0]] = row[1]
+            
+            return counts
+        except Exception as e:
+            logger.error(f"获取节点连接数失败：{e}")
+            return {}
     
     async def evict_nodes(self, node_ids: list[str]) -> int:
         """淘汰节点及关联边（用于定时任务）

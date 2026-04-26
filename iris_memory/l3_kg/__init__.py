@@ -18,20 +18,16 @@ from .models import (
 from .adapter import L3KGAdapter
 from .extractor import EntityExtractor
 from .retriever import GraphRetriever
-from .eviction import KGEvictionManager
 from .related_retriever import RelatedMemoryRetriever
 
 __all__ = [
-    # 数据模型
     "GraphNode",
     "GraphEdge",
     "ExtractionResult",
     "NODE_TYPE_WHITELIST",
     "RELATION_TYPE_WHITELIST",
-    # 组件
     "L3KGAdapter",
     "EntityExtractor",
     "GraphRetriever",
-    "KGEvictionManager",
     "RelatedMemoryRetriever",
 ]

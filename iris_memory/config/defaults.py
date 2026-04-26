@@ -123,6 +123,7 @@ class HiddenConfig:
     # 遗忘权重算法参数
     forgetting_lambda: float = 0.1  # 近因性衰减系数
     forgetting_threshold: float = 0.3  # 遗忘阈值
+    forgetting_immediate_eviction_threshold: float = 0.1  # 极端低分直接淘汰阈值
 
     # 调试配置
     debug_mode: bool = False  # 启用调试模式
@@ -132,6 +133,7 @@ class HiddenConfig:
 
     # 性能调优
     chromadb_batch_size: int = 100  # ChromaDB 批量写入大小
+    l2_similarity_threshold: float = 0.90  # L2 去重相似度阈值
     kuzu_query_timeout_ms: int = 5000  # KuzuDB 查询超时
 
     # L3 知识图谱参数

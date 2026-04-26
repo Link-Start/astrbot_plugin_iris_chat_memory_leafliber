@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+from collections import deque
 import asyncio
 
 from iris_memory.core import Component, get_logger
@@ -301,15 +302,7 @@ class L1Buffer(Component):
         Args:
             group_id: 群聊ID
         """
-        queue_key = self._get_queue_key(group_id)
-        
-        if queue_key in self._queues:
-            queue = self._queues[queue_key]
-            old_size = len(queue)
-            queue.clear()
-            logger.info(f"已清空队列：{queue_key}，原 {old_size} 条消息")
-        
-        self.clear_images_for_queue(group_id)
+        self.clear_by_group(group_id)
     
     def clear_all(self) -> int:
         """清空所有队列
@@ -932,84 +925,6 @@ class L1Buffer(Component):
                 items.append(line)
         
         return items
-    
-    async def _extract_and_store_to_kg(
-        self,
-        group_id: str,
-        summary: str,
-        memory_id: Optional[str],
-        active_users: Optional[list[str]] = None
-    ) -> None:
-        """从总结中提取实体和关系，存储到知识图谱
-        
-        Args:
-            group_id: 群聊ID
-            summary: 总结文本
-            memory_id: L2 记忆 ID（可选）
-            active_users: 活跃用户ID列表（可选）
-        """
-        # 检查知识图谱是否启用
-        config = get_config()
-        if not config.get("l3_kg.enable"):
-            logger.debug("L3 知识图谱未启用，跳过实体提取")
-            return
-        
-        # 获取组件
-        if not self._component_manager:
-            return
-        
-        llm_manager = self._component_manager.get_component("llm_manager")
-        if not llm_manager or not llm_manager.is_available:
-            logger.debug("LLM Manager 不可用，跳过实体提取")
-            return
-        
-        kg_adapter = self._component_manager.get_component("l3_kg")
-        if not kg_adapter or not kg_adapter.is_available:
-            logger.debug("L3 知识图谱组件不可用，跳过实体提取")
-            return
-        
-        try:
-            from iris_memory.l3_kg import EntityExtractor
-            
-            # 创建实体提取器
-            extractor = EntityExtractor(llm_manager)
-            
-            # 构建上下文信息
-            context = {
-                "group_id": group_id,
-                "source_memory_id": memory_id,
-                "active_users": active_users or [],
-            }
-            
-            # 提取实体和关系
-            result = await extractor.extract_from_text(summary, context)
-            
-            if not result.nodes and not result.edges:
-                logger.debug("未从总结中提取到实体或关系")
-                return
-            
-            # 存储节点到图谱
-            node_count = 0
-            for node in result.nodes:
-                success = await kg_adapter.add_node(node)
-                if success:
-                    node_count += 1
-            
-            # 存储边到图谱
-            edge_count = 0
-            for edge in result.edges:
-                success = await kg_adapter.add_edge(edge)
-                if success:
-                    edge_count += 1
-            
-            logger.info(
-                f"已将实体和关系存储到知识图谱："
-                f"{node_count}/{len(result.nodes)} 个节点，"
-                f"{edge_count}/{len(result.edges)} 条边"
-            )
-        
-        except Exception as e:
-            logger.error(f"提取实体和存储到图谱失败: {e}", exc_info=True)
     
     def get_queue_stats(self, group_id: str) -> Optional[Dict]:
         """获取队列统计信息
