@@ -1,0 +1,350 @@
+"""
+管理操作 API 路由
+
+提供数据管理功能：
+- L1 缓冲清空
+- L2 记忆删除
+- L3 知识图谱删除/合并
+- 画像删除
+- 任务手动触发
+"""
+
+from quart import Blueprint, jsonify, request
+from iris_memory.web.auth import dashboard_auth
+from iris_memory.core import get_component_manager, get_logger
+
+logger = get_logger("web.manage")
+manage_bp = Blueprint("manage", __name__)
+
+
+@manage_bp.route("/l1/clear", methods=["POST"])
+@dashboard_auth.require_auth
+async def clear_l1_buffer():
+    """
+    清空 L1 缓冲
+
+    Request Body (optional):
+        {
+            "group_id": "群聊ID（可选，不指定则清空所有）"
+        }
+    """
+    try:
+        manager = get_component_manager()
+        l1_buffer = manager.get_component("l1_buffer")
+
+        if not l1_buffer or not l1_buffer.is_available:
+            return jsonify({"success": False, "error": "L1 缓冲不可用"}), 503
+
+        data = await request.get_json(silent=True) or {}
+        group_id = data.get("group_id")
+
+        if group_id:
+            count = l1_buffer.clear_by_group(group_id)
+            logger.info(f"已清空 L1 缓冲：群聊={group_id}，{count} 条消息")
+        else:
+            count = l1_buffer.clear_all()
+            logger.info(f"已清空所有 L1 缓冲：{count} 条消息")
+
+        return jsonify({"success": True, "cleared_count": count})
+
+    except Exception as e:
+        logger.error(f"清空 L1 缓冲失败：{e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@manage_bp.route("/l2/delete", methods=["POST"])
+@dashboard_auth.require_auth
+async def delete_l2_memory():
+    """
+    删除 L2 记忆
+
+    Request Body:
+        {
+            "scope": "all" | "group",
+            "group_id": "群聊ID（scope=group 时必填）"
+        }
+    """
+    try:
+        manager = get_component_manager()
+        l2_adapter = manager.get_component("l2_memory")
+
+        if not l2_adapter or not l2_adapter.is_available:
+            return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
+
+        data = await request.get_json()
+        scope = data.get("scope", "all")
+
+        if scope == "group":
+            group_id = data.get("group_id")
+            if not group_id:
+                return jsonify(
+                    {"success": False, "error": "scope=group 时必须提供 group_id"}
+                ), 400
+            count = await l2_adapter.delete_by_group(group_id)
+            logger.info(f"已删除群聊 {group_id} 的 L2 记忆：{count} 条")
+        elif scope == "all":
+            count = await l2_adapter.delete_all()
+            logger.info(f"已删除所有 L2 记忆：{count} 条")
+        else:
+            return jsonify(
+                {
+                    "success": False,
+                    "error": f"无效的 scope：{scope}，可选值：all, group",
+                }
+            ), 400
+
+        return jsonify({"success": True, "deleted_count": count})
+
+    except Exception as e:
+        logger.error(f"删除 L2 记忆失败：{e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@manage_bp.route("/l3/delete", methods=["POST"])
+@dashboard_auth.require_auth
+async def delete_l3_kg():
+    """
+    删除 L3 知识图谱数据
+
+    Request Body:
+        {
+            "scope": "all" | "group",
+            "group_id": "群聊ID（scope=group 时必填）"
+        }
+    """
+    try:
+        manager = get_component_manager()
+        l3_adapter = manager.get_component("l3_kg")
+
+        if not l3_adapter or not l3_adapter.is_available:
+            return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
+
+        data = await request.get_json()
+        scope = data.get("scope", "all")
+
+        if scope == "group":
+            group_id = data.get("group_id")
+            if not group_id:
+                return jsonify(
+                    {"success": False, "error": "scope=group 时必须提供 group_id"}
+                ), 400
+            count = await l3_adapter.delete_by_group(group_id)
+            logger.info(f"已删除群聊 {group_id} 的 L3 图谱：{count} 节点")
+        elif scope == "all":
+            count = await l3_adapter.delete_all()
+            logger.info(f"已删除所有 L3 图谱：{count} 节点")
+        else:
+            return jsonify(
+                {
+                    "success": False,
+                    "error": f"无效的 scope：{scope}，可选值：all, group",
+                }
+            ), 400
+
+        return jsonify({"success": True, "deleted_count": count})
+
+    except Exception as e:
+        logger.error(f"删除 L3 图谱失败：{e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@manage_bp.route("/l3/merge-duplicates", methods=["POST"])
+@dashboard_auth.require_auth
+async def merge_l3_duplicates():
+    """
+    合并 L3 知识图谱中的重复节点
+    """
+    try:
+        manager = get_component_manager()
+        l3_adapter = manager.get_component("l3_kg")
+
+        if not l3_adapter or not l3_adapter.is_available:
+            return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
+
+        merged_count, deleted_count = await l3_adapter.merge_duplicate_nodes()
+
+        logger.info(
+            f"合并重复节点完成：合并 {merged_count} 组，删除 {deleted_count} 个"
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "merged_count": merged_count,
+                "deleted_count": deleted_count,
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"合并重复节点失败：{e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@manage_bp.route("/profile/delete", methods=["POST"])
+@dashboard_auth.require_auth
+async def delete_profile():
+    """
+    删除画像
+
+    Request Body:
+        {
+            "scope": "group" | "user" | "all",
+            "group_id": "群聊ID（scope=group 或 user 时必填）",
+            "user_id": "用户ID（scope=user 时必填）"
+        }
+    """
+    try:
+        manager = get_component_manager()
+        profile_storage = manager.get_component("profile")
+
+        if not profile_storage or not profile_storage.is_available:
+            return jsonify({"success": False, "error": "画像系统不可用"}), 503
+
+        data = await request.get_json()
+        scope = data.get("scope", "all")
+
+        if scope == "group":
+            group_id = data.get("group_id")
+            if not group_id:
+                return jsonify(
+                    {"success": False, "error": "scope=group 时必须提供 group_id"}
+                ), 400
+            success = await profile_storage.delete_group_profile(group_id)
+            logger.info(f"删除群聊画像：{group_id}，结果={success}")
+            return jsonify(
+                {"success": success, "deleted": "group_profile", "group_id": group_id}
+            )
+
+        elif scope == "user":
+            user_id = data.get("user_id")
+            group_id = data.get("group_id", "default")
+            if not user_id:
+                return jsonify(
+                    {"success": False, "error": "scope=user 时必须提供 user_id"}
+                ), 400
+            success = await profile_storage.delete_user_profile(user_id, group_id)
+            logger.info(f"删除用户画像：{user_id}@{group_id}，结果={success}")
+            return jsonify(
+                {
+                    "success": success,
+                    "deleted": "user_profile",
+                    "user_id": user_id,
+                    "group_id": group_id,
+                }
+            )
+
+        elif scope == "all":
+            result = await profile_storage.delete_all_profiles()
+            logger.info(f"删除所有画像：{result}")
+            return jsonify({"success": True, "result": result})
+
+        else:
+            return jsonify(
+                {
+                    "success": False,
+                    "error": f"无效的 scope：{scope}，可选值：group, user, all",
+                }
+            ), 400
+
+    except Exception as e:
+        logger.error(f"删除画像失败：{e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@manage_bp.route("/tasks/trigger", methods=["POST"])
+@dashboard_auth.require_auth
+async def trigger_task():
+    """
+    手动触发定时任务
+
+    Request Body:
+        {
+            "task": "forgetting" | "merge" | "kg_extraction" | "cache_cleanup"
+        }
+    """
+    try:
+        manager = get_component_manager()
+        scheduler = manager.get_component("scheduler")
+
+        if not scheduler or not scheduler.is_available:
+            return jsonify({"success": False, "error": "任务调度器不可用"}), 503
+
+        data = await request.get_json()
+        task_name = data.get("task")
+
+        if not task_name:
+            return jsonify({"success": False, "error": "必须提供 task 参数"}), 400
+
+        valid_tasks = {
+            "forgetting": "iris_memory.tasks.forgetting_task",
+            "merge": "iris_memory.tasks.merge_task",
+            "kg_extraction": "iris_memory.tasks.kg_extraction_task",
+            "cache_cleanup": "iris_memory.tasks.cache_cleanup_task",
+        }
+
+        if task_name not in valid_tasks:
+            return jsonify(
+                {
+                    "success": False,
+                    "error": f"无效的任务名：{task_name}，可选值：{', '.join(valid_tasks.keys())}",
+                }
+            ), 400
+
+        async def _run_task():
+            if task_name == "forgetting":
+                from iris_memory.tasks import ForgettingTask
+
+                task = ForgettingTask(manager)
+                await task.execute()
+            elif task_name == "merge":
+                from iris_memory.tasks import MergeTask
+
+                task = MergeTask(manager)
+                await task.execute()
+            elif task_name == "kg_extraction":
+                from iris_memory.tasks import KGExtractionTask
+
+                task = KGExtractionTask(manager)
+                await task.execute()
+            elif task_name == "cache_cleanup":
+                from iris_memory.tasks import ImageCacheCleanupTask
+
+                task = ImageCacheCleanupTask(manager)
+                await task.execute()
+
+        await scheduler.schedule_task(task_name, _run_task)
+
+        logger.info(f"已调度任务：{task_name}")
+
+        return jsonify({"success": True, "message": f"任务 {task_name} 已加入调度队列"})
+
+    except Exception as e:
+        logger.error(f"触发任务失败：{e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@manage_bp.route("/tasks/status", methods=["GET"])
+@dashboard_auth.require_auth
+async def get_tasks_status():
+    """
+    获取任务调度器状态
+    """
+    try:
+        manager = get_component_manager()
+        scheduler = manager.get_component("scheduler")
+
+        if not scheduler or not scheduler.is_available:
+            return jsonify({"success": False, "error": "任务调度器不可用"}), 503
+
+        task_names = ["forgetting", "merge", "kg_extraction", "cache_cleanup"]
+        tasks_status = {}
+        for name in task_names:
+            tasks_status[name] = {
+                "running": scheduler.is_task_running(name),
+            }
+
+        return jsonify({"success": True, "tasks": tasks_status})
+
+    except Exception as e:
+        logger.error(f"获取任务状态失败：{e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500

@@ -238,3 +238,53 @@ export const STATUS_DISPLAY_NAMES: Record<ComponentStatus, string> = {
   available: '可用',
   unavailable: '不可用'
 }
+
+// ============================================
+// 导入导出类型
+// ============================================
+
+export interface L2ImportStats {
+  total_count: number
+  imported_count: number
+  skipped_count: number
+  error_count: number
+}
+
+export interface L3ImportStats {
+  imported_nodes: number
+  imported_edges: number
+  skipped_nodes: number
+  error_count: number
+}
+
+export interface ProfileImportStats {
+  imported_groups: number
+  imported_users: number
+  skipped: number
+  error_count: number
+}
+
+export interface FullImportResult {
+  l2_memory: L2ImportStats | { error: string } | null
+  l3_kg: L3ImportStats | { error: string } | null
+  profiles: ProfileImportStats | { error: string } | null
+}
+
+// ============================================
+// 管理操作类型
+// ============================================
+
+export type TaskName = 'forgetting' | 'merge' | 'kg_extraction' | 'cache_cleanup'
+
+export interface TaskStatus {
+  running: boolean
+}
+
+export type TasksStatusMap = Record<TaskName, TaskStatus>
+
+export const TASK_DISPLAY_NAMES: Record<TaskName, string> = {
+  forgetting: '记忆遗忘',
+  merge: '记忆合并',
+  kg_extraction: '知识图谱提取',
+  cache_cleanup: '缓存清理'
+}

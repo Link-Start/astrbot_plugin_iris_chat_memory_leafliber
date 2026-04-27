@@ -13,16 +13,16 @@ logger = get_logger("l3_kg")
 
 def _build_map_literal(properties: dict) -> str:
     """构建 MAP 字面量字符串
-    
+
     Args:
         properties: 属性字典
-        
+
     Returns:
         MAP 字面量字符串，如 map(['key1', 'key2'], ['val1', 'val2'])
     """
     if not properties:
         return "map([], [])"
-    
+
     keys = []
     values = []
     for k, v in properties.items():
@@ -30,13 +30,13 @@ def _build_map_literal(properties: dict) -> str:
         escaped_val = str(v).replace("\\", "\\\\").replace("'", "\\'")
         keys.append(f"'{escaped_key}'")
         values.append(f"'{escaped_val}'")
-    
+
     return f"map([{', '.join(keys)}], [{', '.join(values)}])"
 
 
 class L3KGAdapter(Component):
     """KuzuDB 图谱适配器
-    
+
     使用 KuzuDB 嵌入式图数据库存储实体关系图谱。
     支持：
     - 动态节点类型（通过 label 字段）
@@ -44,44 +44,44 @@ class L3KGAdapter(Component):
     - MAP 类型存储扩展属性
     - 路径扩展检索
     """
-    
+
     @property
     def name(self) -> str:
         return "l3_kg"
-    
+
     async def initialize(self) -> None:
         """初始化 KuzuDB 数据库
-        
+
         创建数据库连接和 schema。
         如果初始化失败，标记为不可用但不阻塞主流程。
         """
         config = get_config()
-        
+
         if not config.get("l3_kg.enable"):
             logger.info("L3 知识图谱未启用")
             self._is_available = False
             return
-        
+
         self._persist_dir = config.data_dir / "kuzu"
         self._persist_dir.mkdir(parents=True, exist_ok=True)
-        
+
         try:
             db_path = self._persist_dir / "graph.kuzu"
             self._db = kuzu.Database(str(db_path))
             self._conn = kuzu.Connection(self._db)
-            
+
             # 创建 schema
             await self._create_schema()
-            
+
             self._is_available = True
             logger.info(f"KuzuDB 初始化成功：{self._persist_dir}")
         except Exception as e:
             logger.error(f"KuzuDB 初始化失败：{e}")
             self._is_available = False
-    
+
     async def _create_schema(self):
         """创建图谱 schema
-        
+
         使用 MAP 类型存储动态属性，使用 DOUBLE 存储浮点数。
         """
         self._conn.execute("""
@@ -99,7 +99,7 @@ class L3KGAdapter(Component):
                 properties MAP(STRING, STRING)
             )
         """)
-        
+
         self._conn.execute("""
             CREATE REL TABLE IF NOT EXISTS Related (
                 FROM Entity TO Entity,
@@ -113,12 +113,12 @@ class L3KGAdapter(Component):
                 properties MAP(STRING, STRING)
             )
         """)
-        
+
         logger.debug("KuzuDB schema 创建完成")
-    
+
     async def add_node(self, node: GraphNode) -> bool:
         """添加节点，如果节点已存在则合并信息
-        
+
         合并策略：
         - content: 追加新描述（去重）
         - confidence: 取最大值
@@ -126,50 +126,56 @@ class L3KGAdapter(Component):
         - source_memory_id: 合并到 properties.source_memory_ids
         - group_id: 合并到 properties.group_ids
         - properties: 合并
-        
+
         Args:
             node: 图谱节点对象
-            
+
         Returns:
             成功返回 True，失败返回 False
         """
         if not self._is_available:
             return False
-        
+
         try:
             existing = await self._get_node_by_id(node.id)
-            
+
             if existing:
                 merged_content = self._merge_node_content(
-                    existing.get("content", ""),
-                    node.content
+                    existing.get("content", ""), node.content
                 )
                 merged_confidence = max(
-                    existing.get("confidence", 0.5),
-                    node.confidence
+                    existing.get("confidence", 0.5), node.confidence
                 )
                 existing_access_count = existing.get("access_count", 0)
-                
-                merged_properties = dict(existing.get("properties", {}) if isinstance(existing.get("properties"), dict) else {})
+
+                merged_properties = dict(
+                    existing.get("properties", {})
+                    if isinstance(existing.get("properties"), dict)
+                    else {}
+                )
                 merged_properties.update(node.properties)
-                
+
                 existing_ids = merged_properties.get("source_memory_ids", "")
-                existing_list = [x.strip() for x in existing_ids.split(",") if x.strip()]
+                existing_list = [
+                    x.strip() for x in existing_ids.split(",") if x.strip()
+                ]
                 if node.source_memory_id and node.source_memory_id not in existing_list:
                     existing_list.append(node.source_memory_id)
                 merged_properties["source_memory_ids"] = ",".join(existing_list)
-                
+
                 existing_groups = merged_properties.get("group_ids", "")
-                group_list = [x.strip() for x in existing_groups.split(",") if x.strip()]
+                group_list = [
+                    x.strip() for x in existing_groups.split(",") if x.strip()
+                ]
                 existing_group_id = existing.get("group_id", "")
                 if existing_group_id and existing_group_id not in group_list:
                     group_list.insert(0, existing_group_id)
                 if node.group_id and node.group_id not in group_list:
                     group_list.append(node.group_id)
                 merged_properties["group_ids"] = ",".join(group_list)
-                
+
                 map_literal = _build_map_literal(merged_properties)
-                
+
                 query = f"""
                     MATCH (e:Entity {{id: $id}})
                     SET e.content = $content,
@@ -178,13 +184,16 @@ class L3KGAdapter(Component):
                         e.last_access_time = $last_access_time,
                         e.properties = {map_literal}
                 """
-                self._conn.execute(query, {
-                    "id": node.id,
-                    "content": merged_content,
-                    "confidence": merged_confidence,
-                    "access_count": existing_access_count,
-                    "last_access_time": datetime.now(),
-                })
+                self._conn.execute(
+                    query,
+                    {
+                        "id": node.id,
+                        "content": merged_content,
+                        "confidence": merged_confidence,
+                        "access_count": existing_access_count,
+                        "last_access_time": datetime.now(),
+                    },
+                )
                 logger.debug(f"节点合并成功：{node.id}")
             else:
                 properties = dict(node.properties)
@@ -192,9 +201,9 @@ class L3KGAdapter(Component):
                     properties["source_memory_ids"] = node.source_memory_id
                 if node.group_id:
                     properties["group_ids"] = node.group_id
-                
+
                 map_literal = _build_map_literal(properties)
-                
+
                 query = f"""
                     CREATE (e:Entity {{
                         id: $id,
@@ -210,34 +219,37 @@ class L3KGAdapter(Component):
                         properties: {map_literal}
                     }})
                 """
-                self._conn.execute(query, {
-                    "id": node.id,
-                    "label": node.label,
-                    "name": node.name,
-                    "content": node.content,
-                    "confidence": node.confidence,
-                    "access_count": node.access_count,
-                    "last_access_time": node.last_access_time or datetime.now(),
-                    "created_time": node.created_time,
-                    "source_memory_id": node.source_memory_id,
-                    "group_id": node.group_id,
-                })
+                self._conn.execute(
+                    query,
+                    {
+                        "id": node.id,
+                        "label": node.label,
+                        "name": node.name,
+                        "content": node.content,
+                        "confidence": node.confidence,
+                        "access_count": node.access_count,
+                        "last_access_time": node.last_access_time or datetime.now(),
+                        "created_time": node.created_time,
+                        "source_memory_id": node.source_memory_id,
+                        "group_id": node.group_id,
+                    },
+                )
                 logger.debug(f"节点添加成功：{node.id}")
-            
+
             return True
         except Exception as e:
             logger.error(f"添加节点失败：{e}")
             return False
-    
+
     def _merge_node_content(self, existing_content: str, new_content: str) -> str:
         """合并节点内容描述
-        
+
         将新描述追加到已有描述后，如果新描述已包含在已有描述中则跳过。
-        
+
         Args:
             existing_content: 已有内容
             new_content: 新内容
-            
+
         Returns:
             合并后的内容
         """
@@ -245,31 +257,34 @@ class L3KGAdapter(Component):
             return new_content
         if not new_content:
             return existing_content
-        
+
         if new_content in existing_content:
             return existing_content
-        
+
         if existing_content in new_content:
             return new_content
-        
+
         return f"{existing_content}；{new_content}"
-    
+
     async def _get_node_by_id(self, node_id: str) -> Optional[dict]:
         """根据 ID 获取节点
-        
+
         Args:
             node_id: 节点 ID
-            
+
         Returns:
             节点信息字典，不存在返回 None
         """
         try:
-            result = self._conn.execute("""
+            result = self._conn.execute(
+                """
                 MATCH (e:Entity {id: $id})
                 RETURN e.content, e.confidence, e.access_count,
                        e.group_id, e.properties
-            """, {"id": node_id})
-            
+            """,
+                {"id": node_id},
+            )
+
             if result.has_next():
                 row = result.get_next()
                 return {
@@ -283,47 +298,51 @@ class L3KGAdapter(Component):
         except Exception as e:
             logger.debug(f"查询节点失败：{e}")
             return None
-    
+
     async def add_edge(self, edge: GraphEdge) -> bool:
         """添加关系边
-        
+
         如果边已存在，会合并信息：
         - source_memory_ids: 追加新的来源记忆ID
         - weight: 累加权重（最大1.0）
         - confidence: 取最大置信度
-        
+
         Args:
             edge: 图谱边对象
-            
+
         Returns:
             成功返回 True，失败返回 False
         """
         if not self._is_available:
             return False
-        
+
         try:
             existing_edge = await self._get_edge(
-                edge.source_id, 
-                edge.target_id, 
-                edge.relation_type
+                edge.source_id, edge.target_id, edge.relation_type
             )
-            
+
             if existing_edge:
                 existing_ids = existing_edge.get("source_memory_ids", "")
-                existing_list = [x.strip() for x in existing_ids.split(",") if x.strip()]
-                
+                existing_list = [
+                    x.strip() for x in existing_ids.split(",") if x.strip()
+                ]
+
                 if edge.source_memory_id and edge.source_memory_id not in existing_list:
                     existing_list.append(edge.source_memory_id)
-                
-                new_weight = min(1.0, existing_edge.get("weight", 0.5) + edge.weight * 0.1)
-                new_confidence = max(existing_edge.get("confidence", 0.5), edge.confidence)
-                
+
+                new_weight = min(
+                    1.0, existing_edge.get("weight", 0.5) + edge.weight * 0.1
+                )
+                new_confidence = max(
+                    existing_edge.get("confidence", 0.5), edge.confidence
+                )
+
                 merged_properties = dict(existing_edge.get("properties", {}))
                 merged_properties.update(edge.properties)
                 merged_properties["source_memory_ids"] = ",".join(existing_list)
-                
+
                 map_literal = _build_map_literal(merged_properties)
-                
+
                 query = f"""
                     MATCH (src:Entity {{id: $source_id}})
                     MATCH (tgt:Entity {{id: $target_id}})
@@ -334,22 +353,25 @@ class L3KGAdapter(Component):
                         r.last_access_time = $last_access_time,
                         r.properties = {map_literal}
                 """
-                self._conn.execute(query, {
-                    "source_id": edge.source_id,
-                    "target_id": edge.target_id,
-                    "relation_type": edge.relation_type,
-                    "weight": new_weight,
-                    "confidence": new_confidence,
-                    "last_access_time": datetime.now(),
-                })
+                self._conn.execute(
+                    query,
+                    {
+                        "source_id": edge.source_id,
+                        "target_id": edge.target_id,
+                        "relation_type": edge.relation_type,
+                        "weight": new_weight,
+                        "confidence": new_confidence,
+                        "last_access_time": datetime.now(),
+                    },
+                )
                 logger.debug(f"边合并成功：{edge.generate_id()}")
             else:
                 properties = dict(edge.properties)
                 if edge.source_memory_id:
                     properties["source_memory_ids"] = edge.source_memory_id
-                
+
                 map_literal = _build_map_literal(properties)
-                
+
                 query = f"""
                     MATCH (src:Entity {{id: $source_id}})
                     MATCH (tgt:Entity {{id: $target_id}})
@@ -361,36 +383,36 @@ class L3KGAdapter(Component):
                         r.created_time = $created_time,
                         r.properties = {map_literal}
                 """
-                self._conn.execute(query, {
-                    "source_id": edge.source_id,
-                    "target_id": edge.target_id,
-                    "relation_type": edge.relation_type,
-                    "weight": edge.weight,
-                    "confidence": edge.confidence,
-                    "access_count": edge.access_count,
-                    "last_access_time": edge.last_access_time or datetime.now(),
-                    "created_time": edge.created_time,
-                })
+                self._conn.execute(
+                    query,
+                    {
+                        "source_id": edge.source_id,
+                        "target_id": edge.target_id,
+                        "relation_type": edge.relation_type,
+                        "weight": edge.weight,
+                        "confidence": edge.confidence,
+                        "access_count": edge.access_count,
+                        "last_access_time": edge.last_access_time or datetime.now(),
+                        "created_time": edge.created_time,
+                    },
+                )
                 logger.debug(f"边添加成功：{edge.generate_id()}")
-            
+
             return True
         except Exception as e:
             logger.error(f"添加边失败：{e}")
             return False
-    
+
     async def _get_edge(
-        self, 
-        source_id: str, 
-        target_id: str, 
-        relation_type: str
+        self, source_id: str, target_id: str, relation_type: str
     ) -> Optional[dict]:
         """获取已存在的边
-        
+
         Args:
             source_id: 源节点ID
             target_id: 目标节点ID
             relation_type: 关系类型
-            
+
         Returns:
             边信息字典，不存在返回 None
         """
@@ -401,62 +423,66 @@ class L3KGAdapter(Component):
                       (tgt:Entity {id: $target_id})
                 RETURN r.weight, r.confidence, r.properties
             """
-            result = self._conn.execute(query, {
-                "source_id": source_id,
-                "target_id": target_id,
-                "relation_type": relation_type,
-            })
-            
+            result = self._conn.execute(
+                query,
+                {
+                    "source_id": source_id,
+                    "target_id": target_id,
+                    "relation_type": relation_type,
+                },
+            )
+
             if result.has_next():
                 row = result.get_next()
                 return {
                     "weight": row[0],
                     "confidence": row[1],
                     "properties": row[2] if isinstance(row[2], dict) else {},
-                    "source_memory_ids": (row[2] if isinstance(row[2], dict) else {}).get("source_memory_ids", "")
+                    "source_memory_ids": (
+                        row[2] if isinstance(row[2], dict) else {}
+                    ).get("source_memory_ids", ""),
                 }
             return None
         except Exception as e:
             logger.debug(f"查询边失败：{e}")
             return None
-    
+
     async def expand_from_nodes(
-        self, 
-        node_ids: list[str], 
-        max_depth: int = 2,
-        group_id: Optional[str] = None
+        self, node_ids: list[str], max_depth: int = 2, group_id: Optional[str] = None
     ) -> tuple[list[dict], list[dict]]:
         """路径扩展检索
-        
+
         从指定节点出发，查找相关路径。
-        
+
         Args:
             node_ids: 起始节点ID列表
             max_depth: 最大路径深度（跳跃次数）
             group_id: 群聊ID（用于隔离）
-            
+
         Returns:
             (节点列表, 边列表)
         """
         if not self._is_available:
             return [], []
-        
+
         try:
             # KuzuDB 变长路径语法：[:Related*min..max]
-            query = """
+            query = (
+                """
                 MATCH path = (start:Entity)-[:Related*1..%d]-(target:Entity)
                 WHERE start.id IN $node_ids
                 AND ($group_id IS NULL OR start.group_id = $group_id)
                 RETURN 
                     nodes(path) as nodes,
                     relationships(path) as edges
-            """ % max_depth
-            
-            result = self._conn.execute(query, {
-                "node_ids": node_ids,
-                "group_id": group_id
-            })
-            
+            """
+                % max_depth
+            )
+
+            result = self._conn.execute(
+                query, {"node_ids": node_ids, "group_id": group_id}
+            )
+
             nodes = []
             edges = []
             for row in result:
@@ -468,67 +494,92 @@ class L3KGAdapter(Component):
                 for e in path_edges:
                     if isinstance(e, dict):
                         edges.append(e)
-            
+
             nodes = list({n["id"]: n for n in nodes}.values())
-            edges = list({f"{e.get('source', '')}-{e.get('relation_type', '')}-{e.get('target', '')}": e for e in edges}.values())
-            
+            edges = list(
+                {
+                    f"{e.get('source', '')}-{e.get('relation_type', '')}-{e.get('target', '')}": e
+                    for e in edges
+                }.values()
+            )
+
             logger.info(f"路径扩展检索完成：{len(nodes)} 个节点，{len(edges)} 条边")
             return nodes, edges
         except Exception as e:
             logger.error(f"路径扩展检索失败：{e}")
             return [], []
-    
+
     async def get_stats(self) -> dict:
         """获取图谱统计信息
-        
+
         Returns:
             包含节点数、边数、持久化路径等信息的字典
         """
         if not self._is_available:
-            return {"available": False, "node_count": 0, "edge_count": 0, "node_types": {}, "relation_types": {}}
-        
+            return {
+                "available": False,
+                "node_count": 0,
+                "edge_count": 0,
+                "node_types": {},
+                "relation_types": {},
+            }
+
         try:
-            node_result = self._conn.execute("MATCH (e:Entity) RETURN COUNT(e) as count")
+            node_result = self._conn.execute(
+                "MATCH (e:Entity) RETURN COUNT(e) as count"
+            )
             node_count = node_result.get_next()[0] if node_result.has_next() else 0
-            edge_result = self._conn.execute("MATCH ()-[r:Related]->() RETURN COUNT(r) as count")
+            edge_result = self._conn.execute(
+                "MATCH ()-[r:Related]->() RETURN COUNT(r) as count"
+            )
             edge_count = edge_result.get_next()[0] if edge_result.has_next() else 0
-            
-            node_types_result = self._conn.execute("MATCH (e:Entity) RETURN e.label as label, COUNT(e) as count")
+
+            node_types_result = self._conn.execute(
+                "MATCH (e:Entity) RETURN e.label as label, COUNT(e) as count"
+            )
             node_types = {}
             for row in node_types_result:
                 if row[0]:
                     node_types[row[0]] = row[1]
-            
-            relation_types_result = self._conn.execute("MATCH ()-[r:Related]->() RETURN r.relation_type as type, COUNT(r) as count")
+
+            relation_types_result = self._conn.execute(
+                "MATCH ()-[r:Related]->() RETURN r.relation_type as type, COUNT(r) as count"
+            )
             relation_types = {}
             for row in relation_types_result:
                 if row[0]:
                     relation_types[row[0]] = row[1]
-            
+
             return {
                 "available": True,
                 "node_count": node_count,
                 "edge_count": edge_count,
                 "node_types": node_types,
                 "relation_types": relation_types,
-                "persist_dir": str(self._persist_dir)
+                "persist_dir": str(self._persist_dir),
             }
         except Exception as e:
             logger.error(f"获取图谱统计失败：{e}")
-            return {"available": False, "node_count": 0, "edge_count": 0, "node_types": {}, "relation_types": {}}
-    
+            return {
+                "available": False,
+                "node_count": 0,
+                "edge_count": 0,
+                "node_types": {},
+                "relation_types": {},
+            }
+
     async def get_all_nodes(self, limit: int = 100) -> list[dict]:
         """获取节点（用于前端展示）
-        
+
         Args:
             limit: 最大返回数量，默认 100
-        
+
         Returns:
             节点字典列表
         """
         if not self._is_available:
             return []
-        
+
         try:
             result = self._conn.execute(f"""
                 MATCH (e:Entity)
@@ -537,163 +588,160 @@ class L3KGAdapter(Component):
                        e.source_memory_id, e.group_id, e.properties
                 LIMIT {limit}
             """)
-            
+
             nodes = []
             for row in result:
-                nodes.append({
-                    "id": row[0],
-                    "label": row[1],
-                    "name": row[2],
-                    "content": row[3],
-                    "confidence": row[4],
-                    "access_count": row[5],
-                    "last_access_time": row[6],
-                    "created_time": row[7],
-                    "source_memory_id": row[8],
-                    "group_id": row[9],
-                    "properties": row[10]
-                })
-            
+                nodes.append(
+                    {
+                        "id": row[0],
+                        "label": row[1],
+                        "name": row[2],
+                        "content": row[3],
+                        "confidence": row[4],
+                        "access_count": row[5],
+                        "last_access_time": row[6],
+                        "created_time": row[7],
+                        "source_memory_id": row[8],
+                        "group_id": row[9],
+                        "properties": row[10],
+                    }
+                )
+
             logger.debug(f"获取到 {len(nodes)} 个节点")
             return nodes
-            
+
         except Exception as e:
             logger.error(f"获取所有节点失败：{e}")
             return []
-    
+
     async def search_nodes(self, keyword: str, limit: int = 20) -> list[dict]:
         """搜索节点
-        
+
         Args:
             keyword: 搜索关键词（匹配name或content）
             limit: 最大返回数量
-            
+
         Returns:
             匹配的节点列表
         """
         if not self._is_available:
             return []
-        
+
         try:
             result = self._conn.execute(
                 "MATCH (e:Entity) WHERE e.name CONTAINS $keyword OR e.content CONTAINS $keyword RETURN e.id, e.label, e.name, e.content, e.confidence LIMIT $limit",
-                {"keyword": keyword, "limit": limit}
+                {"keyword": keyword, "limit": limit},
             )
-            
+
             nodes = []
             for row in result:
-                nodes.append({
-                    "id": row[0],
-                    "label": row[1],
-                    "name": row[2],
-                    "content": row[3],
-                    "confidence": row[4]
-                })
-            
+                nodes.append(
+                    {
+                        "id": row[0],
+                        "label": row[1],
+                        "name": row[2],
+                        "content": row[3],
+                        "confidence": row[4],
+                    }
+                )
+
             logger.debug(f"搜索节点 '{keyword}' 找到 {len(nodes)} 个结果")
             return nodes
-            
+
         except Exception as e:
             logger.error(f"搜索节点失败：{e}")
             return []
-    
+
     async def search_edges(self, keyword: str, limit: int = 20) -> list[dict]:
         """搜索边
-        
+
         Args:
             keyword: 搜索关键词（匹配relation_type）
             limit: 最大返回数量
-            
+
         Returns:
             匹配的边列表（包含source和target节点信息）
         """
         if not self._is_available:
             return []
-        
+
         try:
             result = self._conn.execute(
                 "MATCH (a:Entity)-[r:Related]->(b:Entity) WHERE r.relation_type CONTAINS $keyword RETURN a.id, a.label, a.name, b.id, b.label, b.name, r.relation_type, r.confidence LIMIT $limit",
-                {"keyword": keyword, "limit": limit}
+                {"keyword": keyword, "limit": limit},
             )
-            
+
             edges = []
             for row in result:
-                edges.append({
-                    "source": {
-                        "id": row[0],
-                        "label": row[1],
-                        "name": row[2]
-                    },
-                    "target": {
-                        "id": row[3],
-                        "label": row[4],
-                        "name": row[5]
-                    },
-                    "relation": row[6],
-                    "confidence": row[7]
-                })
-            
+                edges.append(
+                    {
+                        "source": {"id": row[0], "label": row[1], "name": row[2]},
+                        "target": {"id": row[3], "label": row[4], "name": row[5]},
+                        "relation": row[6],
+                        "confidence": row[7],
+                    }
+                )
+
             logger.debug(f"搜索边 '{keyword}' 找到 {len(edges)} 个结果")
             return edges
-            
+
         except Exception as e:
             logger.error(f"搜索边失败：{e}")
             return []
-    
+
     async def get_random_person_node(self) -> Optional[dict]:
         if not self._is_available:
             return None
-        
+
         try:
             import random
+
             result = self._conn.execute("""
                 MATCH (e:Entity)
                 WHERE e.label = 'Person'
                 RETURN e.id, e.label, e.name, e.content, e.confidence
             """)
-            
+
             nodes = []
             for row in result:
-                nodes.append({
-                    "id": row[0],
-                    "label": row[1],
-                    "name": row[2],
-                    "content": row[3],
-                    "confidence": row[4]
-                })
-            
+                nodes.append(
+                    {
+                        "id": row[0],
+                        "label": row[1],
+                        "name": row[2],
+                        "content": row[3],
+                        "confidence": row[4],
+                    }
+                )
+
             if nodes:
                 return random.choice(nodes)
-            
+
             return None
-            
+
         except Exception as e:
             logger.error(f"获取随机Person节点失败：{e}")
             return None
-    
+
     async def expand_from_node(
-        self, 
-        node_id: str, 
-        depth: int = 2,
-        max_nodes: int = 50,
-        max_edges: int = 100
+        self, node_id: str, depth: int = 2, max_nodes: int = 50, max_edges: int = 100
     ) -> tuple[list[dict], list[dict]]:
         if not self._is_available:
             return [], []
-        
+
         depth = min(max(1, depth), 3)
-        
+
         try:
             nodes_map = {}
             node_ids_to_query = [node_id]
             all_visited = {node_id}
-            
+
             for current_depth in range(1, depth + 1):
                 if len(nodes_map) >= max_nodes:
                     break
-                
+
                 remaining = max_nodes - len(nodes_map)
-                
+
                 if current_depth == 1:
                     query = f"""
                         MATCH (start:Entity {{id: $node_id}})-[r:Related]-(neighbor:Entity)
@@ -701,7 +749,9 @@ class L3KGAdapter(Component):
                         RETURN DISTINCT neighbor.id, neighbor.label, neighbor.name, neighbor.content, neighbor.confidence
                         LIMIT {remaining}
                     """
-                    result = self._conn.execute(query, {"node_id": node_id, "visited": list(all_visited)})
+                    result = self._conn.execute(
+                        query, {"node_id": node_id, "visited": list(all_visited)}
+                    )
                 else:
                     query = f"""
                         MATCH (start:Entity)-[r:Related]-(neighbor:Entity)
@@ -709,8 +759,14 @@ class L3KGAdapter(Component):
                         RETURN DISTINCT neighbor.id, neighbor.label, neighbor.name, neighbor.content, neighbor.confidence
                         LIMIT {remaining}
                     """
-                    result = self._conn.execute(query, {"current_ids": node_ids_to_query, "visited": list(all_visited)})
-                
+                    result = self._conn.execute(
+                        query,
+                        {
+                            "current_ids": node_ids_to_query,
+                            "visited": list(all_visited),
+                        },
+                    )
+
                 node_ids_to_query = []
                 for row in result:
                     nid = row[0]
@@ -722,267 +778,301 @@ class L3KGAdapter(Component):
                             "label": row[1],
                             "name": row[2],
                             "content": row[3],
-                            "confidence": row[4]
+                            "confidence": row[4],
                         }
-                
+
                 if not node_ids_to_query:
                     break
-            
-            start_node_result = self._conn.execute("""
+
+            start_node_result = self._conn.execute(
+                """
                 MATCH (e:Entity {id: $node_id})
                 RETURN e.id, e.label, e.name, e.content, e.confidence
-            """, {"node_id": node_id})
-            
+            """,
+                {"node_id": node_id},
+            )
+
             for row in start_node_result:
                 nodes_map[node_id] = {
                     "id": row[0],
                     "label": row[1],
                     "name": row[2],
                     "content": row[3],
-                    "confidence": row[4]
+                    "confidence": row[4],
                 }
-            
+
             edges_list = []
             seen_edges = set()
-            
+
             if nodes_map:
                 node_ids = list(nodes_map.keys())
-                
-                edges_result = self._conn.execute(f"""
+
+                edges_result = self._conn.execute(
+                    f"""
                     MATCH (a:Entity)-[r:Related]->(b:Entity)
                     WHERE a.id IN $node_ids AND b.id IN $node_ids
                     RETURN a.id, b.id, r.relation_type, r.confidence
                     LIMIT {max_edges}
-                """, {"node_ids": node_ids})
-                
+                """,
+                    {"node_ids": node_ids},
+                )
+
                 for row in edges_result:
                     edge_key = f"{row[0]}->{row[1]}"
                     if edge_key not in seen_edges:
                         seen_edges.add(edge_key)
-                        edges_list.append({
-                            "source": row[0],
-                            "target": row[1],
-                            "relation": row[2],
-                            "confidence": row[3]
-                        })
-            
+                        edges_list.append(
+                            {
+                                "source": row[0],
+                                "target": row[1],
+                                "relation": row[2],
+                                "confidence": row[3],
+                            }
+                        )
+
             nodes_list = list(nodes_map.values())
-            
-            logger.debug(f"从节点 {node_id} 拓展深度 {depth}，获取 {len(nodes_list)} 节点，{len(edges_list)} 边")
+
+            logger.debug(
+                f"从节点 {node_id} 拓展深度 {depth}，获取 {len(nodes_list)} 节点，{len(edges_list)} 边"
+            )
             return nodes_list, edges_list
-            
+
         except Exception as e:
             logger.error(f"从节点拓展失败：{e}")
             return [], []
-    
+
     async def get_node_connection_counts(self) -> dict[str, int]:
         """获取所有节点的连接数
-        
+
         Returns:
             {node_id: connection_count}
         """
         if not self._is_available:
             return {}
-        
+
         try:
             result = self._conn.execute("""
                 MATCH (e:Entity)
                 OPTIONAL MATCH (e)-[r:Related]-()
                 RETURN e.id, COUNT(r) as conn_count
             """)
-            
+
             counts = {}
             for row in result:
                 counts[row[0]] = row[1]
-            
+
             return counts
         except Exception as e:
             logger.error(f"获取节点连接数失败：{e}")
             return {}
-    
+
     async def evict_nodes(self, node_ids: list[str]) -> int:
         """淘汰节点及关联边（用于定时任务）
-        
+
         先删除关联边，再删除节点。
-        
+
         Args:
             node_ids: 要淘汰的节点 ID 列表
-        
+
         Returns:
             实际删除的节点数量
         """
         if not self._is_available or not node_ids:
             return 0
-        
+
         try:
             # 1. 删除关联边
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 MATCH ()-[r:Related]-(e:Entity)
                 WHERE e.id IN $node_ids
                 DELETE r
-            """, {"node_ids": node_ids})
-            
+            """,
+                {"node_ids": node_ids},
+            )
+
             # 2. 删除节点
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 MATCH (e:Entity)
                 WHERE e.id IN $node_ids
                 DELETE e
-            """, {"node_ids": node_ids})
-            
+            """,
+                {"node_ids": node_ids},
+            )
+
             logger.info(f"已淘汰 {len(node_ids)} 个节点及其关联边")
             return len(node_ids)
-            
+
         except Exception as e:
             logger.error(f"淘汰节点失败：{e}")
             return 0
-    
+
     async def delete_by_group(self, group_id: str) -> int:
         """删除指定群聊的所有节点和边
-        
+
         Args:
             group_id: 群聊ID
-        
+
         Returns:
             删除的节点数量
         """
         if not self._is_available:
             return 0
-        
+
         try:
-            count_result = self._conn.execute("""
+            count_result = self._conn.execute(
+                """
                 MATCH (e:Entity)
                 WHERE e.group_id = $group_id
                 RETURN COUNT(e) as count
-            """, {"group_id": group_id})
-            
+            """,
+                {"group_id": group_id},
+            )
+
             node_count = count_result.get_next()[0] if count_result.has_next() else 0
-            
+
             if node_count == 0:
                 logger.debug(f"群聊 {group_id} 没有知识图谱节点")
                 return 0
-            
-            self._conn.execute("""
+
+            self._conn.execute(
+                """
                 MATCH (e:Entity)
                 WHERE e.group_id = $group_id
                 DETACH DELETE e
-            """, {"group_id": group_id})
-            
+            """,
+                {"group_id": group_id},
+            )
+
             logger.info(f"已删除群聊 {group_id} 的 {node_count} 个节点及其关联边")
             return node_count
-            
+
         except Exception as e:
             logger.error(f"删除群聊知识图谱失败: {e}", exc_info=True)
             return 0
-    
+
     async def delete_all(self) -> int:
         """删除所有节点和边
-        
+
         Returns:
             删除的节点数量
         """
         if not self._is_available:
             return 0
-        
+
         try:
             count_result = self._conn.execute("""
                 MATCH (e:Entity)
                 RETURN COUNT(e) as count
             """)
-            
+
             node_count = count_result.get_next()[0] if count_result.has_next() else 0
-            
+
             if node_count == 0:
                 return 0
-            
+
             self._conn.execute("""
                 MATCH (e:Entity)
                 DETACH DELETE e
             """)
-            
+
             logger.info(f"已删除所有知识图谱节点，共 {node_count} 个")
             return node_count
-            
+
         except Exception as e:
             logger.error(f"删除所有知识图谱失败: {e}", exc_info=True)
             return 0
-    
+
     async def delete_by_user(self, user_id: str, group_id: Optional[str] = None) -> int:
         """删除与指定用户相关的节点
-        
+
         注意：由于知识图谱节点没有直接的 user_id 字段，
         此方法通过节点名称匹配用户ID来删除。
         这是一个近似实现，可能不精确。
-        
+
         Args:
             user_id: 用户ID
             group_id: 群聊ID（可选）
-        
+
         Returns:
             删除的节点数量
         """
         if not self._is_available:
             return 0
-        
+
         try:
             if group_id:
-                count_result = self._conn.execute("""
+                count_result = self._conn.execute(
+                    """
                     MATCH (e:Entity)
                     WHERE e.group_id = $group_id AND e.name = $user_id
                     RETURN COUNT(e) as count
-                """, {"group_id": group_id, "user_id": user_id})
+                """,
+                    {"group_id": group_id, "user_id": user_id},
+                )
             else:
-                count_result = self._conn.execute("""
+                count_result = self._conn.execute(
+                    """
                     MATCH (e:Entity)
                     WHERE e.name = $user_id
                     RETURN COUNT(e) as count
-                """, {"user_id": user_id})
-            
+                """,
+                    {"user_id": user_id},
+                )
+
             node_count = count_result.get_next()[0] if count_result.has_next() else 0
-            
+
             if node_count == 0:
                 logger.debug(f"用户 {user_id} 没有知识图谱节点")
                 return 0
-            
+
             if group_id:
-                self._conn.execute("""
+                self._conn.execute(
+                    """
                     MATCH (e:Entity)
                     WHERE e.group_id = $group_id AND e.name = $user_id
                     DETACH DELETE e
-                """, {"group_id": group_id, "user_id": user_id})
+                """,
+                    {"group_id": group_id, "user_id": user_id},
+                )
             else:
-                self._conn.execute("""
+                self._conn.execute(
+                    """
                     MATCH (e:Entity)
                     WHERE e.name = $user_id
                     DETACH DELETE e
-                """, {"user_id": user_id})
-            
+                """,
+                    {"user_id": user_id},
+                )
+
             logger.info(f"已删除用户 {user_id} 的 {node_count} 个知识图谱节点")
             return node_count
-            
+
         except Exception as e:
             logger.error(f"删除用户知识图谱失败: {e}", exc_info=True)
             return 0
-    
+
     async def merge_duplicate_nodes(self) -> tuple[int, int]:
         """合并同名同 label 的重复节点
-        
+
         查找所有 label+name 相同但 id 不同的节点组，
         将它们合并为一个节点（保留最早创建的），
         并将重复节点的边迁移到保留节点上。
-        
+
         Returns:
             (合并的节点数, 删除的节点数)
         """
         if not self._is_available:
             return 0, 0
-        
+
         try:
             result = self._conn.execute("""
                 MATCH (e:Entity)
                 RETURN e.id, e.label, e.name, e.content, e.confidence,
                        e.access_count, e.created_time, e.group_id, e.properties
             """)
-            
+
             name_groups: dict[str, list[dict]] = {}
             for row in result:
                 node_data = {
@@ -1000,28 +1090,36 @@ class L3KGAdapter(Component):
                 if key not in name_groups:
                     name_groups[key] = []
                 name_groups[key].append(node_data)
-            
+
             merged_count = 0
             deleted_count = 0
-            
+
             for key, nodes in name_groups.items():
                 if len(nodes) <= 1:
                     continue
-                
+
                 nodes.sort(key=lambda n: n.get("created_time", "") or "")
                 keep_node = nodes[0]
                 duplicate_nodes = nodes[1:]
-                
+
                 merged_content = keep_node["content"] or ""
                 merged_confidence = keep_node["confidence"] or 0.5
                 merged_access_count = keep_node["access_count"] or 0
                 merged_properties = dict(keep_node.get("properties", {}))
-                
-                source_ids = [x.strip() for x in merged_properties.get("source_memory_ids", "").split(",") if x.strip()]
-                group_ids = [x.strip() for x in merged_properties.get("group_ids", "").split(",") if x.strip()]
+
+                source_ids = [
+                    x.strip()
+                    for x in merged_properties.get("source_memory_ids", "").split(",")
+                    if x.strip()
+                ]
+                group_ids = [
+                    x.strip()
+                    for x in merged_properties.get("group_ids", "").split(",")
+                    if x.strip()
+                ]
                 if keep_node.get("group_id") and keep_node["group_id"] not in group_ids:
                     group_ids.insert(0, keep_node["group_id"])
-                
+
                 for dup in duplicate_nodes:
                     dup_content = dup["content"]
                     if dup_content and dup_content not in merged_content:
@@ -1029,42 +1127,78 @@ class L3KGAdapter(Component):
                             merged_content = merged_content + "；" + dup_content
                         elif not merged_content:
                             merged_content = dup_content
-                    
-                    merged_confidence = max(merged_confidence, dup.get("confidence", 0.5))
+
+                    merged_confidence = max(
+                        merged_confidence, dup.get("confidence", 0.5)
+                    )
                     merged_access_count += dup.get("access_count", 0)
-                    
+
                     dup_props = dup.get("properties", {})
                     if isinstance(dup_props, dict):
                         for k, v in dup_props.items():
                             if k not in ("source_memory_ids", "group_ids"):
                                 merged_properties[k] = v
-                        dup_source_ids = [x.strip() for x in dup_props.get("source_memory_ids", "").split(",") if x.strip()]
-                        source_ids.extend(sid for sid in dup_source_ids if sid not in source_ids)
-                        dup_group_ids = [x.strip() for x in dup_props.get("group_ids", "").split(",") if x.strip()]
-                        group_ids.extend(gid for gid in dup_group_ids if gid not in group_ids)
-                    
+                        dup_source_ids = [
+                            x.strip()
+                            for x in dup_props.get("source_memory_ids", "").split(",")
+                            if x.strip()
+                        ]
+                        source_ids.extend(
+                            sid for sid in dup_source_ids if sid not in source_ids
+                        )
+                        dup_group_ids = [
+                            x.strip()
+                            for x in dup_props.get("group_ids", "").split(",")
+                            if x.strip()
+                        ]
+                        group_ids.extend(
+                            gid for gid in dup_group_ids if gid not in group_ids
+                        )
+
                     if dup.get("group_id") and dup["group_id"] not in group_ids:
                         group_ids.append(dup["group_id"])
-                    
+
                     dup_id = dup["id"]
                     keep_id = keep_node["id"]
-                    
-                    outgoing_result = self._conn.execute("""
+
+                    outgoing_result = self._conn.execute(
+                        """
                         MATCH (src:Entity {id: $dup_id})-[r:Related]->(tgt:Entity)
                         WHERE tgt.id <> $keep_id
                         RETURN tgt.id, r.relation_type, r.weight, r.confidence,
                                r.access_count, r.created_time, r.source_memory_id, r.properties
-                    """, {"dup_id": dup_id, "keep_id": keep_id})
-                    
+                    """,
+                        {"dup_id": dup_id, "keep_id": keep_id},
+                    )
+
                     for row in outgoing_result:
-                        tgt_id, rel_type, weight, conf, acc_count, c_time, src_mem_id, props = row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]
+                        (
+                            tgt_id,
+                            rel_type,
+                            weight,
+                            conf,
+                            acc_count,
+                            c_time,
+                            src_mem_id,
+                            props,
+                        ) = (
+                            row[0],
+                            row[1],
+                            row[2],
+                            row[3],
+                            row[4],
+                            row[5],
+                            row[6],
+                            row[7],
+                        )
                         existing_edge = await self._get_edge(keep_id, tgt_id, rel_type)
                         if not existing_edge:
                             edge_props = dict(props) if isinstance(props, dict) else {}
                             if src_mem_id:
                                 edge_props["source_memory_ids"] = src_mem_id
                             map_lit = _build_map_literal(edge_props)
-                            self._conn.execute(f"""
+                            self._conn.execute(
+                                f"""
                                 MATCH (src:Entity {{id: $source_id}})
                                 MATCH (tgt:Entity {{id: $target_id}})
                                 CREATE (src)-[r:Related {{
@@ -1076,32 +1210,56 @@ class L3KGAdapter(Component):
                                     created_time: $created_time,
                                     properties: {map_lit}
                                 }}]->(tgt)
-                            """, {
-                                "source_id": keep_id,
-                                "target_id": tgt_id,
-                                "relation_type": rel_type,
-                                "weight": weight,
-                                "confidence": conf,
-                                "access_count": acc_count,
-                                "created_time": c_time,
-                            })
-                    
-                    incoming_result = self._conn.execute("""
+                            """,
+                                {
+                                    "source_id": keep_id,
+                                    "target_id": tgt_id,
+                                    "relation_type": rel_type,
+                                    "weight": weight,
+                                    "confidence": conf,
+                                    "access_count": acc_count,
+                                    "created_time": c_time,
+                                },
+                            )
+
+                    incoming_result = self._conn.execute(
+                        """
                         MATCH (src:Entity)-[r:Related]->(tgt:Entity {id: $dup_id})
                         WHERE src.id <> $keep_id
                         RETURN src.id, r.relation_type, r.weight, r.confidence,
                                r.access_count, r.created_time, r.source_memory_id, r.properties
-                    """, {"dup_id": dup_id, "keep_id": keep_id})
-                    
+                    """,
+                        {"dup_id": dup_id, "keep_id": keep_id},
+                    )
+
                     for row in incoming_result:
-                        src_id, rel_type, weight, conf, acc_count, c_time, src_mem_id, props = row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]
+                        (
+                            src_id,
+                            rel_type,
+                            weight,
+                            conf,
+                            acc_count,
+                            c_time,
+                            src_mem_id,
+                            props,
+                        ) = (
+                            row[0],
+                            row[1],
+                            row[2],
+                            row[3],
+                            row[4],
+                            row[5],
+                            row[6],
+                            row[7],
+                        )
                         existing_edge = await self._get_edge(src_id, keep_id, rel_type)
                         if not existing_edge:
                             edge_props = dict(props) if isinstance(props, dict) else {}
                             if src_mem_id:
                                 edge_props["source_memory_ids"] = src_mem_id
                             map_lit = _build_map_literal(edge_props)
-                            self._conn.execute(f"""
+                            self._conn.execute(
+                                f"""
                                 MATCH (src:Entity {{id: $source_id}})
                                 MATCH (tgt:Entity {{id: $target_id}})
                                 CREATE (src)-[r:Related {{
@@ -1113,30 +1271,35 @@ class L3KGAdapter(Component):
                                     created_time: $created_time,
                                     properties: {map_lit}
                                 }}]->(tgt)
-                            """, {
-                                "source_id": src_id,
-                                "target_id": keep_id,
-                                "relation_type": rel_type,
-                                "weight": weight,
-                                "confidence": conf,
-                                "access_count": acc_count,
-                                "created_time": c_time,
-                            })
-                    
-                    self._conn.execute("""
+                            """,
+                                {
+                                    "source_id": src_id,
+                                    "target_id": keep_id,
+                                    "relation_type": rel_type,
+                                    "weight": weight,
+                                    "confidence": conf,
+                                    "access_count": acc_count,
+                                    "created_time": c_time,
+                                },
+                            )
+
+                    self._conn.execute(
+                        """
                         MATCH (e:Entity {id: $id})
                         DETACH DELETE e
-                    """, {"id": dup_id})
-                    
+                    """,
+                        {"id": dup_id},
+                    )
+
                     deleted_count += 1
-                
+
                 if source_ids:
                     merged_properties["source_memory_ids"] = ",".join(source_ids)
                 if group_ids:
                     merged_properties["group_ids"] = ",".join(group_ids)
-                
+
                 map_literal = _build_map_literal(merged_properties)
-                
+
                 update_query = f"""
                     MATCH (e:Entity {{id: $id}})
                     SET e.content = $content,
@@ -1144,27 +1307,215 @@ class L3KGAdapter(Component):
                         e.access_count = $access_count,
                         e.properties = {map_literal}
                 """
-                self._conn.execute(update_query, {
-                    "id": keep_node["id"],
-                    "content": merged_content,
-                    "confidence": merged_confidence,
-                    "access_count": merged_access_count,
-                })
-                
+                self._conn.execute(
+                    update_query,
+                    {
+                        "id": keep_node["id"],
+                        "content": merged_content,
+                        "confidence": merged_confidence,
+                        "access_count": merged_access_count,
+                    },
+                )
+
                 merged_count += 1
-            
+
             if merged_count > 0:
                 logger.info(
                     f"节点合并完成：合并了 {merged_count} 组重复节点，"
                     f"删除了 {deleted_count} 个重复节点"
                 )
-            
+
             return merged_count, deleted_count
-            
+
         except Exception as e:
             logger.error(f"合并重复节点失败：{e}")
             return 0, 0
-    
+
+    async def export_all(self) -> dict:
+        """导出所有知识图谱数据
+
+        Returns:
+            包含版本、节点和边的字典
+        """
+        if not self._is_available:
+            return {
+                "version": "1.0",
+                "nodes": [],
+                "edges": [],
+                "export_time": "",
+                "stats": {"node_count": 0, "edge_count": 0},
+            }
+
+        try:
+            nodes_result = self._conn.execute("""
+                MATCH (e:Entity)
+                RETURN e.id, e.label, e.name, e.content, e.confidence,
+                       e.access_count, e.last_access_time, e.created_time,
+                       e.source_memory_id, e.group_id, e.properties
+            """)
+
+            nodes = []
+            for row in nodes_result:
+                nodes.append(
+                    {
+                        "id": row[0],
+                        "label": row[1],
+                        "name": row[2],
+                        "content": row[3],
+                        "confidence": row[4],
+                        "access_count": row[5],
+                        "last_access_time": str(row[6]) if row[6] else None,
+                        "created_time": str(row[7]) if row[7] else None,
+                        "source_memory_id": row[8],
+                        "group_id": row[9],
+                        "properties": row[10] if isinstance(row[10], dict) else {},
+                    }
+                )
+
+            edges_result = self._conn.execute("""
+                MATCH (a:Entity)-[r:Related]->(b:Entity)
+                RETURN a.id, b.id, r.relation_type, r.weight, r.confidence,
+                       r.access_count, r.last_access_time, r.created_time,
+                       r.source_memory_id, r.properties
+            """)
+
+            edges = []
+            for row in edges_result:
+                edges.append(
+                    {
+                        "source_id": row[0],
+                        "target_id": row[1],
+                        "relation_type": row[2],
+                        "weight": row[3],
+                        "confidence": row[4],
+                        "access_count": row[5],
+                        "last_access_time": str(row[6]) if row[6] else None,
+                        "created_time": str(row[7]) if row[7] else None,
+                        "source_memory_id": row[8],
+                        "properties": row[9] if isinstance(row[9], dict) else {},
+                    }
+                )
+
+            from datetime import datetime as _dt
+
+            export_time = _dt.now().isoformat()
+
+            logger.info(f"知识图谱导出完成：{len(nodes)} 个节点，{len(edges)} 条边")
+
+            return {
+                "version": "1.0",
+                "export_time": export_time,
+                "nodes": nodes,
+                "edges": edges,
+                "stats": {
+                    "node_count": len(nodes),
+                    "edge_count": len(edges),
+                },
+            }
+
+        except Exception as e:
+            logger.error(f"导出知识图谱失败：{e}", exc_info=True)
+            return {
+                "version": "1.0",
+                "nodes": [],
+                "edges": [],
+                "export_time": "",
+                "stats": {"node_count": 0, "edge_count": 0},
+            }
+
+    async def import_from_data(self, data: dict, skip_duplicates: bool = True) -> dict:
+        """从数据字典导入知识图谱
+
+        Args:
+            data: 导出数据字典（包含 nodes 和 edges）
+            skip_duplicates: 是否跳过重复节点（已存在则合并）
+
+        Returns:
+            导入统计 {"imported_nodes": int, "imported_edges": int, "skipped_nodes": int, "error_count": int}
+        """
+        if not self._is_available:
+            return {
+                "imported_nodes": 0,
+                "imported_edges": 0,
+                "skipped_nodes": 0,
+                "error_count": 0,
+            }
+
+        nodes_data = data.get("nodes", [])
+        edges_data = data.get("edges", [])
+
+        imported_nodes = 0
+        imported_edges = 0
+        skipped_nodes = 0
+        error_count = 0
+
+        for node_data in nodes_data:
+            try:
+                node = GraphNode(
+                    id=node_data.get("id", ""),
+                    label=node_data.get("label", "Entity"),
+                    name=node_data.get("name", ""),
+                    content=node_data.get("content", ""),
+                    confidence=node_data.get("confidence", 0.5),
+                    access_count=node_data.get("access_count", 0),
+                    group_id=node_data.get("group_id"),
+                    source_memory_id=node_data.get("source_memory_id"),
+                    properties=node_data.get("properties", {}),
+                )
+
+                if not node.id:
+                    node.id = node.generate_id()
+
+                success = await self.add_node(node)
+                if success:
+                    imported_nodes += 1
+                else:
+                    skipped_nodes += 1
+
+            except Exception as e:
+                logger.error(f"导入节点失败：{e}")
+                error_count += 1
+
+        for edge_data in edges_data:
+            try:
+                edge = GraphEdge(
+                    source_id=edge_data.get("source_id", ""),
+                    target_id=edge_data.get("target_id", ""),
+                    relation_type=edge_data.get("relation_type", "RELATED_TO"),
+                    weight=edge_data.get("weight", 1.0),
+                    confidence=edge_data.get("confidence", 0.5),
+                    access_count=edge_data.get("access_count", 0),
+                    source_memory_id=edge_data.get("source_memory_id"),
+                    properties=edge_data.get("properties", {}),
+                )
+
+                if not edge.source_id or not edge.target_id:
+                    skipped_nodes += 1
+                    continue
+
+                success = await self.add_edge(edge)
+                if success:
+                    imported_edges += 1
+                else:
+                    error_count += 1
+
+            except Exception as e:
+                logger.error(f"导入边失败：{e}")
+                error_count += 1
+
+        logger.info(
+            f"知识图谱导入完成：节点 {imported_nodes}/{len(nodes_data)}，"
+            f"边 {imported_edges}/{len(edges_data)}，"
+            f"跳过 {skipped_nodes}，错误 {error_count}"
+        )
+
+        return {
+            "imported_nodes": imported_nodes,
+            "imported_edges": imported_edges,
+            "skipped_nodes": skipped_nodes,
+            "error_count": error_count,
+        }
+
     async def shutdown(self) -> None:
         """关闭数据库连接"""
         if self._conn:

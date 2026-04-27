@@ -40,6 +40,12 @@ const routes: RouteRecordRaw[] = [
     name: 'Stats',
     component: () => import('@/views/StatsView.vue'),
     meta: { title: '数据统计', icon: 'mdi-chart-bar' }
+  },
+  {
+    path: '/data-manage',
+    name: 'DataManage',
+    component: () => import('@/views/DataManageView.vue'),
+    meta: { title: '数据管理', icon: 'mdi-swap-vertical' }
   }
 ]
 

@@ -150,7 +150,8 @@ const navItems = [
   { to: '/l2-memory', title: 'L2 记忆', icon: 'mdi-database-search' },
   { to: '/l3-graph', title: 'L3 图谱', icon: 'mdi-graph' },
   { to: '/profile', title: '画像管理', icon: 'mdi-account-group' },
-  { to: '/stats', title: '数据统计', icon: 'mdi-chart-bar' }
+  { to: '/stats', title: '数据统计', icon: 'mdi-chart-bar' },
+  { to: '/data-manage', title: '数据管理', icon: 'mdi-swap-vertical' }
 ]
 
 const currentTitle = computed(() => {
