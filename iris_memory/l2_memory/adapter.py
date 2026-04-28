@@ -232,14 +232,38 @@ class L2MemoryAdapter(Component):
 
             # 获取或创建 collection（传入嵌入函数，新集合使用余弦距离）
             collection_name = f"memory_{self._persona_id}"
-            self._collection = await loop.run_in_executor(
-                None,
-                lambda: self._client.get_or_create_collection(
-                    name=collection_name,
-                    metadata={"hnsw:space": "cosine", "persona_id": self._persona_id},
-                    embedding_function=self._embedding_func,
-                ),
-            )
+            ef_conflict = False
+            try:
+                self._collection = await loop.run_in_executor(
+                    None,
+                    lambda: self._client.get_or_create_collection(
+                        name=collection_name,
+                        metadata={
+                            "hnsw:space": "cosine",
+                            "persona_id": self._persona_id,
+                        },
+                        embedding_function=self._embedding_func,
+                    ),
+                )
+            except ValueError as e:
+                if (
+                    "embedding function" in str(e).lower()
+                    and "conflict" in str(e).lower()
+                ):
+                    ef_conflict = True
+                    logger.warning(f"已有集合的嵌入函数与当前不一致，将进行迁移：{e}")
+                    self._collection = await loop.run_in_executor(
+                        None,
+                        lambda: self._client.get_or_create_collection(
+                            name=collection_name,
+                            metadata={
+                                "hnsw:space": "cosine",
+                                "persona_id": self._persona_id,
+                            },
+                        ),
+                    )
+                else:
+                    raise
 
             # 检测实际距离空间（已有集合可能使用 L2）
             self._distance_space = self._collection.metadata.get("hnsw:space", "l2")
@@ -251,7 +275,12 @@ class L2MemoryAdapter(Component):
             stored_model = self._collection.metadata.get("embedding_model", "")
             needs_migration = False
 
-            if stored_model and stored_model != self._actual_embedding_model:
+            if ef_conflict:
+                needs_migration = True
+                logger.info(
+                    f"嵌入函数冲突，需要迁移到 {self._actual_embedding_model}..."
+                )
+            elif stored_model and stored_model != self._actual_embedding_model:
                 needs_migration = True
                 logger.warning(
                     f"嵌入模型已变更：{stored_model} -> {self._actual_embedding_model}，"
