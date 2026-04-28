@@ -95,10 +95,12 @@ def _create_embedding_function(model_name: str):
         model_name: HuggingFace 模型名或 'all-MiniLM-L6-v2'
 
     Returns:
-        ChromaDB 嵌入函数
+        (embedding_function, actual_model_name) 元组
     """
+    import os
+
     if model_name == "all-MiniLM-L6-v2":
-        return _embedding_functions.DefaultEmbeddingFunction()
+        return _embedding_functions.DefaultEmbeddingFunction(), "all-MiniLM-L6-v2"
 
     model_info = SUPPORTED_EMBEDDING_MODELS.get(model_name)
     if model_info:
@@ -112,12 +114,32 @@ def _create_embedding_function(model_name: str):
         logger.info(f"加载自定义嵌入模型：{model_name}")
 
     try:
-        return _embedding_functions.SentenceTransformerEmbeddingFunction(
+        func = _embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name=model_name
         )
-    except Exception as e:
-        logger.warning(f"加载嵌入模型 {model_name} 失败：{e}，回退到默认模型")
-        return _embedding_functions.DefaultEmbeddingFunction()
+        return func, model_name
+    except Exception as first_err:
+        logger.warning(f"加载嵌入模型 {model_name} 失败：{first_err}，尝试离线模式...")
+
+    old_offline = os.environ.get("HF_HUB_OFFLINE")
+    try:
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        func = _embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name=model_name
+        )
+        logger.info(f"离线模式加载嵌入模型 {model_name} 成功")
+        return func, model_name
+    except Exception as offline_err:
+        logger.warning(
+            f"离线加载嵌入模型 {model_name} 也失败：{offline_err}，回退到默认模型"
+        )
+    finally:
+        if old_offline is not None:
+            os.environ["HF_HUB_OFFLINE"] = old_offline
+        else:
+            os.environ.pop("HF_HUB_OFFLINE", None)
+
+    return _embedding_functions.DefaultEmbeddingFunction(), "all-MiniLM-L6-v2"
 
 
 class L2MemoryAdapter(Component):
@@ -150,6 +172,7 @@ class L2MemoryAdapter(Component):
         self._client = None
         self._collection = None
         self._embedding_func = None
+        self._actual_embedding_model: str = "all-MiniLM-L6-v2"
         self._persist_dir: Optional[Path] = None
         self._persona_id = persona_id
         self._similarity_threshold = 0.90
@@ -194,54 +217,77 @@ class L2MemoryAdapter(Component):
             embedding_model = config.get(
                 "l2_memory.embedding_model", "BAAI/bge-small-zh-v1.5"
             )
-            self._embedding_func = await loop.run_in_executor(
+            (
+                self._embedding_func,
+                self._actual_embedding_model,
+            ) = await loop.run_in_executor(
                 None, lambda: _create_embedding_function(embedding_model)
             )
 
-            # 获取或创建 collection（新集合使用余弦距离）
+            if self._actual_embedding_model != embedding_model:
+                logger.warning(
+                    f"嵌入模型回退：配置 {embedding_model}，"
+                    f"实际使用 {self._actual_embedding_model}"
+                )
+
+            # 获取或创建 collection（传入嵌入函数，新集合使用余弦距离）
             collection_name = f"memory_{self._persona_id}"
             self._collection = await loop.run_in_executor(
                 None,
                 lambda: self._client.get_or_create_collection(
                     name=collection_name,
                     metadata={"hnsw:space": "cosine", "persona_id": self._persona_id},
+                    embedding_function=self._embedding_func,
                 ),
             )
 
             # 检测实际距离空间（已有集合可能使用 L2）
             self._distance_space = self._collection.metadata.get("hnsw:space", "l2")
 
+            # 标记可用——迁移需要读取数据，必须在迁移前设置
+            self._is_available = True
+
             # 检测嵌入模型是否变更，自动迁移
             stored_model = self._collection.metadata.get("embedding_model", "")
             needs_migration = False
 
-            if stored_model and stored_model != embedding_model:
+            if stored_model and stored_model != self._actual_embedding_model:
                 needs_migration = True
                 logger.warning(
-                    f"嵌入模型已变更：{stored_model} -> {embedding_model}，"
+                    f"嵌入模型已变更：{stored_model} -> {self._actual_embedding_model}，"
                     f"开始自动迁移..."
                 )
             elif not stored_model and self._collection.count() > 0:
                 needs_migration = True
                 logger.info(
                     f"已有集合未记录嵌入模型（旧版本数据），"
-                    f"当前使用 {embedding_model}，开始自动迁移..."
+                    f"当前使用 {self._actual_embedding_model}，开始自动迁移..."
                 )
 
             if needs_migration:
                 migration_ok = await self._migrate_on_model_change(
-                    embedding_model, collection_name
+                    self._actual_embedding_model, collection_name
                 )
                 if not migration_ok:
                     logger.warning(
                         "自动迁移失败，将使用新模型继续，旧数据检索精度可能下降"
                     )
+            else:
+                if not stored_model:
+                    try:
+                        self._collection.modify(
+                            metadata={
+                                **self._collection.metadata,
+                                "embedding_model": self._actual_embedding_model,
+                            }
+                        )
+                    except Exception:
+                        pass
 
-            self._is_available = True
             logger.info(
                 f"L2 记忆库初始化成功，collection: {collection_name}，"
                 f"距离空间: {self._distance_space}，"
-                f"嵌入模型: {embedding_model}，"
+                f"嵌入模型: {self._actual_embedding_model}，"
                 f"当前条目数: {self._collection.count()}"
             )
 
@@ -319,6 +365,7 @@ class L2MemoryAdapter(Component):
                         "persona_id": self._persona_id,
                         "embedding_model": new_model,
                     },
+                    embedding_function=self._embedding_func,
                 ),
             )
             self._distance_space = "cosine"
@@ -364,6 +411,7 @@ class L2MemoryAdapter(Component):
                                 "persona_id": self._persona_id,
                                 "embedding_model": new_model,
                             },
+                            embedding_function=self._embedding_func,
                         ),
                     )
                     importer = MemoryImporter(self)
@@ -392,6 +440,7 @@ class L2MemoryAdapter(Component):
         self._client = None
         self._collection = None
         self._embedding_func = None
+        self._actual_embedding_model = "all-MiniLM-L6-v2"
         self._reset_state()
         logger.info("L2 记忆库已关闭")
 
