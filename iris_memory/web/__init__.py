@@ -27,6 +27,7 @@ from .routes.stats import stats_bp
 from .routes.auth_routes import auth_bp
 from .routes.data_routes import data_bp
 from .routes.manage_routes import manage_bp
+from .routes.hidden_config_routes import hidden_config_bp
 from .auth import dashboard_auth
 from .server import WebServer, create_web_server_from_config
 from iris_memory.core import get_logger
@@ -136,6 +137,7 @@ def register_routes(app: Any) -> None:
     api_bp.register_blueprint(stats_bp, url_prefix='/stats')
     api_bp.register_blueprint(data_bp, url_prefix='/data')
     api_bp.register_blueprint(manage_bp, url_prefix='/manage')
+    api_bp.register_blueprint(hidden_config_bp, url_prefix='/hidden-config')
     
     # 注册到主应用
     app.register_blueprint(api_bp, url_prefix='/api/iris')

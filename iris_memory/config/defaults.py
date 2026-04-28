@@ -34,7 +34,7 @@ class L2MemoryConfig:
     embedding_model: str = "BAAI/bge-small-zh-v1.5"
     top_k: int = 10
     max_entries: int = 10000
-    timeout_ms: int = 2000
+    timeout_ms: int = 4000
     relevance_threshold: float = 0.3
 
 

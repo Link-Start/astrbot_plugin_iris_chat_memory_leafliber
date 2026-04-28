@@ -36,16 +36,16 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '画像管理', icon: 'mdi-account-group' }
   },
   {
-    path: '/stats',
-    name: 'Stats',
-    component: () => import('@/views/StatsView.vue'),
-    meta: { title: '数据统计', icon: 'mdi-chart-bar' }
-  },
-  {
     path: '/data-manage',
     name: 'DataManage',
     component: () => import('@/views/DataManageView.vue'),
     meta: { title: '数据管理', icon: 'mdi-swap-vertical' }
+  },
+  {
+    path: '/hidden-config',
+    name: 'HiddenConfig',
+    component: () => import('@/views/HiddenConfigView.vue'),
+    meta: { title: '隐藏参数', icon: 'mdi-cog-outline' }
   }
 ]
 

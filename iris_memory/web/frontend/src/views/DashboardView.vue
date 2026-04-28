@@ -1,64 +1,83 @@
 <template>
   <div class="dashboard">
-    <v-row>
-      <v-col cols="12" sm="6" md="4" lg="2" v-for="(state, key) in componentStates" :key="key">
-        <v-card
-          :color="getCardColor(state.status)"
-          variant="outlined"
-          class="h-100 component-card"
-          :class="{ 'component-loading': isLoading(state.status) }"
-        >
-          <v-card-text class="text-center">
-            <v-icon
-              :icon="getStatusIcon(state.status)"
-              :color="getStatusColor(state.status)"
-              size="32"
-              :class="{ 'animate-spin': state.status === 'initializing' }"
-            />
-            <div class="text-body-2 mt-2">{{ getComponentName(key) }}</div>
-            <div class="status-text" :class="getStatusTextClass(state.status)">
-              {{ getStatusText(state.status) }}
+    <v-row dense>
+      <v-col cols="12">
+        <v-card color="surface" variant="flat" class="system-bar">
+          <v-card-text class="d-flex align-center flex-wrap ga-3 pa-3">
+            <v-chip
+              :color="globalStatusColor"
+              variant="tonal"
+              size="small"
+              prepend-icon="mdi-circle-medium"
+            >
+              {{ globalStatusText }}
+            </v-chip>
+            <span class="text-caption text-medium-emphasis">
+              <v-icon icon="mdi-tag-outline" size="x-small" class="mr-1" />
+              v{{ systemStats?.version || '—' }}
+            </span>
+            <span class="text-caption text-medium-emphasis">
+              <v-icon icon="mdi-clock-outline" size="x-small" class="mr-1" />
+              {{ uptime }}
+            </span>
+            <v-spacer />
+            <div class="d-flex flex-wrap ga-1">
+              <v-chip
+                v-for="(state, key) in componentStates"
+                :key="key"
+                size="x-small"
+                :color="getStatusColor(state.status)"
+                variant="tonal"
+              >
+                <v-icon
+                  :icon="getStatusIcon(state.status)"
+                  size="x-small"
+                  :class="{ 'animate-spin': state.status === 'initializing' }"
+                  class="mr-1"
+                />
+                {{ getComponentName(String(key)) }}
+                <v-tooltip v-if="state.error" activator="parent" location="bottom">
+                  <div class="text-caption">
+                    <div class="font-weight-bold mb-1">{{ getErrorTypeName(state.error_type) }}</div>
+                    <div>{{ state.error }}</div>
+                  </div>
+                </v-tooltip>
+              </v-chip>
             </div>
-            <v-tooltip v-if="state.error" activator="parent" location="bottom">
-              <div class="text-caption">
-                <div class="font-weight-bold mb-1">{{ getErrorTypeName(state.error_type) }}</div>
-                <div>{{ state.error }}</div>
-              </div>
-            </v-tooltip>
           </v-card-text>
         </v-card>
       </v-col>
     </v-row>
 
-    <v-row class="mt-4">
+    <v-row dense class="mt-1">
       <v-col cols="12" md="4">
-        <v-card 
-          color="surface" 
+        <v-card
+          color="surface"
           variant="flat"
           class="memory-card"
           :class="{ 'component-disabled': !isL1Available }"
         >
           <v-card-item>
             <template #prepend>
-              <v-avatar color="primary" variant="tonal">
-                <v-icon icon="mdi-lightning-bolt" />
+              <v-avatar color="primary" variant="tonal" size="36">
+                <v-icon icon="mdi-lightning-bolt" size="20" />
               </v-avatar>
             </template>
-            <v-card-title>L1 缓冲</v-card-title>
-            <v-card-subtitle>短期记忆 · 消息缓冲（总合）</v-card-subtitle>
+            <v-card-title class="text-body-1">L1 缓冲</v-card-title>
+            <v-card-subtitle class="text-caption">短期记忆 · 消息缓冲</v-card-subtitle>
           </v-card-item>
           <v-card-text v-if="isL1Available" class="memory-content">
-            <div class="d-flex justify-space-between align-center">
+            <div class="d-flex align-baseline ga-2">
               <span class="text-h4 font-weight-bold">{{ l1QueueLength }}</span>
-              <span class="text-h5">♾️</span>
+              <span class="text-caption text-medium-emphasis">
+                / {{ l1MaxCapacity ?? '∞' }} 条消息
+              </span>
             </div>
-            <div class="text-caption text-medium-emphasis mt-1">
-              队列长度（分群设计）
-            </div>
+            <div class="text-caption text-medium-emphasis mt-1">分群设计 · 队列总长</div>
           </v-card-text>
-          <v-card-text v-else class="text-center py-4 memory-content">
+          <v-card-text v-else class="text-center py-3 memory-content">
             <v-icon icon="mdi-block-helper" color="error" size="large" />
-            <div class="status-text-unavailable mt-2">
+            <div class="status-text-unavailable mt-1">
               {{ getComponentDisabledReason('l1_buffer') }}
             </div>
           </v-card-text>
@@ -66,36 +85,33 @@
       </v-col>
 
       <v-col cols="12" md="4">
-        <v-card 
-          color="surface" 
+        <v-card
+          color="surface"
           variant="flat"
           class="memory-card"
           :class="{ 'component-disabled': !isL2Available }"
         >
           <v-card-item>
             <template #prepend>
-              <v-avatar color="secondary" variant="tonal">
-                <v-icon icon="mdi-database" />
+              <v-avatar color="secondary" variant="tonal" size="36">
+                <v-icon icon="mdi-database" size="20" />
               </v-avatar>
             </template>
-            <v-card-title>L2 记忆</v-card-title>
-            <v-card-subtitle>长期记忆 · 向量检索</v-card-subtitle>
+            <v-card-title class="text-body-1">L2 记忆</v-card-title>
+            <v-card-subtitle class="text-caption">长期记忆 · 向量检索</v-card-subtitle>
           </v-card-item>
           <v-card-text v-if="isL2Available" class="memory-content">
-            <div class="d-flex justify-space-between align-center">
-              <span class="text-h4 font-weight-bold">{{ l2TotalCount }}</span>
-              <span class="text-caption">条记忆</span>
+            <div class="d-flex align-baseline ga-2">
+              <span class="text-h4 font-weight-bold">{{ formatNumber(l2TotalCount) }}</span>
+              <span class="text-caption text-medium-emphasis">条记忆</span>
             </div>
-            <div class="d-flex justify-space-between mt-2">
-              <div>
-                <span class="text-h6">{{ l2GroupCount }}</span>
-                <span class="text-caption text-medium-emphasis ml-1">群聊</span>
-              </div>
+            <div class="text-caption text-medium-emphasis mt-1">
+              涉及 {{ l2GroupCount }} 个群聊
             </div>
           </v-card-text>
-          <v-card-text v-else class="text-center py-4 memory-content">
+          <v-card-text v-else class="text-center py-3 memory-content">
             <v-icon icon="mdi-block-helper" color="error" size="large" />
-            <div class="status-text-unavailable mt-2">
+            <div class="status-text-unavailable mt-1">
               {{ getComponentDisabledReason('l2_memory') }}
             </div>
           </v-card-text>
@@ -103,36 +119,36 @@
       </v-col>
 
       <v-col cols="12" md="4">
-        <v-card 
-          color="surface" 
+        <v-card
+          color="surface"
           variant="flat"
           class="memory-card"
           :class="{ 'component-disabled': !isL3Available }"
         >
           <v-card-item>
             <template #prepend>
-              <v-avatar color="accent" variant="tonal">
-                <v-icon icon="mdi-graph" />
+              <v-avatar color="accent" variant="tonal" size="36">
+                <v-icon icon="mdi-graph" size="20" />
               </v-avatar>
             </template>
-            <v-card-title>L3 知识图谱</v-card-title>
-            <v-card-subtitle>结构化知识 · 关系网络</v-card-subtitle>
+            <v-card-title class="text-body-1">L3 知识图谱</v-card-title>
+            <v-card-subtitle class="text-caption">结构化知识 · 关系网络</v-card-subtitle>
           </v-card-item>
           <v-card-text v-if="isL3Available" class="memory-content">
-            <div class="d-flex justify-space-between">
+            <div class="d-flex ga-4">
               <div class="text-center">
-                <span class="text-h4 font-weight-bold">{{ kgNodeCount }}</span>
+                <span class="text-h4 font-weight-bold">{{ formatNumber(kgNodeCount) }}</span>
                 <div class="text-caption">节点</div>
               </div>
               <div class="text-center">
-                <span class="text-h4 font-weight-bold">{{ kgEdgeCount }}</span>
+                <span class="text-h4 font-weight-bold">{{ formatNumber(kgEdgeCount) }}</span>
                 <div class="text-caption">边</div>
               </div>
             </div>
           </v-card-text>
-          <v-card-text v-else class="text-center py-4 memory-content">
+          <v-card-text v-else class="text-center py-3 memory-content">
             <v-icon icon="mdi-block-helper" color="error" size="large" />
-            <div class="status-text-unavailable mt-2">
+            <div class="status-text-unavailable mt-1">
               {{ getComponentDisabledReason('l3_kg') }}
             </div>
           </v-card-text>
@@ -140,54 +156,88 @@
       </v-col>
     </v-row>
 
-    <v-row class="mt-4">
+    <v-row dense class="mt-1">
       <v-col cols="12">
         <v-card color="surface" variant="flat">
           <v-card-item>
             <template #prepend>
               <v-icon icon="mdi-counter" color="info" />
             </template>
-            <v-card-title>Token 使用统计</v-card-title>
-            <v-card-subtitle>全局 Token 消耗</v-card-subtitle>
+            <v-card-title class="text-body-1">Token 消耗</v-card-title>
           </v-card-item>
-          <v-card-text>
-            <v-row>
-              <v-col cols="12" sm="4">
-                <div class="text-center">
-                  <span class="text-h5 font-weight-bold text-primary">
-                    {{ formatNumber(globalInputTokens) }}
-                  </span>
-                  <div class="text-caption">输入 Token</div>
-                </div>
-              </v-col>
-              <v-col cols="12" sm="4">
-                <div class="text-center">
-                  <span class="text-h5 font-weight-bold text-secondary">
-                    {{ formatNumber(globalOutputTokens) }}
-                  </span>
-                  <div class="text-caption">输出 Token</div>
-                </div>
-              </v-col>
-              <v-col cols="12" sm="4">
-                <div class="text-center">
-                  <span class="text-h5 font-weight-bold text-accent">
-                    {{ globalCalls }}
-                  </span>
-                  <div class="text-caption">调用次数</div>
-                </div>
-              </v-col>
-            </v-row>
+          <v-card-text class="pt-0">
+            <v-table density="compact" class="bg-transparent token-table">
+              <thead>
+                <tr>
+                  <th>模块</th>
+                  <th class="text-right">输入 Token</th>
+                  <th class="text-right">输出 Token</th>
+                  <th class="text-right">调用次数</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(stat, module) in tokenStats" :key="module">
+                  <td class="font-weight-medium">{{ getModuleName(module) }}</td>
+                  <td class="text-right text-primary">{{ formatNumber(stat.total_input_tokens) }}</td>
+                  <td class="text-right text-secondary">{{ formatNumber(stat.total_output_tokens) }}</td>
+                  <td class="text-right">{{ stat.total_calls }}</td>
+                </tr>
+              </tbody>
+            </v-table>
           </v-card-text>
         </v-card>
       </v-col>
     </v-row>
 
-    <v-row class="mt-4">
-      <v-col cols="12">
-        <v-card color="surface" variant="flat">
-          <v-card-text class="text-center text-medium-emphasis">
-            <v-icon icon="mdi-clock-outline" size="small" class="mr-1" />
-            运行时间: {{ uptime }}
+    <v-row dense class="mt-1" v-if="hasKgTypeData">
+      <v-col cols="12" sm="6">
+        <v-card color="surface" variant="flat" class="h-100">
+          <v-card-title class="text-subtitle-2 d-flex align-center">
+            <v-icon icon="mdi-circle-multiple" size="small" class="mr-1" />
+            节点类型分布
+          </v-card-title>
+          <v-card-text>
+            <div
+              v-for="(count, type) in kgStats?.node_types"
+              :key="'node-' + type"
+              class="d-flex align-center mb-2"
+            >
+              <span class="text-body-2 type-label">{{ type }}</span>
+              <v-progress-linear
+                :model-value="(count / kgNodeCount) * 100"
+                color="primary"
+                height="18"
+                rounded
+                class="flex-grow-1"
+              />
+              <span class="ml-2 text-caption" style="min-width: 32px; text-align: right;">{{ count }}</span>
+            </div>
+          </v-card-text>
+        </v-card>
+      </v-col>
+
+      <v-col cols="12" sm="6">
+        <v-card color="surface" variant="flat" class="h-100">
+          <v-card-title class="text-subtitle-2 d-flex align-center">
+            <v-icon icon="mdi-arrow-decision" size="small" class="mr-1" />
+            关系类型分布
+          </v-card-title>
+          <v-card-text>
+            <div
+              v-for="(count, type) in kgStats?.relation_types"
+              :key="'rel-' + type"
+              class="d-flex align-center mb-2"
+            >
+              <span class="text-body-2 type-label">{{ type }}</span>
+              <v-progress-linear
+                :model-value="(count / kgEdgeCount) * 100"
+                color="secondary"
+                height="18"
+                rounded
+                class="flex-grow-1"
+              />
+              <span class="ml-2 text-caption" style="min-width: 32px; text-align: right;">{{ count }}</span>
+            </div>
           </v-card-text>
         </v-card>
       </v-col>
@@ -198,41 +248,38 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useStatsStore } from '@/stores'
-import type { ComponentState, ComponentStatus, ErrorType } from '@/types'
-import { 
-  COMPONENT_DISPLAY_NAMES, 
-  ERROR_TYPE_DISPLAY_NAMES, 
-  STATUS_DISPLAY_NAMES 
+import type { ComponentStatus, ErrorType, TokenStats } from '@/types'
+import {
+  COMPONENT_DISPLAY_NAMES,
+  ERROR_TYPE_DISPLAY_NAMES,
+  STATUS_DISPLAY_NAMES
 } from '@/types'
 
 const statsStore = useStatsStore()
 
 const refreshInterval = ref<number | null>(null)
 
-const componentStates = computed(() => {
-  return statsStore.componentStates
+const componentStates = computed(() => statsStore.componentStates)
+const systemStats = computed(() => statsStore.systemStats)
+const tokenStats = computed((): Record<string, TokenStats> => statsStore.tokenStats || {})
+const kgStats = computed(() => statsStore.kgStats)
+
+const globalStatusColor = computed(() => {
+  const status = statsStore.globalStatus
+  if (status === 'available') return 'success'
+  if (status === 'initializing') return 'warning'
+  return 'grey'
+})
+
+const globalStatusText = computed(() => {
+  const status = statsStore.globalStatus
+  if (status === 'available') return '系统正常'
+  if (status === 'initializing') return '正在初始化'
+  return '等待启动'
 })
 
 const getComponentName = (key: string): string => {
   return COMPONENT_DISPLAY_NAMES[key] || key
-}
-
-const isLoading = (status: ComponentStatus): boolean => {
-  return status === 'pending' || status === 'initializing'
-}
-
-const getCardColor = (status: ComponentStatus): string => {
-  switch (status) {
-    case 'available':
-      return 'surface'
-    case 'pending':
-    case 'initializing':
-      return 'surface'
-    case 'unavailable':
-      return 'surface'
-    default:
-      return 'surface'
-  }
 }
 
 const getStatusIcon = (status: ComponentStatus): string => {
@@ -264,24 +311,6 @@ const getStatusColor = (status: ComponentStatus): string => {
   }
 }
 
-const getStatusText = (status: ComponentStatus): string => {
-  return STATUS_DISPLAY_NAMES[status] || status
-}
-
-const getStatusTextClass = (status: ComponentStatus): string => {
-  switch (status) {
-    case 'available':
-      return 'text-success'
-    case 'pending':
-    case 'initializing':
-      return 'text-warning'
-    case 'unavailable':
-      return 'text-error'
-    default:
-      return 'text-medium-emphasis'
-  }
-}
-
 const getErrorTypeName = (errorType: ErrorType | null): string => {
   if (!errorType) return ''
   return ERROR_TYPE_DISPLAY_NAMES[errorType] || errorType
@@ -304,35 +333,41 @@ const getComponentDisabledReason = (componentName: string): string => {
 
 const l1QueueLength = computed(() => statsStore.memoryStats?.l1?.total_messages ?? 0)
 const l1MaxCapacity = computed(() => statsStore.memoryStats?.l1?.max_capacity)
-const l1UsagePercent = computed(() => {
-  if (!l1MaxCapacity.value) return 0
-  return (l1QueueLength.value / l1MaxCapacity.value) * 100
-})
 
 const l2TotalCount = computed(() => statsStore.memoryStats?.l2?.total_count ?? 0)
 const l2GroupCount = computed(() => statsStore.memoryStats?.l2?.group_count ?? 0)
 
-const kgNodeCount = computed(() => statsStore.kgStats?.node_count ?? 0)
-const kgEdgeCount = computed(() => statsStore.kgStats?.edge_count ?? 0)
+const kgNodeCount = computed(() => kgStats.value?.node_count ?? 0)
+const kgEdgeCount = computed(() => kgStats.value?.edge_count ?? 0)
 
-const globalInputTokens = computed(() => statsStore.tokenStats?.global?.total_input_tokens ?? 0)
-const globalOutputTokens = computed(() => statsStore.tokenStats?.global?.total_output_tokens ?? 0)
-const globalCalls = computed(() => statsStore.tokenStats?.global?.total_calls ?? 0)
-
-const uptime = computed(() => {
-  const seconds = statsStore.systemStats?.uptime ?? 0
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  return `${hours} 小时 ${minutes} 分钟`
+const hasKgTypeData = computed(() => {
+  const nt = kgStats.value?.node_types
+  const rt = kgStats.value?.relation_types
+  return (nt && Object.keys(nt).length > 0) || (rt && Object.keys(rt).length > 0)
 })
 
+const uptime = computed(() => {
+  const seconds = systemStats.value?.uptime ?? 0
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  if (days > 0) return `${days} 天 ${hours} 小时`
+  if (hours > 0) return `${hours} 小时 ${minutes} 分钟`
+  return `${minutes} 分钟`
+})
+
+const getModuleName = (module: string): string => {
+  const names: Record<string, string> = {
+    global: '全局',
+    l1_summarizer: 'L1 摘要器',
+    llm_manager: 'LLM 管理器'
+  }
+  return names[module] || module
+}
+
 const formatNumber = (num: number): string => {
-  if (num >= 1000000) {
-    return (num / 1000000).toFixed(1) + 'M'
-  }
-  if (num >= 1000) {
-    return (num / 1000).toFixed(1) + 'K'
-  }
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
   return num.toString()
 }
 
@@ -359,21 +394,37 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.component-card {
-  transition: all 0.3s ease;
+.system-bar {
+  border: 1px solid rgb(var(--v-theme-on-surface), 0.08);
 }
 
-.component-loading {
-  animation: pulse 2s infinite;
+.component-disabled {
+  opacity: 0.6;
 }
 
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.7;
-  }
+.memory-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgb(var(--v-theme-on-surface), 0.08);
+}
+
+.memory-card :deep(.v-card-item) {
+  flex-shrink: 0;
+}
+
+.memory-card :deep(.v-card-text) {
+  flex-grow: 1;
+}
+
+.memory-content {
+  min-height: 72px;
+}
+
+.status-text-unavailable {
+  font-size: 0.75rem;
+  color: rgb(var(--v-theme-error));
+  font-weight: 500;
 }
 
 .animate-spin {
@@ -389,49 +440,16 @@ onUnmounted(() => {
   }
 }
 
-.component-disabled {
-  opacity: 0.6;
+.token-table {
+  border: 1px solid rgb(var(--v-theme-on-surface), 0.06);
+  border-radius: 8px;
 }
 
-.memory-card {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.memory-card :deep(.v-card-item) {
-  flex-shrink: 0;
-}
-
-.memory-card :deep(.v-card-text) {
-  flex-grow: 1;
-}
-
-.memory-content {
-  min-height: 80px;
-}
-
-.status-text-unavailable {
-  font-size: 0.75rem;
-  color: rgb(var(--v-theme-error));
-  font-weight: 500;
-}
-
-.status-text {
-  font-size: 0.75rem;
-  font-weight: 600;
-  margin-top: 4px;
-}
-
-.status-text.text-success {
-  color: rgb(var(--v-theme-success));
-}
-
-.status-text.text-warning {
-  color: rgb(var(--v-theme-warning));
-}
-
-.status-text.text-error {
-  color: rgb(var(--v-theme-error));
+.type-label {
+  min-width: 80px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
