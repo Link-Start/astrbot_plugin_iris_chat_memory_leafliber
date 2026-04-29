@@ -51,6 +51,7 @@ class TaskScheduler(Component):
         self._task_queue: Optional[asyncio.Queue] = None
         self._component_manager: Optional["ComponentManager"] = None
         self._running = False
+        self._active_tasks: set = set()
     
     @property
     def name(self) -> str:
@@ -101,6 +102,7 @@ class TaskScheduler(Component):
             await asyncio.gather(*self._tasks.values(), return_exceptions=True)
         
         self._tasks.clear()
+        self._active_tasks.clear()
         self._reset_state()
         
         logger.info("TaskScheduler 已关闭")
@@ -179,7 +181,11 @@ class TaskScheduler(Component):
                 logger.debug(f"开始执行任务：{task_name}")
                 start_time = datetime.now()
                 
-                await coro_func()
+                self._active_tasks.add(task_name)
+                try:
+                    await coro_func()
+                finally:
+                    self._active_tasks.discard(task_name)
                 
                 duration = (datetime.now() - start_time).total_seconds()
                 logger.info(f"任务 {task_name} 执行完成，耗时 {duration:.2f}s")
@@ -243,7 +249,11 @@ class TaskScheduler(Component):
                     start_time = datetime.now()
                     
                     try:
-                        await coro_func()
+                        self._active_tasks.add(task_name)
+                        try:
+                            await coro_func()
+                        finally:
+                            self._active_tasks.discard(task_name)
                         
                         duration = (datetime.now() - start_time).total_seconds()
                         logger.info(f"队列任务 {task_name} 执行完成，耗时 {duration:.2f}s")
@@ -274,13 +284,13 @@ class TaskScheduler(Component):
         return self._write_lock
     
     def is_task_running(self, task_name: str) -> bool:
-        """检查任务是否正在运行
+        """检查任务是否正在执行
         
         Args:
             task_name: 任务名称
         
         Returns:
-            任务是否正在运行
+            任务是否正在执行（仅在实际执行任务逻辑时为 True，
+            等待下一轮调度时为 False）
         """
-        task = self._tasks.get(task_name)
-        return task is not None and not task.done()
+        return task_name in self._active_tasks

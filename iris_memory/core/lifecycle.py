@@ -221,7 +221,7 @@ async def _start_scheduled_tasks(component_manager: ComponentManager) -> None:
         merge_task = MergeTask(component_manager)
         interval_hours = config.get("merge_task_interval_hours")
         scheduler.register_periodic_task(
-            task_name="merging",
+            task_name="merge",
             coro_func=merge_task.execute,
             interval_hours=interval_hours
         )
@@ -240,7 +240,7 @@ async def _start_scheduled_tasks(component_manager: ComponentManager) -> None:
         cache_cleanup_task = ImageCacheCleanupTask(component_manager)
         interval_hours = config.get("image_cache_cleanup_interval_hours", 24)
         scheduler.register_periodic_task(
-            task_name="image_cache_cleanup",
+            task_name="cache_cleanup",
             coro_func=cache_cleanup_task.execute,
             interval_hours=interval_hours
         )

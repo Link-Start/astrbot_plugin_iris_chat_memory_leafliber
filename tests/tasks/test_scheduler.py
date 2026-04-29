@@ -51,10 +51,8 @@ class TestTaskScheduler:
         """测试注册周期性任务"""
         await scheduler.initialize()
         
-        # 创建模拟任务函数
         task_func = AsyncMock()
         
-        # 注册任务
         scheduler.register_periodic_task(
             task_name="test_task",
             coro_func=task_func,
@@ -62,9 +60,8 @@ class TestTaskScheduler:
         )
         
         assert "test_task" in scheduler._tasks
-        assert scheduler.is_task_running("test_task") is True
+        assert scheduler.is_task_running("test_task") is False
         
-        # 清理
         await scheduler.shutdown()
     
     @pytest.mark.asyncio
@@ -88,6 +85,50 @@ class TestTaskScheduler:
             await asyncio.sleep(0.5)
         
         assert call_count >= 1
+        
+        await scheduler.shutdown()
+    
+    @pytest.mark.asyncio
+    async def test_is_task_running_tracks_active_execution(self, scheduler):
+        """测试 is_task_running 仅在实际执行时返回 True"""
+        await scheduler.initialize()
+        
+        running_during_execution = False
+        
+        async def long_task():
+            nonlocal running_during_execution
+            running_during_execution = scheduler.is_task_running("test_task")
+        
+        with patch("iris_memory.tasks.scheduler.random.uniform", return_value=0.0):
+            scheduler.register_periodic_task(
+                task_name="test_task",
+                coro_func=long_task,
+                interval_hours=100
+            )
+            
+            await asyncio.sleep(0.5)
+        
+        assert running_during_execution is True
+        assert scheduler.is_task_running("test_task") is False
+        
+        await scheduler.shutdown()
+    
+    @pytest.mark.asyncio
+    async def test_is_task_running_for_scheduled_task(self, scheduler):
+        """测试 is_task_running 对队列任务的状态追踪"""
+        await scheduler.initialize()
+        
+        running_during_execution = False
+        
+        async def long_task():
+            nonlocal running_during_execution
+            running_during_execution = scheduler.is_task_running("one_time")
+        
+        await scheduler.schedule_task("one_time", long_task)
+        await asyncio.sleep(1.5)
+        
+        assert running_during_execution is True
+        assert scheduler.is_task_running("one_time") is False
         
         await scheduler.shutdown()
     

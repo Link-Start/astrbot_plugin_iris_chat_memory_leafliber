@@ -99,8 +99,8 @@ class TestPreprocessLLMRequest:
         assert req.contexts == []
 
     @pytest.mark.asyncio
-    async def test_preprocess_replaces_existing_contexts(self):
-        """测试已有上下文时 L1 消息替换而非追加"""
+    async def test_preprocess_appends_to_existing_contexts(self):
+        """测试已有上下文时 L1 消息追加而非替换"""
         event = MagicMock()
         req = MagicMock()
         req.contexts = [{"role": "system", "content": "你是助手"}]
@@ -132,8 +132,11 @@ class TestPreprocessLLMRequest:
         ):
             await preprocess_llm_request(event, req, component_manager)
 
-        assert len(req.contexts) == 1
+        assert len(req.contexts) == 2
         assert req.contexts[0]["role"] == "user"
+        assert req.contexts[0]["content"] == "问题"
+        assert req.contexts[1]["role"] == "system"
+        assert req.contexts[1]["content"] == "你是助手"
 
     @pytest.mark.asyncio
     async def test_preprocess_with_user_name_binding(self):

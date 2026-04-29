@@ -120,7 +120,8 @@ async def _inject_l1_context(
 
     l1_count = len(context_list)
 
-    req.contexts = context_list
+    existing_contexts = req.contexts or []
+    req.contexts = context_list + existing_contexts
 
     try:
         req._l1_context_count = l1_count
