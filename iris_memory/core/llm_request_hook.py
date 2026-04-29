@@ -8,6 +8,7 @@ LLM 请求钩子处理模块
 - 知识图谱检索结果注入（未来扩展）
 """
 
+import re
 from typing import TYPE_CHECKING, List, Optional, cast
 
 from iris_memory.core import get_logger
@@ -17,9 +18,50 @@ if TYPE_CHECKING:
     from astrbot.api.provider import ProviderRequest
     from iris_memory.core.components import ComponentManager
     from iris_memory.l1_buffer import L1Buffer
+    from iris_memory.l2_memory.models import MemorySearchResult
     from iris_memory.profile.models import GroupProfile, UserProfile
 
 logger = get_logger("llm_request_hook")
+
+_PROMPT_SECTION_START = "<!-- iris:start:{section} -->"
+_PROMPT_SECTION_END = "<!-- iris:end:{section} -->"
+_PROMPT_SECTION_PATTERN = re.compile(
+    r"\n*<!-- iris:start:\w+ -->.*?<!-- iris:end:\w+ -->\n*",
+    re.DOTALL,
+)
+
+_L1_CONTEXT_START_MARKER = "<!-- iris:l1_context:start -->"
+_L1_CONTEXT_END_MARKER = "<!-- iris:l1_context:end -->"
+
+
+def _extract_original_prompt(prompt: str) -> str:
+    if not prompt:
+        return ""
+    cleaned = _PROMPT_SECTION_PATTERN.sub("", prompt)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
+
+
+def _wrap_prompt_section(section: str, content: str) -> str:
+    start = _PROMPT_SECTION_START.format(section=section)
+    end = _PROMPT_SECTION_END.format(section=section)
+    return f"{start}\n{content}\n{end}"
+
+
+def _remove_l1_context_block(contexts: list) -> list:
+    start_idx = None
+    end_idx = None
+    for i, ctx in enumerate(contexts):
+        content = ctx.get("content", "")
+        if content == _L1_CONTEXT_START_MARKER and start_idx is None:
+            start_idx = i
+        elif content == _L1_CONTEXT_END_MARKER and end_idx is None:
+            end_idx = i
+
+    if start_idx is not None and end_idx is not None and start_idx < end_idx:
+        return contexts[:start_idx] + contexts[end_idx + 1 :]
+
+    return contexts
 
 
 async def preprocess_llm_request(
@@ -48,20 +90,26 @@ async def preprocess_llm_request(
     l2_text, l2_results = await _collect_l2_memory(event, component_manager)
     l3_text = await _collect_l3_knowledge_graph(event, component_manager, l2_results)
 
-    prompt_parts = []
-    original_prompt = req.prompt or ""
+    original_prompt = _extract_original_prompt(req.prompt or "")
 
+    sections = [
+        ("profile", profile_text),
+        ("l3_kg", l3_text),
+        ("l2_memory", l2_text),
+    ]
+
+    prompt_parts = []
     if original_prompt:
         prompt_parts.append(original_prompt)
-    if profile_text:
-        prompt_parts.append(profile_text)
-    if l3_text:
-        prompt_parts.append(l3_text)
-    if l2_text:
-        prompt_parts.append(l2_text)
+
+    for section_name, content in sections:
+        if content:
+            prompt_parts.append(_wrap_prompt_section(section_name, content))
 
     if prompt_parts:
         req.prompt = "\n\n".join(prompt_parts)
+    else:
+        req.prompt = original_prompt
 
     await _parse_images_if_related_mode(event, req, component_manager)
 
@@ -82,9 +130,13 @@ async def _inject_l1_context(
     """
     from iris_memory.platform import get_adapter
 
+    existing_contexts = req.contexts or []
+    existing_contexts = _remove_l1_context_block(existing_contexts)
+
     buffer = component_manager.get_component("l1_buffer")
     if not buffer or not buffer.is_available:
         logger.debug("L1 Buffer 组件不可用，跳过上下文注入")
+        req.contexts = existing_contexts
         return
 
     l1_buffer = cast("L1Buffer", buffer)
@@ -97,6 +149,7 @@ async def _inject_l1_context(
     messages = l1_buffer.get_context(group_id, max_length)
     if not messages:
         logger.debug(f"群聊 {group_id} 的 L1 上下文为空，跳过注入")
+        req.contexts = existing_contexts
         return
 
     context_list = []
@@ -120,8 +173,11 @@ async def _inject_l1_context(
 
     l1_count = len(context_list)
 
-    existing_contexts = req.contexts or []
-    req.contexts = context_list + existing_contexts
+    l1_block = [{"role": "system", "content": _L1_CONTEXT_START_MARKER}]
+    l1_block.extend(context_list)
+    l1_block.append({"role": "system", "content": _L1_CONTEXT_END_MARKER})
+
+    req.contexts = l1_block + existing_contexts
 
     try:
         req._l1_context_count = l1_count
@@ -676,7 +732,7 @@ def _insert_images_by_time(req: "ProviderRequest", image_results: list) -> None:
     """按时间顺序插入图片解析结果
 
     将图片解析结果按时间戳排序后，插入到 contexts 中的正确位置。
-    图片应该紧跟在 L1 历史消息之后、当前用户消息之前。
+    优先通过 L1 上下文结束标记定位，回退到 _l1_context_count。
 
     Args:
         req: LLM 提供者请求对象
@@ -690,7 +746,16 @@ def _insert_images_by_time(req: "ProviderRequest", image_results: list) -> None:
 
     image_results.sort(key=lambda x: x["timestamp"])
 
-    insert_pos = getattr(req, "_l1_context_count", 0)
+    end_marker_idx = None
+    for i, ctx in enumerate(req.contexts):
+        if ctx.get("content") == _L1_CONTEXT_END_MARKER:
+            end_marker_idx = i
+            break
+
+    if end_marker_idx is not None:
+        insert_pos = end_marker_idx
+    else:
+        insert_pos = getattr(req, "_l1_context_count", 0)
 
     for img in image_results:
         req.contexts.insert(
