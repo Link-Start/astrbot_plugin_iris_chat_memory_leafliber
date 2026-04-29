@@ -244,7 +244,10 @@ class L3KGAdapter(Component):
     def _merge_node_content(self, existing_content: str, new_content: str) -> str:
         """合并节点内容描述
 
-        将新描述追加到已有描述后，如果新描述已包含在已有描述中则跳过。
+        将新描述追加到已有描述后，对按分号拆分的子句进行去重：
+        1. 拆分为子句列表
+        2. 过滤掉已被现有子句包含的新子句（子串包含检测）
+        3. 合并去重后的子句
 
         Args:
             existing_content: 已有内容
@@ -264,7 +267,21 @@ class L3KGAdapter(Component):
         if existing_content in new_content:
             return new_content
 
-        return f"{existing_content}；{new_content}"
+        existing_parts = [p.strip() for p in existing_content.split("；") if p.strip()]
+        new_parts = [p.strip() for p in new_content.split("；") if p.strip()]
+
+        deduped_parts = list(existing_parts)
+        for new_part in new_parts:
+            is_dup = False
+            for existing_part in existing_parts:
+                if new_part in existing_part or existing_part in new_part:
+                    if len(new_part) <= len(existing_part):
+                        is_dup = True
+                        break
+            if not is_dup:
+                deduped_parts.append(new_part)
+
+        return "；".join(deduped_parts)
 
     async def _get_node_by_id(self, node_id: str) -> Optional[dict]:
         """根据 ID 获取节点
@@ -1122,11 +1139,9 @@ class L3KGAdapter(Component):
 
                 for dup in duplicate_nodes:
                     dup_content = dup["content"]
-                    if dup_content and dup_content not in merged_content:
-                        if merged_content and merged_content not in dup_content:
-                            merged_content = merged_content + "；" + dup_content
-                        elif not merged_content:
-                            merged_content = dup_content
+                    merged_content = self._merge_node_content(
+                        merged_content, dup_content
+                    )
 
                     merged_confidence = max(
                         merged_confidence, dup.get("confidence", 0.5)
