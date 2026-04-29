@@ -10,30 +10,30 @@ Iris Chat Memory - 平台接口统一管理模块
 
 使用示例：
     >>> from iris_memory.platform import get_adapter
-    >>> 
+    >>>
     >>> # 获取平台适配器
     >>> adapter = get_adapter(event)
-    >>> 
+    >>>
     >>> # 获取用户信息
     >>> user_id = adapter.get_user_id(event)
     >>> user_name = adapter.get_user_name(event)
-    >>> 
+    >>>
     >>> # 获取群聊信息
     >>> group_id = adapter.get_group_id(event)
     >>> group_name = adapter.get_group_name(event)
     >>> is_group = adapter.is_group_message(event)
-    >>> 
+    >>>
     >>> # 获取用户角色
     >>> role = adapter.get_user_role(event)  # owner/admin/member/private
 
 扩展新平台：
     >>> from iris_memory.platform import PlatformAdapter, register_adapter
-    >>> 
+    >>>
     >>> class FeishuAdapter(PlatformAdapter):
     ...     def get_user_id(self, event):
     ...         return event.sender.open_id
     ...     # ... 实现其他方法
-    >>> 
+    >>>
     >>> register_adapter("feishu", FeishuAdapter)
 
 支持的平台：
@@ -43,7 +43,11 @@ Iris Chat Memory - 平台接口统一管理模块
 """
 
 # 导出公共 API
-from iris_memory.platform.base import PlatformAdapter, UnsupportedPlatformError
+from iris_memory.platform.base import (
+    PlatformAdapter,
+    ReplyInfo,
+    UnsupportedPlatformError,
+)
 from iris_memory.platform.factory import (
     get_adapter,
     get_supported_platforms,
@@ -56,11 +60,10 @@ __all__ = [
     # 核心接口
     "get_adapter",
     "PlatformAdapter",
+    "ReplyInfo",
     "UnsupportedPlatformError",
-    
     # 平台适配器
     "OneBot11Adapter",
-    
     # 扩展接口
     "register_adapter",
     "get_supported_platforms",

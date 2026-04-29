@@ -3,6 +3,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from iris_memory.core.message_hook import handle_user_message, update_l1_buffer
+from iris_memory.platform.base import ReplyInfo
 
 
 class TestHandleUserMessage:
@@ -11,34 +12,99 @@ class TestHandleUserMessage:
     @pytest.mark.asyncio
     async def test_handle_with_available_buffer(self):
         """测试 L1 Buffer 可用时的消息处理"""
-        # 创建模拟对象
         event = MagicMock()
         event.message_str = "你好"
         
-        # 模拟 L1Buffer 组件
         buffer = MagicMock()
         buffer.is_available = True
         buffer.add_message = AsyncMock()
         
-        # 模拟组件管理器
         component_manager = MagicMock()
         component_manager.get_component.return_value = buffer
         
-        # 模拟平台适配器
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
         adapter.get_user_id.return_value = "user456"
+        adapter.get_user_name.return_value = "测试用户"
+        adapter.get_group_name.return_value = ""
+        adapter.get_reply_info.return_value = ReplyInfo()
         
         with patch('iris_memory.core.message_hook.get_adapter', return_value=adapter):
             await handle_user_message(event, component_manager)
         
-        # 验证调用了 add_message
-        buffer.add_message.assert_called_once_with(
-            group_id="group123",
-            role="user",
-            content="你好",
-            source="user456"
+        buffer.add_message.assert_called_once()
+        call_kwargs = buffer.add_message.call_args[1]
+        assert call_kwargs["group_id"] == "group123"
+        assert call_kwargs["role"] == "user"
+        assert call_kwargs["content"] == "你好"
+        assert call_kwargs["source"] == "user456"
+        assert call_kwargs["metadata"]["user_name"] == "测试用户"
+        assert "reply_message_id" not in call_kwargs["metadata"]
+    
+    @pytest.mark.asyncio
+    async def test_handle_with_reply_info(self):
+        """测试带回复信息的消息处理"""
+        event = MagicMock()
+        event.message_str = "我也觉得"
+        
+        buffer = MagicMock()
+        buffer.is_available = True
+        buffer.add_message = AsyncMock()
+        
+        component_manager = MagicMock()
+        component_manager.get_component.return_value = buffer
+        
+        adapter = MagicMock()
+        adapter.get_group_id.return_value = "group123"
+        adapter.get_user_id.return_value = "user456"
+        adapter.get_user_name.return_value = "李四"
+        adapter.get_group_name.return_value = ""
+        adapter.get_reply_info.return_value = ReplyInfo(
+            message_id="6283",
+            user_id="1234567",
+            user_name="张三",
+            content="你好啊"
         )
+        
+        with patch('iris_memory.core.message_hook.get_adapter', return_value=adapter):
+            await handle_user_message(event, component_manager)
+        
+        buffer.add_message.assert_called_once()
+        call_kwargs = buffer.add_message.call_args[1]
+        assert call_kwargs["metadata"]["reply_message_id"] == "6283"
+        assert call_kwargs["metadata"]["reply_user_id"] == "1234567"
+        assert call_kwargs["metadata"]["reply_user_name"] == "张三"
+        assert call_kwargs["metadata"]["reply_content"] == "你好啊"
+    
+    @pytest.mark.asyncio
+    async def test_handle_with_reply_no_content(self):
+        """测试回复信息无内容时只记录 message_id"""
+        event = MagicMock()
+        event.message_str = "是的"
+        
+        buffer = MagicMock()
+        buffer.is_available = True
+        buffer.add_message = AsyncMock()
+        
+        component_manager = MagicMock()
+        component_manager.get_component.return_value = buffer
+        
+        adapter = MagicMock()
+        adapter.get_group_id.return_value = "group123"
+        adapter.get_user_id.return_value = "user456"
+        adapter.get_user_name.return_value = ""
+        adapter.get_group_name.return_value = ""
+        adapter.get_reply_info.return_value = ReplyInfo(message_id="6283")
+        
+        with patch('iris_memory.core.message_hook.get_adapter', return_value=adapter):
+            await handle_user_message(event, component_manager)
+        
+        buffer.add_message.assert_called_once()
+        call_kwargs = buffer.add_message.call_args[1]
+        assert call_kwargs["metadata"]["reply_message_id"] == "6283"
+        assert "reply_user_id" not in call_kwargs["metadata"]
+        assert "reply_user_name" not in call_kwargs["metadata"]
+        assert "reply_content" not in call_kwargs["metadata"]
     
     @pytest.mark.asyncio
     async def test_handle_with_unavailable_buffer(self):
@@ -46,7 +112,6 @@ class TestHandleUserMessage:
         event = MagicMock()
         event.message_str = "你好"
         
-        # 模拟不可用的 L1Buffer
         buffer = MagicMock()
         buffer.is_available = False
         buffer.add_message = AsyncMock()
@@ -54,7 +119,6 @@ class TestHandleUserMessage:
         component_manager = MagicMock()
         component_manager.get_component.return_value = buffer
         
-        # 不应该调用 add_message
         await handle_user_message(event, component_manager)
         
         buffer.add_message.assert_not_called()
@@ -63,7 +127,7 @@ class TestHandleUserMessage:
     async def test_handle_with_empty_content(self):
         """测试消息内容为空时的处理"""
         event = MagicMock()
-        event.message_str = ""  # 空消息
+        event.message_str = ""
         
         buffer = MagicMock()
         buffer.is_available = True
@@ -72,7 +136,6 @@ class TestHandleUserMessage:
         component_manager = MagicMock()
         component_manager.get_component.return_value = buffer
         
-        # 不应该调用 add_message
         await handle_user_message(event, component_manager)
         
         buffer.add_message.assert_not_called()
@@ -90,7 +153,6 @@ class TestHandleUserMessage:
         component_manager = MagicMock()
         component_manager.get_component.return_value = buffer
         
-        # 不应该调用 add_message
         await handle_user_message(event, component_manager)
         
         buffer.add_message.assert_not_called()

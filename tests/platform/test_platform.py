@@ -2,9 +2,46 @@
 
 import pytest
 from unittest.mock import Mock
-from iris_memory.platform.base import PlatformAdapter, UnsupportedPlatformError
+from iris_memory.platform.base import PlatformAdapter, ReplyInfo, UnsupportedPlatformError
 from iris_memory.platform.factory import get_adapter
 from iris_memory.platform.qq import OneBot11Adapter
+
+
+class TestReplyInfo:
+    """ReplyInfo 数据类测试"""
+    
+    def test_default_empty(self):
+        """测试默认空值"""
+        info = ReplyInfo()
+        assert info.message_id == ""
+        assert info.user_id == ""
+        assert info.user_name == ""
+        assert info.content == ""
+        assert info.has_reply is False
+    
+    def test_has_reply_with_message_id(self):
+        """测试有 message_id 时 has_reply 为 True"""
+        info = ReplyInfo(message_id="6283")
+        assert info.has_reply is True
+    
+    def test_has_reply_without_message_id(self):
+        """测试无 message_id 时 has_reply 为 False"""
+        info = ReplyInfo(user_id="123")
+        assert info.has_reply is False
+    
+    def test_full_reply_info(self):
+        """测试完整的回复信息"""
+        info = ReplyInfo(
+            message_id="6283",
+            user_id="1234567",
+            user_name="张三",
+            content="你好"
+        )
+        assert info.message_id == "6283"
+        assert info.user_id == "1234567"
+        assert info.user_name == "张三"
+        assert info.content == "你好"
+        assert info.has_reply is True
 
 
 class TestUnsupportedPlatformError:
@@ -90,6 +127,133 @@ class TestOneBot11Adapter:
         event.message_obj.sender = Mock()
         
         assert adapter.is_group_message(event) == False
+    
+    def test_get_reply_info_with_reply_segment(self):
+        """测试从数组格式消息段提取回复信息"""
+        adapter = OneBot11Adapter()
+        
+        event = Mock()
+        event.message_obj = Mock()
+        event.message_obj.sender = Mock()
+        event.message_obj.raw_message = {
+            "message_id": "999",
+            "message": [
+                {"type": "reply", "data": {"id": "6283"}},
+                {"type": "text", "data": {"text": "我也觉得"}}
+            ]
+        }
+        
+        reply_info = adapter.get_reply_info(event)
+        
+        assert reply_info.has_reply is True
+        assert reply_info.message_id == "6283"
+    
+    def test_get_reply_info_with_full_reply_data(self):
+        """测试提取完整的回复信息（go-cqhttp 扩展格式）"""
+        adapter = OneBot11Adapter()
+        
+        event = Mock()
+        event.message_obj = Mock()
+        event.message_obj.sender = Mock()
+        event.message_obj.raw_message = {
+            "message_id": "999",
+            "message": [
+                {
+                    "type": "reply",
+                    "data": {
+                        "id": "6283",
+                        "user_id": "1234567",
+                        "sender": {"nickname": "张三"},
+                        "content": [
+                            {"type": "text", "data": {"text": "你好啊"}}
+                        ]
+                    }
+                },
+                {"type": "text", "data": {"text": "我也觉得"}}
+            ]
+        }
+        
+        reply_info = adapter.get_reply_info(event)
+        
+        assert reply_info.has_reply is True
+        assert reply_info.message_id == "6283"
+        assert reply_info.user_id == "1234567"
+        assert reply_info.user_name == "张三"
+        assert reply_info.content == "你好啊"
+    
+    def test_get_reply_info_with_string_content(self):
+        """测试回复消息内容为字符串格式"""
+        adapter = OneBot11Adapter()
+        
+        event = Mock()
+        event.message_obj = Mock()
+        event.message_obj.sender = Mock()
+        event.message_obj.raw_message = {
+            "message_id": "999",
+            "message": [
+                {
+                    "type": "reply",
+                    "data": {
+                        "id": "6283",
+                        "content": "你好啊"
+                    }
+                },
+                {"type": "text", "data": {"text": "我也觉得"}}
+            ]
+        }
+        
+        reply_info = adapter.get_reply_info(event)
+        
+        assert reply_info.has_reply is True
+        assert reply_info.content == "你好啊"
+    
+    def test_get_reply_info_no_reply(self):
+        """测试非回复消息返回空 ReplyInfo"""
+        adapter = OneBot11Adapter()
+        
+        event = Mock()
+        event.message_obj = Mock()
+        event.message_obj.sender = Mock()
+        event.message_obj.raw_message = {
+            "message_id": "999",
+            "message": [
+                {"type": "text", "data": {"text": "你好"}}
+            ]
+        }
+        
+        reply_info = adapter.get_reply_info(event)
+        
+        assert reply_info.has_reply is False
+    
+    def test_get_reply_info_cq_code_format(self):
+        """测试从 CQ 码格式提取回复信息"""
+        adapter = OneBot11Adapter()
+        
+        event = Mock()
+        event.message_obj = Mock()
+        event.message_obj.sender = Mock()
+        event.message_obj.raw_message = {
+            "message_id": "999",
+            "message": "[CQ:reply,id=6283]我也觉得"
+        }
+        
+        reply_info = adapter.get_reply_info(event)
+        
+        assert reply_info.has_reply is True
+        assert reply_info.message_id == "6283"
+    
+    def test_get_reply_info_empty_raw_message(self):
+        """测试原始消息为空时返回空 ReplyInfo"""
+        adapter = OneBot11Adapter()
+        
+        event = Mock()
+        event.message_obj = Mock()
+        event.message_obj.sender = Mock()
+        event.message_obj.raw_message = None
+        
+        reply_info = adapter.get_reply_info(event)
+        
+        assert reply_info.has_reply is False
 
 
 class TestGetAdapter:
