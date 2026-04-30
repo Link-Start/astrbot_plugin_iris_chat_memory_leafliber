@@ -30,14 +30,6 @@ _PROMPT_SECTION_PATTERN = re.compile(
     re.DOTALL,
 )
 
-_L1_CONTEXT_START_MARKER = "<!-- iris:l1_context:start -->"
-_L1_CONTEXT_END_MARKER = "<!-- iris:l1_context:end -->"
-_L1_CONTEXT_PATTERN = re.compile(
-    r"\n*<!-- iris:l1_context:start -->.*?<!-- iris:l1_context:end -->\n*",
-    re.DOTALL,
-)
-
-
 def _extract_original_prompt(prompt: str) -> str:
     if not prompt:
         return ""
@@ -52,53 +44,6 @@ def _wrap_prompt_section(section: str, content: str) -> str:
     return f"{start}\n{content}\n{end}"
 
 
-def _find_l1_context_system_message(contexts: list) -> int | None:
-    for i, ctx in enumerate(contexts):
-        if ctx.get("role") == "system" and _L1_CONTEXT_START_MARKER in ctx.get(
-            "content", ""
-        ):
-            return i
-    return None
-
-
-def _extract_l1_content_from_system_message(content: str) -> str:
-    match = _L1_CONTEXT_PATTERN.search(content)
-    if not match:
-        return ""
-    inner = match.group()
-    inner = inner.replace(_L1_CONTEXT_START_MARKER, "").replace(
-        _L1_CONTEXT_END_MARKER, ""
-    )
-    return inner.strip()
-
-
-def _replace_l1_in_system_message(content: str, new_l1_text: str) -> str:
-    if not new_l1_text:
-        cleaned = _L1_CONTEXT_PATTERN.sub("", content)
-        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-        return cleaned
-    replacement = f"\n{_L1_CONTEXT_START_MARKER}\n{new_l1_text}\n{_L1_CONTEXT_END_MARKER}\n"
-    result = _L1_CONTEXT_PATTERN.sub(replacement, content)
-    return result.strip()
-
-
-def _remove_l1_context_block(contexts: list) -> list:
-    idx = _find_l1_context_system_message(contexts)
-    if idx is None:
-        return contexts
-
-    old_content = contexts[idx]["content"]
-    cleaned = _L1_CONTEXT_PATTERN.sub("", old_content)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-
-    if cleaned:
-        new_contexts = contexts[:idx] + [{"role": "system", "content": cleaned}] + contexts[idx + 1 :]
-    else:
-        new_contexts = contexts[:idx] + contexts[idx + 1 :]
-
-    return new_contexts
-
-
 async def preprocess_llm_request(
     event: "AstrMessageEvent",
     req: "ProviderRequest",
@@ -108,19 +53,22 @@ async def preprocess_llm_request(
 
     执行所有 LLM 对话前的预处理逻辑。
 
+    所有注入内容统一合并到 req.prompt 中，确保只产生一个 system 消息，
+    兼容所有 OpenAI 兼容 API（部分 API 不允许多个 system 消息）。
+
     注入顺序（最终 prompt 从上到下）：
     1. 原始系统提示词
-    2. 用户画像
-    3. 知识图谱
-    4. 相关记忆（最接近用户查询）
+    2. L1 上下文（近期群聊对话）
+    3. 用户画像
+    4. 知识图谱
+    5. 相关记忆（最接近用户查询）
 
     Args:
         event: AstrBot 消息事件对象
         req: LLM 提供者请求对象
         component_manager: 组件管理器实例
     """
-    await _inject_l1_context(event, req, component_manager)
-
+    l1_text = await _collect_l1_context(event, req, component_manager)
     profile_text = await _collect_user_profile(event, component_manager)
     l2_text, l2_results = await _collect_l2_memory(event, component_manager)
     l3_text = await _collect_l3_knowledge_graph(event, component_manager, l2_results)
@@ -128,6 +76,7 @@ async def preprocess_llm_request(
     original_prompt = _extract_original_prompt(req.prompt or "")
 
     sections = [
+        ("l1_context", l1_text),
         ("profile", profile_text),
         ("l3_kg", l3_text),
         ("l2_memory", l2_text),
@@ -151,33 +100,30 @@ async def preprocess_llm_request(
     _log_final_context(req)
 
 
-async def _inject_l1_context(
+async def _collect_l1_context(
     event: "AstrMessageEvent",
     req: "ProviderRequest",
     component_manager: "ComponentManager",
-) -> None:
-    """注入 L1 上下文到 LLM 请求（内部函数）
+) -> str:
+    """收集 L1 上下文文本（不直接修改 req）
 
-    将 L1 上下文合并到单个 system 角色消息中，使用标记包裹，
-    以兼容 OpenAI API（不支持多个 system 消息）。
+    将 L1 上下文格式化为文本返回，由调用方统一合并到 req.prompt 中，
+    确保只产生一个 system 消息，兼容所有 OpenAI 兼容 API。
 
     Args:
         event: AstrBot 消息事件对象
         req: LLM 提供者请求对象
         component_manager: 组件管理器实例
+
+    Returns:
+        格式化的 L1 上下文文本，不可用时返回空字符串
     """
     from iris_memory.platform import get_adapter
-
-    existing_contexts = req.contexts or []
 
     buffer = component_manager.get_component("l1_buffer")
     if not buffer or not buffer.is_available:
         logger.debug("L1 Buffer 组件不可用，跳过上下文注入")
-        l1_idx = _find_l1_context_system_message(existing_contexts)
-        if l1_idx is not None:
-            existing_contexts = _remove_l1_context_block(existing_contexts)
-        req.contexts = existing_contexts
-        return
+        return ""
 
     l1_buffer = cast("L1Buffer", buffer)
 
@@ -189,11 +135,7 @@ async def _inject_l1_context(
     messages = l1_buffer.get_context(group_id, max_length)
     if not messages:
         logger.debug(f"群聊 {group_id} 的 L1 上下文为空，跳过注入")
-        l1_idx = _find_l1_context_system_message(existing_contexts)
-        if l1_idx is not None:
-            existing_contexts = _remove_l1_context_block(existing_contexts)
-        req.contexts = existing_contexts
-        return
+        return ""
 
     context_lines = []
     for msg in messages:
@@ -216,25 +158,14 @@ async def _inject_l1_context(
 
     l1_text = "\n".join(context_lines)
 
-    l1_idx = _find_l1_context_system_message(existing_contexts)
-    if l1_idx is not None:
-        old_content = existing_contexts[l1_idx]["content"]
-        new_content = _replace_l1_in_system_message(old_content, l1_text)
-        existing_contexts[l1_idx] = {"role": "system", "content": new_content}
-        req.contexts = existing_contexts
-    else:
-        l1_block_content = (
-            f"{_L1_CONTEXT_START_MARKER}\n{l1_text}\n{_L1_CONTEXT_END_MARKER}"
-        )
-        l1_message = {"role": "system", "content": l1_block_content}
-        req.contexts = [l1_message] + existing_contexts
-
     try:
         req._l1_context_count = len(messages)
     except AttributeError:
         pass
 
-    logger.debug(f"已注入 {len(messages)} 条 L1 上下文消息到群聊 {group_id}")
+    logger.debug(f"已收集 {len(messages)} 条 L1 上下文消息到群聊 {group_id}")
+
+    return l1_text
 
 
 async def _collect_user_profile(
@@ -781,8 +712,7 @@ async def _parse_images_if_related_mode(
 def _insert_images_by_time(req: "ProviderRequest", image_results: list) -> None:
     """按时间顺序插入图片解析结果
 
-    将图片解析结果按时间戳排序后，插入到 contexts 中的正确位置。
-    优先通过 L1 上下文 system 消息定位，回退到 _l1_context_count。
+    将图片解析结果按时间戳排序后，追加到 contexts 末尾。
 
     Args:
         req: LLM 提供者请求对象
@@ -796,17 +726,10 @@ def _insert_images_by_time(req: "ProviderRequest", image_results: list) -> None:
 
     image_results.sort(key=lambda x: x["timestamp"])
 
-    l1_idx = _find_l1_context_system_message(req.contexts)
-    if l1_idx is not None:
-        insert_pos = l1_idx + 1
-    else:
-        insert_pos = getattr(req, "_l1_context_count", 0)
-
     for img in image_results:
-        req.contexts.insert(
-            insert_pos, {"role": "user", "content": f"[图片] {img['content']}"}
+        req.contexts.append(
+            {"role": "user", "content": f"[图片] {img['content']}"}
         )
-        insert_pos += 1
 
 
 def _log_final_context(req: "ProviderRequest") -> None:
