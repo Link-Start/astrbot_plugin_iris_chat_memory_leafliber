@@ -432,13 +432,6 @@ async def _parse_images_if_enabled(
             group_id, img_item.image_hash, ImageParseStatus.SUCCESS
         )
 
-        await l1_buffer.add_message(
-            group_id=group_id,
-            role="user",
-            content=f"[图片内容] {result.content}",
-            source=img_item.user_id,
-        )
-
         success_count += 1
 
     logger.info(f"已解析 {success_count}/{len(images_to_parse)} 张图片")

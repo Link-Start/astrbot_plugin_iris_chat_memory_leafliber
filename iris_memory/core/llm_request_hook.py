@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from astrbot.api.provider import ProviderRequest
     from iris_memory.core.components import ComponentManager
     from iris_memory.l1_buffer import L1Buffer
+    from iris_memory.l1_buffer.models import ContextMessage
     from iris_memory.l2_memory.models import MemorySearchResult
     from iris_memory.profile.models import GroupProfile, UserProfile
 
@@ -59,7 +60,7 @@ async def preprocess_llm_request(
     执行所有 LLM 对话前的预处理逻辑。
 
     注入策略（参考 astrbot_plugin_iris_memory，统一注入 system_prompt）：
-    - req.system_prompt: 人格/L1/画像/L2/L3/图片（全部带标记替换）
+    - req.system_prompt: 人格/L1（含内联图片）/画像/L2/L3（全部带标记替换）
     - req.contexts: 不修改
     - req.prompt: 不修改
 
@@ -68,14 +69,14 @@ async def preprocess_llm_request(
         req: LLM 提供者请求对象
         component_manager: 组件管理器实例
     """
+    await _parse_images_if_related_mode(event, req, component_manager)
+
     l1_text = await _collect_l1_context(event, req, component_manager)
     profile_text = await _collect_user_profile(event, component_manager)
     l2_text, l2_results = await _collect_l2_memory(event, component_manager)
     l3_text = await _collect_l3_knowledge_graph(event, component_manager, l2_results)
 
     _inject_all_to_system_prompt(req, l1_text, profile_text, l3_text, l2_text)
-
-    await _parse_images_if_related_mode(event, req, component_manager)
 
     _log_final_context(req)
 
@@ -121,6 +122,102 @@ def _inject_all_to_system_prompt(
         req.system_prompt = original
 
 
+async def _build_image_map(
+    l1_buffer: "L1Buffer",
+    group_id: str,
+    component_manager: "ComponentManager",
+) -> dict:
+    """构建图片解析结果映射表
+
+    从 L1 Buffer 图片队列和缓存中获取已解析的图片内容，
+    按 message_id 和时间窗口关联到对应的消息。
+
+    Args:
+        l1_buffer: L1 Buffer 实例
+        group_id: 群聊 ID
+        component_manager: 组件管理器实例
+
+    Returns:
+        映射表，key 为 message_id 或 (user_id, timestamp_window)，value为图片描述列表
+    """
+    from iris_memory.image import ImageParseStatus
+
+    cache_manager = component_manager.get_component("image_cache")
+
+    all_images = l1_buffer.get_images(group_id, only_pending=False)
+    if not all_images:
+        return {}
+
+    image_map: dict[str, list[str]] = {}
+
+    for img_item in all_images:
+        if img_item.status != ImageParseStatus.SUCCESS:
+            continue
+
+        desc: Optional[str] = None
+
+        if cache_manager and cache_manager.is_available:
+            cached = await cache_manager.get_cache(img_item.image_hash)
+            if cached and cached.content:
+                desc = cached.content
+
+        if not desc:
+            continue
+
+        if img_item.message_id:
+            key = img_item.message_id
+        else:
+            ts = img_item.timestamp
+            key = f"{img_item.user_id}:{ts.hour}:{ts.minute}"
+
+        if key not in image_map:
+            image_map[key] = []
+        image_map[key].append(desc)
+
+    return image_map
+
+
+def _get_inline_image_desc(
+    msg: "ContextMessage",
+    msg_id: Optional[str],
+    image_map: dict,
+) -> str:
+    """获取消息的行内图片描述
+
+    根据消息 ID 或时间窗口匹配图片解析结果，
+    返回行内格式的图片描述文本。
+
+    Args:
+        msg: 上下文消息
+        msg_id: 消息 ID
+        image_map: 图片映射表
+
+    Returns:
+        行内图片描述，如 " [图片：一只猫的照片]"，无匹配时返回空字符串
+    """
+    if not image_map:
+        return ""
+
+    descs: Optional[list[str]] = None
+
+    if msg_id and msg_id in image_map:
+        descs = image_map[msg_id]
+    else:
+        ts = msg.timestamp
+        source = msg.source
+        key = f"{source}:{ts.hour}:{ts.minute}"
+        descs = image_map.get(key)
+
+    if not descs:
+        return ""
+
+    if len(descs) == 1:
+        return f" [图片：{descs[0]}]"
+
+    parts = "；".join(descs)
+    return f" [图片：{parts}]"
+
+
 async def _collect_l1_context(
     event: "AstrMessageEvent",
     req: "ProviderRequest",
@@ -158,13 +255,23 @@ async def _collect_l1_context(
         logger.debug(f"群聊 {group_id} 的 L1 上下文为空，跳过注入")
         return ""
 
+    image_map = await _build_image_map(l1_buffer, group_id, component_manager)
+
     lines = []
     if group_id:
         lines.append("【近期群聊记录】")
-        lines.append("以下是群里最近的对话，帮助你了解当前话题：")
+        lines.append(
+            "以下是群里最近的对话，帮助你了解当前话题。"
+            "其中 [图片] 标记为对话中发送的图片的辅助描述，"
+            "仅用于辅助理解对话内容："
+        )
     else:
         lines.append("【近期对话记录】")
-        lines.append("以下是你们最近的对话：")
+        lines.append(
+            "以下是你们最近的对话。"
+            "其中 [图片] 标记为对话中发送的图片的辅助描述，"
+            "仅用于辅助理解对话内容："
+        )
 
     for msg in messages:
         content = msg.content
@@ -188,7 +295,11 @@ async def _collect_l1_context(
                 reply_tag = f" ↩️回复{ref_sender}「{reply_content}」"
 
             sender = user_name or "对方"
-            lines.append(f"{sender}:{reply_tag} {content}")
+
+            msg_id = msg.metadata.get("message_id") if msg.metadata else None
+            image_desc = _get_inline_image_desc(msg, msg_id, image_map)
+
+            lines.append(f"{sender}:{reply_tag} {content}{image_desc}")
         elif role == "assistant":
             lines.append(f"Bot: {content}")
 
@@ -664,7 +775,11 @@ async def _parse_images_if_related_mode(
         )
 
     if not images_to_parse:
-        _inject_images_to_system_prompt(req, all_image_results)
+        total_cached = len(all_image_results)
+        if total_cached > 0:
+            logger.info(
+                f"已从缓存获取 {total_cached} 条图片解析结果，将内联到 L1 上下文中"
+            )
         return
 
     if quota_manager and quota_manager.is_available:
@@ -736,51 +851,12 @@ async def _parse_images_if_related_mode(
 
         success_count += 1
 
-    _inject_images_to_system_prompt(req, all_image_results)
-
     total_injected = len(all_image_results)
     if total_injected > 0:
         logger.info(
-            f"已注入 {total_injected} 条图片解析结果到 LLM 上下文 "
-            f"（新解析 {success_count}，缓存 {len(cached_results)}）"
+            f"已解析 {success_count} 张新图片，缓存 {len(cached_results)} 张，"
+            f"共 {total_injected} 条图片解析结果将内联到 L1 上下文中"
         )
-
-
-def _inject_images_to_system_prompt(
-    req: "ProviderRequest", image_results: list
-) -> None:
-    """将图片解析结果注入到 system_prompt 中
-
-    格式参考 astrbot_plugin_iris_memory 的 ImageAnalyzer.format_for_llm_context。
-    使用标记包裹图片 section，支持重复调用时替换而非追加。
-
-    Args:
-        req: LLM 提供者请求对象
-        image_results: 图片解析结果列表，每项包含 timestamp 和 content
-    """
-    if not image_results:
-        return
-
-    image_results.sort(key=lambda x: x["timestamp"])
-
-    valid_results = [r for r in image_results if r.get("content")]
-    if not valid_results:
-        return
-
-    if len(valid_results) == 1:
-        image_text = f"（用户发送的图片内容：{valid_results[0]['content']}）"
-    else:
-        desc_list = [f"{i + 1}. {r['content']}" for i, r in enumerate(valid_results)]
-        image_text = "（用户发送的图片内容：\n" + "\n".join(desc_list) + "）"
-
-    original = _extract_original_prompt(req.system_prompt or "")
-
-    image_section = _wrap_prompt_section("images", image_text)
-
-    if original:
-        req.system_prompt = f"{original}\n\n{image_section}"
-    else:
-        req.system_prompt = image_section
 
 
 def _log_final_context(req: "ProviderRequest") -> None:

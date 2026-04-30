@@ -11,7 +11,8 @@ from iris_memory.core.llm_request_hook import (
     _extract_original_prompt,
     _wrap_prompt_section,
     _inject_all_to_system_prompt,
-    _inject_images_to_system_prompt,
+    _build_image_map,
+    _get_inline_image_desc,
 )
 
 
@@ -31,6 +32,7 @@ _COLLECT_PROFILE_PATCH = "iris_memory.core.llm_request_hook._collect_user_profil
 _COLLECT_L2_PATCH = "iris_memory.core.llm_request_hook._collect_l2_memory"
 _COLLECT_L3_PATCH = "iris_memory.core.llm_request_hook._collect_l3_knowledge_graph"
 _PARSE_IMAGES_PATCH = "iris_memory.core.llm_request_hook._parse_images_if_related_mode"
+_BUILD_IMAGE_MAP_PATCH = "iris_memory.core.llm_request_hook._build_image_map"
 _LOG_CONTEXT_PATCH = "iris_memory.core.llm_request_hook._log_final_context"
 
 
@@ -48,6 +50,7 @@ def _patch_collect_fns(
         ),
         patch(_COLLECT_L3_PATCH, new_callable=AsyncMock, return_value=l3_text),
         patch(_PARSE_IMAGES_PATCH, new_callable=AsyncMock, return_value=None),
+        patch(_BUILD_IMAGE_MAP_PATCH, new_callable=AsyncMock, return_value={}),
         patch(_LOG_CONTEXT_PATCH),
     ]
     if adapter:
@@ -181,42 +184,138 @@ class TestInjectAllToSystemPrompt:
         assert l1_idx < profile_idx < l3_idx < l2_idx
 
 
-class TestInjectImagesToSystemPrompt:
-    """测试图片注入到 system_prompt"""
+class TestBuildImageMap:
+    """测试图片映射表构建"""
 
-    def test_inject_images_to_empty_prompt(self):
-        req = MagicMock()
-        req.system_prompt = ""
-        _inject_images_to_system_prompt(req, [{"timestamp": 1, "content": "一只猫"}])
-        assert "<!-- iris:start:images -->" in req.system_prompt
-        assert "（用户发送的图片内容：一只猫）" in req.system_prompt
+    @pytest.mark.asyncio
+    async def test_build_image_map_empty_images(self):
+        l1_buffer = MagicMock()
+        l1_buffer.get_images.return_value = []
+        component_manager = MagicMock()
 
-    def test_inject_images_preserves_existing(self):
-        req = MagicMock()
-        req.system_prompt = (
-            "系统提示\n\n"
-            "<!-- iris:start:l1_context -->\n对话\n<!-- iris:end:l1_context -->"
+        result = await _build_image_map(l1_buffer, "group1", component_manager)
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_build_image_map_with_cached_images(self):
+        from iris_memory.image import ImageParseStatus
+        from datetime import datetime
+
+        img_item = MagicMock()
+        img_item.status = ImageParseStatus.SUCCESS
+        img_item.message_id = "msg123"
+        img_item.image_hash = "hash1"
+        img_item.timestamp = datetime.now()
+        img_item.user_id = "user1"
+
+        l1_buffer = MagicMock()
+        l1_buffer.get_images.return_value = [img_item]
+
+        cached_result = MagicMock()
+        cached_result.content = "一只猫的照片"
+
+        cache_manager = MagicMock()
+        cache_manager.is_available = True
+        cache_manager.get_cache = AsyncMock(return_value=cached_result)
+
+        component_manager = MagicMock()
+        component_manager.get_component.return_value = cache_manager
+
+        result = await _build_image_map(l1_buffer, "group1", component_manager)
+        assert "msg123" in result
+        assert result["msg123"] == ["一只猫的照片"]
+
+    @pytest.mark.asyncio
+    async def test_build_image_map_skips_non_success(self):
+        from iris_memory.image import ImageParseStatus
+
+        img_item = MagicMock()
+        img_item.status = ImageParseStatus.PENDING
+        img_item.message_id = "msg123"
+        img_item.image_hash = "hash1"
+
+        l1_buffer = MagicMock()
+        l1_buffer.get_images.return_value = [img_item]
+
+        component_manager = MagicMock()
+        component_manager.get_component.return_value = None
+
+        result = await _build_image_map(l1_buffer, "group1", component_manager)
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_build_image_map_fallback_to_timestamp_key(self):
+        from iris_memory.image import ImageParseStatus
+        from datetime import datetime
+
+        ts = datetime(2025, 1, 1, 10, 30)
+        img_item = MagicMock()
+        img_item.status = ImageParseStatus.SUCCESS
+        img_item.message_id = ""
+        img_item.image_hash = "hash1"
+        img_item.timestamp = ts
+        img_item.user_id = "user1"
+
+        l1_buffer = MagicMock()
+        l1_buffer.get_images.return_value = [img_item]
+
+        cached_result = MagicMock()
+        cached_result.content = "风景照"
+
+        cache_manager = MagicMock()
+        cache_manager.is_available = True
+        cache_manager.get_cache = AsyncMock(return_value=cached_result)
+
+        component_manager = MagicMock()
+        component_manager.get_component.return_value = cache_manager
+
+        result = await _build_image_map(l1_buffer, "group1", component_manager)
+        key = "user1:10:30"
+        assert key in result
+        assert result[key] == ["风景照"]
+
+
+class TestGetInlineImageDesc:
+    """测试行内图片描述获取"""
+
+    def test_empty_image_map(self):
+        msg = _make_msg("user", "看看这个")
+        result = _get_inline_image_desc(msg, None, {})
+        assert result == ""
+
+    def test_match_by_message_id(self):
+        msg = _make_msg("user", "看看这个")
+        image_map = {"msg123": ["一只猫的照片"]}
+        result = _get_inline_image_desc(msg, "msg123", image_map)
+        assert result == " [图片：一只猫的照片]"
+
+    def test_match_by_timestamp_window(self):
+        from datetime import datetime
+
+        ts = datetime(2025, 1, 1, 10, 30)
+        msg = ContextMessage(
+            role="user",
+            content="看看这个",
+            timestamp=ts,
+            token_count=1,
+            source="user1",
+            metadata={},
         )
-        _inject_images_to_system_prompt(req, [{"timestamp": 1, "content": "一只猫"}])
-        assert "系统提示" in req.system_prompt
-        assert "<!-- iris:start:images -->" in req.system_prompt
-        assert "（用户发送的图片内容：一只猫）" in req.system_prompt
+        image_map = {"user1:10:30": ["风景照"]}
+        result = _get_inline_image_desc(msg, None, image_map)
+        assert result == " [图片：风景照]"
 
-    def test_inject_images_empty_does_nothing(self):
-        req = MagicMock()
-        req.system_prompt = "系统提示"
-        _inject_images_to_system_prompt(req, [])
-        assert req.system_prompt == "系统提示"
+    def test_multiple_images_joined(self):
+        msg = _make_msg("user", "看看这些")
+        image_map = {"msg123": ["图片1", "图片2"]}
+        result = _get_inline_image_desc(msg, "msg123", image_map)
+        assert result == " [图片：图片1；图片2]"
 
-    def test_inject_images_replaces_existing(self):
-        req = MagicMock()
-        req.system_prompt = (
-            "系统提示\n\n<!-- iris:start:images -->\n旧图片\n<!-- iris:end:images -->"
-        )
-        _inject_images_to_system_prompt(req, [{"timestamp": 1, "content": "新图片"}])
-        assert "旧图片" not in req.system_prompt
-        assert "（用户发送的图片内容：新图片）" in req.system_prompt
-        assert req.system_prompt.count("<!-- iris:start:images -->") == 1
+    def test_no_match(self):
+        msg = _make_msg("user", "看看这个")
+        image_map = {"other_msg": ["一只猫的照片"]}
+        result = _get_inline_image_desc(msg, "msg456", image_map)
+        assert result == ""
 
 
 class TestPreprocessLLMRequest:

@@ -7,7 +7,6 @@ Iris Chat Memory - AstrBot 分层记忆插件
 - L3: 知识图谱（KuzuDB）
 """
 
-import asyncio
 import sys
 from pathlib import Path
 from typing import Optional
@@ -61,47 +60,40 @@ logger = get_logger("main")
     "Leafiber",
     "Iris Chat Memory",
     "1.0.0",
-    "https://github.com/Leafliber/astrbot_plugin_iris_chat_memory"
+    "https://github.com/Leafliber/astrbot_plugin_iris_chat_memory",
 )
 class IrisChatMemoryPlugin(Star):
     """AstrBot 分层记忆插件主类
-    
+
     集成三阶段记忆系统，支持热重启和配置热修改。
     """
-    
+
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.context: Context = context
-        
-        # 初始化配置系统
-        data_dir = Path(get_astrbot_data_path()) / "plugin_data" / "astrbot_plugin_iris_chat_memory"
+
+        data_dir = (
+            Path(get_astrbot_data_path())
+            / "plugin_data"
+            / "astrbot_plugin_iris_chat_memory"
+        )
         self.config: Config = init_config(config, data_dir)
         logger.info(f"插件数据目录：{data_dir}")
-        
-        # 创建组件管理器
+
         components = create_components(context, self)
-        self.component_manager: Optional[ComponentManager] = ComponentManager(components)
-        self._initialized: bool = False
-        self._init_lock: asyncio.Lock = asyncio.Lock()
-        
-        # 设置全局组件管理器引用
+        self.component_manager: Optional[ComponentManager] = ComponentManager(
+            components
+        )
+
         set_component_manager(self.component_manager)
-        
-        # 注册组件
+
         self._register_llm_tools()
         self._register_command_handlers()
-        
-        # 启动 Web 服务器
+
         self.web_server: Optional[WebServer] = None
-        try:
-            self.web_server = create_web_server_from_config()
-            if self.web_server:
-                self.web_server.start()
-        except Exception as e:
-            logger.error(f"初始化 Web 服务器失败：{e}", exc_info=True)
-        
-        logger.info("✅ Iris Chat Memory 插件已加载")
-    
+
+        logger.info("Iris Chat Memory 插件已加载（等待异步初始化）")
+
     def _register_llm_tools(self) -> None:
         """注册 LLM Tool"""
         try:
@@ -118,7 +110,7 @@ class IrisChatMemoryPlugin(Star):
             logger.info(f"已注册 {len(tools)} 个 LLM Tool")
         except Exception as e:
             logger.error(f"注册 LLM Tool 失败：{e}", exc_info=True)
-    
+
     def _register_command_handlers(self) -> None:
         """注册指令处理器"""
         try:
@@ -135,17 +127,22 @@ class IrisChatMemoryPlugin(Star):
             logger.info(f"已注册 {len(handlers)} 个指令处理器")
         except Exception as e:
             logger.error(f"注册指令处理器失败：{e}", exc_info=True)
-    
-    async def _ensure_initialized(self) -> None:
-        """确保组件已初始化"""
-        if self._initialized:
-            return
-        async with self._init_lock:
-            if self._initialized:
-                return
+
+    async def initialize(self) -> None:
+        try:
             await initialize_components(self.component_manager)
-            self._initialized = True
-    
+        except Exception as e:
+            logger.error(f"组件初始化失败：{e}", exc_info=True)
+
+        try:
+            self.web_server = create_web_server_from_config()
+            if self.web_server:
+                self.web_server.start()
+        except Exception as e:
+            logger.error(f"初始化 Web 服务器失败：{e}", exc_info=True)
+
+        logger.info("Iris Chat Memory 插件异步初始化完成")
+
     async def terminate(self):
         """插件卸载清理"""
         logger.info("开始关闭插件组件...")
@@ -153,38 +150,30 @@ class IrisChatMemoryPlugin(Star):
             self.web_server.shutdown()
         await shutdown_components(self.component_manager)
         logger.info("Iris Chat Memory 插件已卸载")
-    
+
     # ========================================================================
     # AstrBot 钩子
     # ========================================================================
-    
+
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_all_message(self, event: AstrMessageEvent) -> None:
-        """处理所有消息事件"""
-        await self._ensure_initialized()
         if self.component_manager:
             await handle_user_message(event, self.component_manager)
-    
+
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("iris_mem")
     async def iris_mem(self, event: AstrMessageEvent) -> None:
-        """iris_mem 指令入口 - 管理员专用"""
-        await self._ensure_initialized()
         if self.component_manager:
             result = await execute_command(event)
             if result:
                 yield event.plain_result(result)
-    
+
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req) -> None:
-        """LLM 请求前钩子"""
-        await self._ensure_initialized()
         if self.component_manager:
             await preprocess_llm_request(event, req, self.component_manager)
-    
+
     @filter.on_llm_response()
     async def on_llm_response(self, event: AstrMessageEvent, resp) -> None:
-        """LLM 响应后钩子"""
-        await self._ensure_initialized()
         if self.component_manager:
             await handle_llm_response(event, resp, self.component_manager)

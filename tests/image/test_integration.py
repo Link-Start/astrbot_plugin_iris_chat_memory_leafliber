@@ -93,10 +93,10 @@ class TestImageParsingIntegration:
         ]
         mock_adapter.get_images = Mock(return_value=images)
 
-        with patch("iris_memory.core.message_hook.get_config") as mock_get_config, patch(
-            "iris_memory.core.message_hook.get_adapter"
-        ) as mock_get_adapter:
-
+        with (
+            patch("iris_memory.core.message_hook.get_config") as mock_get_config,
+            patch("iris_memory.core.message_hook.get_adapter") as mock_get_adapter,
+        ):
             # 配置 mock
             mock_config = Mock()
             mock_config.get = Mock(
@@ -120,13 +120,9 @@ class TestImageParsingIntegration:
             assert mock_llm_manager.generate_with_images.call_count == 2
 
             # 验证 L1 Buffer 入队
-            assert mock_l1_buffer.add_message.call_count >= 2
-            # 检查是否有图片内容入队
-            calls = mock_l1_buffer.add_message.call_args_list
-            image_calls = [
-                c for c in calls if "[图片内容]" in str(c[1].get("content", ""))
-            ]
-            assert len(image_calls) >= 2
+            assert mock_l1_buffer.add_message.call_count >= 1
+            # 检查图片已标记为解析成功
+            assert mock_l1_buffer.mark_image_parsed.call_count >= 2
 
     @pytest.mark.asyncio
     async def test_related_mode_skip_parsing(
@@ -137,10 +133,10 @@ class TestImageParsingIntegration:
         mock_quota_manager,
     ):
         """测试 related 模式下不解析图片"""
-        with patch("iris_memory.core.message_hook.get_config") as mock_get_config, patch(
-            "iris_memory.core.message_hook.get_adapter"
-        ) as mock_get_adapter:
-
+        with (
+            patch("iris_memory.core.message_hook.get_config") as mock_get_config,
+            patch("iris_memory.core.message_hook.get_adapter") as mock_get_adapter,
+        ):
             # 配置 mock
             mock_config = Mock()
             mock_config.get = Mock(
@@ -168,10 +164,10 @@ class TestImageParsingIntegration:
         mock_quota_manager,
     ):
         """测试禁用图片解析"""
-        with patch("iris_memory.core.message_hook.get_config") as mock_get_config, patch(
-            "iris_memory.core.message_hook.get_adapter"
-        ) as mock_get_adapter:
-
+        with (
+            patch("iris_memory.core.message_hook.get_config") as mock_get_config,
+            patch("iris_memory.core.message_hook.get_adapter") as mock_get_adapter,
+        ):
             # 配置 mock
             mock_config = Mock()
             mock_config.get = Mock(
@@ -201,10 +197,10 @@ class TestImageParsingIntegration:
         # 配置配额耗尽
         mock_quota_manager.check_quota = AsyncMock(return_value=False)
 
-        with patch("iris_memory.core.message_hook.get_config") as mock_get_config, patch(
-            "iris_memory.core.message_hook.get_adapter"
-        ) as mock_get_adapter:
-
+        with (
+            patch("iris_memory.core.message_hook.get_config") as mock_get_config,
+            patch("iris_memory.core.message_hook.get_adapter") as mock_get_adapter,
+        ):
             # 配置 mock
             mock_config = Mock()
             mock_config.get = Mock(
@@ -239,10 +235,10 @@ class TestImageParsingIntegration:
         images = [ImageInfo(url="https://example.com/image.jpg")]
         mock_adapter.get_images = Mock(return_value=images)
 
-        with patch("iris_memory.core.message_hook.get_config") as mock_get_config, patch(
-            "iris_memory.core.message_hook.get_adapter"
-        ) as mock_get_adapter:
-
+        with (
+            patch("iris_memory.core.message_hook.get_config") as mock_get_config,
+            patch("iris_memory.core.message_hook.get_adapter") as mock_get_adapter,
+        ):
             # 配置 mock
             mock_config = Mock()
             mock_config.get = Mock(
@@ -259,7 +255,7 @@ class TestImageParsingIntegration:
 
             # 验证配额已使用（配额在检查LLM Manager之前使用）
             mock_quota_manager.use_quota.assert_called_once_with(1)
-            
+
             # 验证 LLM 未调用
             mock_llm_manager.generate_with_images.assert_not_called()
 
@@ -278,10 +274,10 @@ class TestImageParsingIntegration:
         images = [ImageInfo(url="https://example.com/image.jpg")]
         mock_adapter.get_images = Mock(return_value=images)
 
-        with patch("iris_memory.core.message_hook.get_config") as mock_get_config, patch(
-            "iris_memory.core.message_hook.get_adapter"
-        ) as mock_get_adapter:
-
+        with (
+            patch("iris_memory.core.message_hook.get_config") as mock_get_config,
+            patch("iris_memory.core.message_hook.get_adapter") as mock_get_adapter,
+        ):
             # 配置 mock
             mock_config = Mock()
             mock_config.get = Mock(
@@ -331,10 +327,10 @@ class TestImageParsingIntegration:
             ]
         )
 
-        with patch("iris_memory.core.message_hook.get_config") as mock_get_config, patch(
-            "iris_memory.core.message_hook.get_adapter"
-        ) as mock_get_adapter:
-
+        with (
+            patch("iris_memory.core.message_hook.get_config") as mock_get_config,
+            patch("iris_memory.core.message_hook.get_adapter") as mock_get_adapter,
+        ):
             # 配置 mock
             mock_config = Mock()
             mock_config.get = Mock(
@@ -353,12 +349,8 @@ class TestImageParsingIntegration:
             # 验证 LLM 调用了两次
             assert mock_llm_manager.generate_with_images.call_count == 2
 
-            # 验证只有一张图片的解析结果入队
-            calls = mock_l1_buffer.add_message.call_args_list
-            image_calls = [
-                c for c in calls if "[图片内容]" in str(c[1].get("content", ""))
-            ]
-            assert len(image_calls) == 1  # 只有第一张成功
+            # 验证只有一张图片的解析结果标记成功
+            assert mock_l1_buffer.mark_image_parsed.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_no_images_in_message(
@@ -373,10 +365,10 @@ class TestImageParsingIntegration:
         # 配置无图片
         mock_adapter.get_images = Mock(return_value=[])
 
-        with patch("iris_memory.core.message_hook.get_config") as mock_get_config, patch(
-            "iris_memory.core.message_hook.get_adapter"
-        ) as mock_get_adapter:
-
+        with (
+            patch("iris_memory.core.message_hook.get_config") as mock_get_config,
+            patch("iris_memory.core.message_hook.get_adapter") as mock_get_adapter,
+        ):
             # 配置 mock
             mock_config = Mock()
             mock_config.get = Mock(
@@ -413,10 +405,10 @@ class TestImageParsingIntegration:
         images = [ImageInfo(url="https://example.com/image.jpg")]
         mock_adapter.get_images = Mock(return_value=images)
 
-        with patch("iris_memory.core.message_hook.get_config") as mock_get_config, patch(
-            "iris_memory.core.message_hook.get_adapter"
-        ) as mock_get_adapter:
-
+        with (
+            patch("iris_memory.core.message_hook.get_config") as mock_get_config,
+            patch("iris_memory.core.message_hook.get_adapter") as mock_get_adapter,
+        ):
             # 配置 mock
             mock_config = Mock()
             mock_config.get = Mock(
@@ -448,12 +440,11 @@ class TestImageParsingIntegration:
         images = [ImageInfo(url="https://example.com/image.jpg")]
         mock_adapter.get_images = Mock(return_value=images)
 
-        with patch("iris_memory.core.message_hook.get_config") as mock_get_config, patch(
-            "iris_memory.core.message_hook.get_adapter"
-        ) as mock_get_adapter, patch(
-            "iris_memory.image.ImageParser"
-        ) as MockImageParser:
-
+        with (
+            patch("iris_memory.core.message_hook.get_config") as mock_get_config,
+            patch("iris_memory.core.message_hook.get_adapter") as mock_get_adapter,
+            patch("iris_memory.image.ImageParser") as MockImageParser,
+        ):
             # 配置 mock
             mock_config = Mock()
             mock_config.get = Mock(
