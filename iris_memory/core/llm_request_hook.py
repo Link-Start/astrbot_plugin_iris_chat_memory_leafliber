@@ -5,7 +5,11 @@ LLM 请求钩子处理模块
 - L1 上下文注入
 - 用户画像注入
 - 图片解析（related 模式）
-- 知识图谱检索结果注入（未来扩展）
+- 知识图谱检索结果注入
+
+注入策略（参考 astrbot_plugin_iris_memory）：
+所有内容统一注入到 req.system_prompt，使用标记包裹各 section，
+支持重复调用时替换而非追加。不修改 req.contexts 和 req.prompt。
 """
 
 import re
@@ -30,6 +34,7 @@ _PROMPT_SECTION_PATTERN = re.compile(
     re.DOTALL,
 )
 
+
 def _extract_original_prompt(prompt: str) -> str:
     if not prompt:
         return ""
@@ -53,15 +58,10 @@ async def preprocess_llm_request(
 
     执行所有 LLM 对话前的预处理逻辑。
 
-    所有注入内容统一合并到 req.prompt 中，确保只产生一个 system 消息，
-    兼容所有 OpenAI 兼容 API（部分 API 不允许多个 system 消息）。
-
-    注入顺序（最终 prompt 从上到下）：
-    1. 原始系统提示词
-    2. L1 上下文（近期群聊对话）
-    3. 用户画像
-    4. 知识图谱
-    5. 相关记忆（最接近用户查询）
+    注入策略（参考 astrbot_plugin_iris_memory，统一注入 system_prompt）：
+    - req.system_prompt: 人格/L1/画像/L2/L3/图片（全部带标记替换）
+    - req.contexts: 不修改
+    - req.prompt: 不修改
 
     Args:
         event: AstrBot 消息事件对象
@@ -73,7 +73,32 @@ async def preprocess_llm_request(
     l2_text, l2_results = await _collect_l2_memory(event, component_manager)
     l3_text = await _collect_l3_knowledge_graph(event, component_manager, l2_results)
 
-    original_prompt = _extract_original_prompt(req.prompt or "")
+    _inject_all_to_system_prompt(req, l1_text, profile_text, l3_text, l2_text)
+
+    await _parse_images_if_related_mode(event, req, component_manager)
+
+    _log_final_context(req)
+
+
+def _inject_all_to_system_prompt(
+    req: "ProviderRequest",
+    l1_text: str,
+    profile_text: str,
+    l3_text: str,
+    l2_text: str,
+) -> None:
+    """将所有内容注入到 req.system_prompt 中
+
+    使用标记包裹各 section，支持重复调用时替换而非追加。
+
+    Args:
+        req: LLM 提供者请求对象
+        l1_text: L1 对话历史文本
+        profile_text: 用户画像文本
+        l3_text: 知识图谱文本
+        l2_text: 相关记忆文本
+    """
+    original = _extract_original_prompt(req.system_prompt or "")
 
     sections = [
         ("l1_context", l1_text),
@@ -83,21 +108,17 @@ async def preprocess_llm_request(
     ]
 
     prompt_parts = []
-    if original_prompt:
-        prompt_parts.append(original_prompt)
+    if original:
+        prompt_parts.append(original)
 
     for section_name, content in sections:
         if content:
             prompt_parts.append(_wrap_prompt_section(section_name, content))
 
     if prompt_parts:
-        req.prompt = "\n\n".join(prompt_parts)
+        req.system_prompt = "\n\n".join(prompt_parts)
     else:
-        req.prompt = original_prompt
-
-    await _parse_images_if_related_mode(event, req, component_manager)
-
-    _log_final_context(req)
+        req.system_prompt = original
 
 
 async def _collect_l1_context(
@@ -107,8 +128,8 @@ async def _collect_l1_context(
 ) -> str:
     """收集 L1 上下文文本（不直接修改 req）
 
-    将 L1 上下文格式化为文本返回，由调用方统一合并到 req.prompt 中，
-    确保只产生一个 system 消息，兼容所有 OpenAI 兼容 API。
+    将 L1 上下文格式化为纯文本返回，用于注入到 system_prompt。
+    格式参考 astrbot_plugin_iris_memory 的 ChatHistoryBuffer.format_for_llm。
 
     Args:
         event: AstrBot 消息事件对象
@@ -137,26 +158,39 @@ async def _collect_l1_context(
         logger.debug(f"群聊 {group_id} 的 L1 上下文为空，跳过注入")
         return ""
 
-    context_lines = []
+    lines = []
+    if group_id:
+        lines.append("【近期群聊记录】")
+        lines.append("以下是群里最近的对话，帮助你了解当前话题：")
+    else:
+        lines.append("【近期对话记录】")
+        lines.append("以下是你们最近的对话：")
+
     for msg in messages:
         content = msg.content
-        if msg.role == "user":
+        role = msg.role
+
+        if len(content) > 200:
+            content = content[:200] + "..."
+
+        if role == "user":
             user_name = msg.metadata.get("user_name") if msg.metadata else None
             reply_content = msg.metadata.get("reply_content") if msg.metadata else None
             reply_user_name = (
                 msg.metadata.get("reply_user_name") if msg.metadata else None
             )
 
-            if user_name:
-                content = f"[{user_name}]: {content}"
-
+            reply_tag = ""
             if reply_content:
-                reply_prefix = f"回复[{reply_user_name}]" if reply_user_name else "回复"
-                content = f"{reply_prefix}「{reply_content}」\n{content}"
+                ref_sender = reply_user_name or "某人"
+                if len(reply_content) > 80:
+                    reply_content = reply_content[:80] + "..."
+                reply_tag = f" ↩️回复{ref_sender}「{reply_content}」"
 
-        context_lines.append(f"{msg.role}: {content}")
-
-    l1_text = "\n".join(context_lines)
+            sender = user_name or "对方"
+            lines.append(f"{sender}:{reply_tag} {content}")
+        elif role == "assistant":
+            lines.append(f"Bot: {content}")
 
     try:
         req._l1_context_count = len(messages)
@@ -165,7 +199,7 @@ async def _collect_l1_context(
 
     logger.debug(f"已收集 {len(messages)} 条 L1 上下文消息到群聊 {group_id}")
 
-    return l1_text
+    return "\n".join(lines)
 
 
 async def _collect_user_profile(
@@ -476,6 +510,8 @@ async def _collect_l3_knowledge_graph(
 def _format_l2_memories_for_injection(memories: List["MemorySearchResult"]) -> str:
     """格式化 L2 记忆为注入文本
 
+    格式参考 astrbot_plugin_iris_memory 的 MemoryFormatter._format_natural_style。
+
     Args:
         memories: L2 记忆检索结果列表
 
@@ -485,10 +521,13 @@ def _format_l2_memories_for_injection(memories: List["MemorySearchResult"]) -> s
     if not memories:
         return ""
 
-    lines = ["【相关记忆】"]
+    lines = [
+        "【你记得的事情】",
+        "以下是你和群友之间的往事，请用自己的话自然提及，不要暴露「记录」「数据」等概念：",
+    ]
 
     for memory in memories:
-        lines.append(f"• {memory.entry.content}")
+        lines.append(f"- {memory.entry.content}")
 
     return "\n".join(lines)
 
@@ -498,6 +537,8 @@ def _format_profiles_for_injection(
 ) -> str:
     """格式化画像为注入文本
 
+    格式参考 astrbot_plugin_iris_memory 的 PersonaCoordinator._build_persona_summary。
+
     Args:
         group_profile: 群聊画像对象
         user_profile: 用户画像对象
@@ -505,35 +546,31 @@ def _format_profiles_for_injection(
     Returns:
         格式化的画像文本
     """
-    parts = []
+    parts = ["【用户画像】"]
+
+    if user_profile.user_name:
+        parts.append(f"昵称: {user_profile.user_name}")
+    if user_profile.personality_tags:
+        parts.append(f"性格: {', '.join(user_profile.personality_tags[:3])}")
+    if user_profile.interests:
+        parts.append(f"兴趣: {', '.join(user_profile.interests[:3])}")
+    if user_profile.bot_relationship:
+        parts.append(f"称呼: {user_profile.bot_relationship}")
+    if user_profile.taboo_topics:
+        parts.append(f"禁忌: {', '.join(user_profile.taboo_topics)}")
 
     group_parts = []
     if group_profile.interests:
-        group_parts.append(f"兴趣:{','.join(group_profile.interests[:3])}")
+        group_parts.append(f"兴趣: {', '.join(group_profile.interests[:3])}")
     if group_profile.atmosphere_tags:
-        group_parts.append(f"氛围:{','.join(group_profile.atmosphere_tags[:3])}")
+        group_parts.append(f"氛围: {', '.join(group_profile.atmosphere_tags[:3])}")
     if group_profile.blacklist_topics:
-        group_parts.append(f"禁忌:{','.join(group_profile.blacklist_topics)}")
+        group_parts.append(f"禁忌: {', '.join(group_profile.blacklist_topics)}")
 
     if group_parts:
-        parts.append(f"【群聊】{' | '.join(group_parts)}")
+        parts.append("群聊: " + ", ".join(group_parts))
 
-    user_parts = []
-    if user_profile.user_name:
-        user_parts.append(f"昵称:{user_profile.user_name}")
-    if user_profile.personality_tags:
-        user_parts.append(f"性格:{','.join(user_profile.personality_tags[:3])}")
-    if user_profile.interests:
-        user_parts.append(f"兴趣:{','.join(user_profile.interests[:3])}")
-    if user_profile.bot_relationship:
-        user_parts.append(f"称呼:{user_profile.bot_relationship}")
-    if user_profile.taboo_topics:
-        user_parts.append(f"禁忌:{','.join(user_profile.taboo_topics)}")
-
-    if user_parts:
-        parts.append(f"【用户】{' | '.join(user_parts)}")
-
-    return "\n".join(parts) if parts else ""
+    return "\n".join(parts) if len(parts) > 1 else ""
 
 
 async def _parse_images_if_related_mode(
@@ -627,7 +664,7 @@ async def _parse_images_if_related_mode(
         )
 
     if not images_to_parse:
-        _insert_images_by_time(req, all_image_results)
+        _inject_images_to_system_prompt(req, all_image_results)
         return
 
     if quota_manager and quota_manager.is_available:
@@ -699,7 +736,7 @@ async def _parse_images_if_related_mode(
 
         success_count += 1
 
-    _insert_images_by_time(req, all_image_results)
+    _inject_images_to_system_prompt(req, all_image_results)
 
     total_injected = len(all_image_results)
     if total_injected > 0:
@@ -709,10 +746,13 @@ async def _parse_images_if_related_mode(
         )
 
 
-def _insert_images_by_time(req: "ProviderRequest", image_results: list) -> None:
-    """按时间顺序插入图片解析结果
+def _inject_images_to_system_prompt(
+    req: "ProviderRequest", image_results: list
+) -> None:
+    """将图片解析结果注入到 system_prompt 中
 
-    将图片解析结果按时间戳排序后，追加到 contexts 末尾。
+    格式参考 astrbot_plugin_iris_memory 的 ImageAnalyzer.format_for_llm_context。
+    使用标记包裹图片 section，支持重复调用时替换而非追加。
 
     Args:
         req: LLM 提供者请求对象
@@ -721,15 +761,26 @@ def _insert_images_by_time(req: "ProviderRequest", image_results: list) -> None:
     if not image_results:
         return
 
-    if req.contexts is None:
-        req.contexts = []
-
     image_results.sort(key=lambda x: x["timestamp"])
 
-    for img in image_results:
-        req.contexts.append(
-            {"role": "user", "content": f"[图片] {img['content']}"}
-        )
+    valid_results = [r for r in image_results if r.get("content")]
+    if not valid_results:
+        return
+
+    if len(valid_results) == 1:
+        image_text = f"（用户发送的图片内容：{valid_results[0]['content']}）"
+    else:
+        desc_list = [f"{i + 1}. {r['content']}" for i, r in enumerate(valid_results)]
+        image_text = "（用户发送的图片内容：\n" + "\n".join(desc_list) + "）"
+
+    original = _extract_original_prompt(req.system_prompt or "")
+
+    image_section = _wrap_prompt_section("images", image_text)
+
+    if original:
+        req.system_prompt = f"{original}\n\n{image_section}"
+    else:
+        req.system_prompt = image_section
 
 
 def _log_final_context(req: "ProviderRequest") -> None:
@@ -748,15 +799,15 @@ def _log_final_context(req: "ProviderRequest") -> None:
 
     log_parts = ["\n" + "=" * 60 + "\n[LLM 请求上下文详情]\n" + "=" * 60]
 
-    if req.prompt:
-        log_parts.append(f"\n[System Prompt]\n{'-' * 40}\n{req.prompt}\n{'-' * 40}")
+    if req.system_prompt:
+        log_parts.append(
+            f"\n[System Prompt]\n{'-' * 40}\n{req.system_prompt}\n{'-' * 40}"
+        )
     else:
         log_parts.append("\n[System Prompt]\n(无)")
 
     if req.contexts:
-        log_parts.append(
-            f"\n[Contexts] (共 {len(req.contexts)} 条) - 群聊当前对话，你需要在这之后发言"
-        )
+        log_parts.append(f"\n[Contexts] (共 {len(req.contexts)} 条)")
         for i, ctx in enumerate(req.contexts, 1):
             role = ctx.get("role", "unknown")
             content = ctx.get("content", "")
