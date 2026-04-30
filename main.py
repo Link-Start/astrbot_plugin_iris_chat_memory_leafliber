@@ -37,10 +37,10 @@ from iris_memory.core import (
 from iris_memory.tools import (
     SaveKnowledgeTool,
     SaveMemoryTool,
-    ReadMemoryTool,
+    SearchMemoryTool,
     CorrectMemoryTool,
-    GetGroupProfileTool,
-    GetUserProfileTool,
+    SearchKnowledgeGraphTool,
+    GetProfileTool,
 )
 from iris_memory.web import WebServer, create_web_server_from_config
 from iris_memory.commands import (
@@ -108,10 +108,10 @@ class IrisChatMemoryPlugin(Star):
             tools = [
                 SaveKnowledgeTool(),
                 SaveMemoryTool(),
-                ReadMemoryTool(),
+                SearchMemoryTool(),
                 CorrectMemoryTool(),
-                GetGroupProfileTool(),
-                GetUserProfileTool(),
+                SearchKnowledgeGraphTool(),
+                GetProfileTool(),
             ]
             for tool in tools:
                 self.context.add_llm_tools(tool)
