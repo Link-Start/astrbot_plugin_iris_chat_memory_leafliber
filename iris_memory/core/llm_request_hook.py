@@ -32,6 +32,10 @@ _PROMPT_SECTION_PATTERN = re.compile(
 
 _L1_CONTEXT_START_MARKER = "<!-- iris:l1_context:start -->"
 _L1_CONTEXT_END_MARKER = "<!-- iris:l1_context:end -->"
+_L1_CONTEXT_PATTERN = re.compile(
+    r"\n*<!-- iris:l1_context:start -->.*?<!-- iris:l1_context:end -->\n*",
+    re.DOTALL,
+)
 
 
 def _extract_original_prompt(prompt: str) -> str:
@@ -48,20 +52,51 @@ def _wrap_prompt_section(section: str, content: str) -> str:
     return f"{start}\n{content}\n{end}"
 
 
-def _remove_l1_context_block(contexts: list) -> list:
-    start_idx = None
-    end_idx = None
+def _find_l1_context_system_message(contexts: list) -> int | None:
     for i, ctx in enumerate(contexts):
-        content = ctx.get("content", "")
-        if content == _L1_CONTEXT_START_MARKER and start_idx is None:
-            start_idx = i
-        elif content == _L1_CONTEXT_END_MARKER and end_idx is None:
-            end_idx = i
+        if ctx.get("role") == "system" and _L1_CONTEXT_START_MARKER in ctx.get(
+            "content", ""
+        ):
+            return i
+    return None
 
-    if start_idx is not None and end_idx is not None and start_idx < end_idx:
-        return contexts[:start_idx] + contexts[end_idx + 1 :]
 
-    return contexts
+def _extract_l1_content_from_system_message(content: str) -> str:
+    match = _L1_CONTEXT_PATTERN.search(content)
+    if not match:
+        return ""
+    inner = match.group()
+    inner = inner.replace(_L1_CONTEXT_START_MARKER, "").replace(
+        _L1_CONTEXT_END_MARKER, ""
+    )
+    return inner.strip()
+
+
+def _replace_l1_in_system_message(content: str, new_l1_text: str) -> str:
+    if not new_l1_text:
+        cleaned = _L1_CONTEXT_PATTERN.sub("", content)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        return cleaned
+    replacement = f"\n{_L1_CONTEXT_START_MARKER}\n{new_l1_text}\n{_L1_CONTEXT_END_MARKER}\n"
+    result = _L1_CONTEXT_PATTERN.sub(replacement, content)
+    return result.strip()
+
+
+def _remove_l1_context_block(contexts: list) -> list:
+    idx = _find_l1_context_system_message(contexts)
+    if idx is None:
+        return contexts
+
+    old_content = contexts[idx]["content"]
+    cleaned = _L1_CONTEXT_PATTERN.sub("", old_content)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+    if cleaned:
+        new_contexts = contexts[:idx] + [{"role": "system", "content": cleaned}] + contexts[idx + 1 :]
+    else:
+        new_contexts = contexts[:idx] + contexts[idx + 1 :]
+
+    return new_contexts
 
 
 async def preprocess_llm_request(
@@ -123,6 +158,9 @@ async def _inject_l1_context(
 ) -> None:
     """注入 L1 上下文到 LLM 请求（内部函数）
 
+    将 L1 上下文合并到单个 system 角色消息中，使用标记包裹，
+    以兼容 OpenAI API（不支持多个 system 消息）。
+
     Args:
         event: AstrBot 消息事件对象
         req: LLM 提供者请求对象
@@ -131,11 +169,13 @@ async def _inject_l1_context(
     from iris_memory.platform import get_adapter
 
     existing_contexts = req.contexts or []
-    existing_contexts = _remove_l1_context_block(existing_contexts)
 
     buffer = component_manager.get_component("l1_buffer")
     if not buffer or not buffer.is_available:
         logger.debug("L1 Buffer 组件不可用，跳过上下文注入")
+        l1_idx = _find_l1_context_system_message(existing_contexts)
+        if l1_idx is not None:
+            existing_contexts = _remove_l1_context_block(existing_contexts)
         req.contexts = existing_contexts
         return
 
@@ -149,10 +189,13 @@ async def _inject_l1_context(
     messages = l1_buffer.get_context(group_id, max_length)
     if not messages:
         logger.debug(f"群聊 {group_id} 的 L1 上下文为空，跳过注入")
+        l1_idx = _find_l1_context_system_message(existing_contexts)
+        if l1_idx is not None:
+            existing_contexts = _remove_l1_context_block(existing_contexts)
         req.contexts = existing_contexts
         return
 
-    context_list = []
+    context_lines = []
     for msg in messages:
         content = msg.content
         if msg.role == "user":
@@ -169,18 +212,25 @@ async def _inject_l1_context(
                 reply_prefix = f"回复[{reply_user_name}]" if reply_user_name else "回复"
                 content = f"{reply_prefix}「{reply_content}」\n{content}"
 
-        context_list.append({"role": msg.role, "content": content})
+        context_lines.append(f"{msg.role}: {content}")
 
-    l1_count = len(context_list)
+    l1_text = "\n".join(context_lines)
 
-    l1_block = [{"role": "system", "content": _L1_CONTEXT_START_MARKER}]
-    l1_block.extend(context_list)
-    l1_block.append({"role": "system", "content": _L1_CONTEXT_END_MARKER})
-
-    req.contexts = l1_block + existing_contexts
+    l1_idx = _find_l1_context_system_message(existing_contexts)
+    if l1_idx is not None:
+        old_content = existing_contexts[l1_idx]["content"]
+        new_content = _replace_l1_in_system_message(old_content, l1_text)
+        existing_contexts[l1_idx] = {"role": "system", "content": new_content}
+        req.contexts = existing_contexts
+    else:
+        l1_block_content = (
+            f"{_L1_CONTEXT_START_MARKER}\n{l1_text}\n{_L1_CONTEXT_END_MARKER}"
+        )
+        l1_message = {"role": "system", "content": l1_block_content}
+        req.contexts = [l1_message] + existing_contexts
 
     try:
-        req._l1_context_count = l1_count
+        req._l1_context_count = len(messages)
     except AttributeError:
         pass
 
@@ -732,7 +782,7 @@ def _insert_images_by_time(req: "ProviderRequest", image_results: list) -> None:
     """按时间顺序插入图片解析结果
 
     将图片解析结果按时间戳排序后，插入到 contexts 中的正确位置。
-    优先通过 L1 上下文结束标记定位，回退到 _l1_context_count。
+    优先通过 L1 上下文 system 消息定位，回退到 _l1_context_count。
 
     Args:
         req: LLM 提供者请求对象
@@ -746,14 +796,9 @@ def _insert_images_by_time(req: "ProviderRequest", image_results: list) -> None:
 
     image_results.sort(key=lambda x: x["timestamp"])
 
-    end_marker_idx = None
-    for i, ctx in enumerate(req.contexts):
-        if ctx.get("content") == _L1_CONTEXT_END_MARKER:
-            end_marker_idx = i
-            break
-
-    if end_marker_idx is not None:
-        insert_pos = end_marker_idx
+    l1_idx = _find_l1_context_system_message(req.contexts)
+    if l1_idx is not None:
+        insert_pos = l1_idx + 1
     else:
         insert_pos = getattr(req, "_l1_context_count", 0)
 
