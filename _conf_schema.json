@@ -22,6 +22,12 @@
         "description": "注入上下文的最大消息条数",
         "hint": "超过此数量将触发自动总结"
       },
+      "inject_max_content_chars": {
+        "type": "int",
+        "default": 200,
+        "description": "注入时单条消息最大字符数",
+        "hint": "超过此长度的消息将被截断，0 表示不截断"
+      },
       "retain_message_count": {
         "type": "int",
         "default": 10,

@@ -243,19 +243,38 @@ async def _collect_l1_context(
         logger.debug("L1 Buffer 组件不可用，跳过上下文注入")
         return ""
 
+    from iris_memory.config import get_config
+
+    config = get_config()
+
     l1_buffer = cast("L1Buffer", buffer)
 
     adapter = get_adapter(event)
     group_id = adapter.get_group_id(event)
 
-    max_length = 20
+    max_length = cast(int, config.get("l1_buffer.inject_queue_length", 30))
 
     messages = l1_buffer.get_context(group_id, max_length)
     if not messages:
         logger.debug(f"群聊 {group_id} 的 L1 上下文为空，跳过注入")
         return ""
 
+    current_user_id = adapter.get_user_id(event)
+    if (
+        current_user_id
+        and messages
+        and messages[-1].role == "user"
+        and messages[-1].source == current_user_id
+    ):
+        messages = messages[:-1]
+
+    if not messages:
+        logger.debug(f"群聊 {group_id} 排除当前消息后 L1 上下文为空，跳过注入")
+        return ""
+
     image_map = await _build_image_map(l1_buffer, group_id, component_manager)
+
+    max_content_chars = cast(int, config.get("l1_buffer.inject_max_content_chars", 500))
 
     lines = []
     if group_id:
@@ -277,8 +296,8 @@ async def _collect_l1_context(
         content = msg.content
         role = msg.role
 
-        if len(content) > 200:
-            content = content[:200] + "..."
+        if max_content_chars > 0 and len(content) > max_content_chars:
+            content = content[:max_content_chars] + "..."
 
         if role == "user":
             user_name = msg.metadata.get("user_name") if msg.metadata else None
