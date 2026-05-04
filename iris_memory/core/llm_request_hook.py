@@ -274,7 +274,7 @@ async def _collect_l1_context(
 
     image_map = await _build_image_map(l1_buffer, group_id, component_manager)
 
-    max_content_chars = cast(int, config.get("l1_buffer.inject_max_content_chars", 500))
+    max_content_chars = cast(int, config.get("l1_buffer.inject_max_content_chars", 200))
 
     lines = []
     if group_id:

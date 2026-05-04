@@ -198,19 +198,39 @@
           </v-card-title>
           <v-card-text>
             <div
-              v-for="(count, type) in kgStats?.node_types"
-              :key="'node-' + type"
+              v-for="item in processedNodeTypes"
+              :key="'node-' + item.type"
               class="d-flex align-center mb-2"
             >
-              <span class="text-body-2 type-label">{{ type }}</span>
+              <span
+                class="text-body-2 type-label"
+                :class="{ 'type-label-custom': item.isCustom }"
+              >
+                <v-tooltip v-if="item.isCustom && item.customDetails" location="bottom">
+                  <template #activator="{ props }">
+                    <span v-bind="props" class="custom-label">{{ item.type }}</span>
+                  </template>
+                  <div class="custom-tooltip">
+                    <div
+                      v-for="detail in item.customDetails"
+                      :key="detail.type"
+                      class="d-flex justify-space-between ga-4"
+                    >
+                      <span>{{ detail.type }}</span>
+                      <span class="font-weight-bold">{{ detail.count }}</span>
+                    </div>
+                  </div>
+                </v-tooltip>
+                <template v-else>{{ item.type }}</template>
+              </span>
               <v-progress-linear
-                :model-value="(count / kgNodeCount) * 100"
-                color="primary"
+                :model-value="(item.count / kgNodeCount) * 100"
+                :color="item.isCustom ? 'grey' : 'primary'"
                 height="18"
                 rounded
                 class="flex-grow-1"
               />
-              <span class="ml-2 text-caption" style="min-width: 32px; text-align: right;">{{ count }}</span>
+              <span class="ml-2 text-caption" style="min-width: 32px; text-align: right;">{{ item.count }}</span>
             </div>
           </v-card-text>
         </v-card>
@@ -224,19 +244,39 @@
           </v-card-title>
           <v-card-text>
             <div
-              v-for="(count, type) in kgStats?.relation_types"
-              :key="'rel-' + type"
+              v-for="item in processedRelationTypes"
+              :key="'rel-' + item.type"
               class="d-flex align-center mb-2"
             >
-              <span class="text-body-2 type-label">{{ type }}</span>
+              <span
+                class="text-body-2 type-label"
+                :class="{ 'type-label-custom': item.isCustom }"
+              >
+                <v-tooltip v-if="item.isCustom && item.customDetails" location="bottom">
+                  <template #activator="{ props }">
+                    <span v-bind="props" class="custom-label">{{ item.type }}</span>
+                  </template>
+                  <div class="custom-tooltip">
+                    <div
+                      v-for="detail in item.customDetails"
+                      :key="detail.type"
+                      class="d-flex justify-space-between ga-4"
+                    >
+                      <span>{{ detail.type }}</span>
+                      <span class="font-weight-bold">{{ detail.count }}</span>
+                    </div>
+                  </div>
+                </v-tooltip>
+                <template v-else>{{ item.type }}</template>
+              </span>
               <v-progress-linear
-                :model-value="(count / kgEdgeCount) * 100"
-                color="secondary"
+                :model-value="(item.count / kgEdgeCount) * 100"
+                :color="item.isCustom ? 'grey' : 'secondary'"
                 height="18"
                 rounded
                 class="flex-grow-1"
               />
-              <span class="ml-2 text-caption" style="min-width: 32px; text-align: right;">{{ count }}</span>
+              <span class="ml-2 text-caption" style="min-width: 32px; text-align: right;">{{ item.count }}</span>
             </div>
           </v-card-text>
         </v-card>
@@ -340,10 +380,64 @@ const l2GroupCount = computed(() => statsStore.memoryStats?.l2?.group_count ?? 0
 const kgNodeCount = computed(() => kgStats.value?.node_count ?? 0)
 const kgEdgeCount = computed(() => kgStats.value?.edge_count ?? 0)
 
+const NODE_TYPE_WHITELIST = new Set(['Person', 'Event', 'Concept', 'Location', 'Item', 'Topic'])
+const RELATION_TYPE_WHITELIST = new Set([
+  'KNOWS', 'MENTIONED', 'RELATED_TO',
+  'PART_OF', 'LOCATED_AT', 'HAPPENED_AT',
+  'DISCUSSED', 'PARTICIPATED'
+])
+
+interface TypeDistributionItem {
+  type: string
+  count: number
+  isCustom: boolean
+  customDetails?: { type: string; count: number }[]
+}
+
+const processedNodeTypes = computed<TypeDistributionItem[]>(() => {
+  const raw = kgStats.value?.node_types
+  if (!raw) return []
+  const items: TypeDistributionItem[] = []
+  let customTotal = 0
+  const customDetails: { type: string; count: number }[] = []
+  for (const [type, count] of Object.entries(raw)) {
+    if (NODE_TYPE_WHITELIST.has(type)) {
+      items.push({ type, count, isCustom: false })
+    } else {
+      customTotal += count
+      customDetails.push({ type, count })
+    }
+  }
+  if (customTotal > 0) {
+    customDetails.sort((a, b) => b.count - a.count)
+    items.push({ type: '自定义', count: customTotal, isCustom: true, customDetails })
+  }
+  return items
+})
+
+const processedRelationTypes = computed<TypeDistributionItem[]>(() => {
+  const raw = kgStats.value?.relation_types
+  if (!raw) return []
+  const items: TypeDistributionItem[] = []
+  let customTotal = 0
+  const customDetails: { type: string; count: number }[] = []
+  for (const [type, count] of Object.entries(raw)) {
+    if (RELATION_TYPE_WHITELIST.has(type)) {
+      items.push({ type, count, isCustom: false })
+    } else {
+      customTotal += count
+      customDetails.push({ type, count })
+    }
+  }
+  if (customTotal > 0) {
+    customDetails.sort((a, b) => b.count - a.count)
+    items.push({ type: '自定义', count: customTotal, isCustom: true, customDetails })
+  }
+  return items
+})
+
 const hasKgTypeData = computed(() => {
-  const nt = kgStats.value?.node_types
-  const rt = kgStats.value?.relation_types
-  return (nt && Object.keys(nt).length > 0) || (rt && Object.keys(rt).length > 0)
+  return processedNodeTypes.value.length > 0 || processedRelationTypes.value.length > 0
 })
 
 const uptime = computed(() => {
@@ -451,5 +545,18 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.type-label-custom {
+  min-width: 80px;
+}
+
+.custom-label {
+  cursor: help;
+  border-bottom: 1px dashed rgb(var(--v-theme-on-surface), 0.4);
+}
+
+.custom-tooltip {
+  min-width: 160px;
 }
 </style>
