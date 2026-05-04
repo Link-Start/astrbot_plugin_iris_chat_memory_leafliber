@@ -62,6 +62,21 @@ export const getGroupList = async (): Promise<GroupListItem[]> => {
   return response.groups || []
 }
 
+export const deleteGroupProfile = async (groupId: string): Promise<void> => {
+  const response = await apiClient.delete(`/profile/group/${groupId}`) as unknown as ApiBaseResponse
+  if (!response.success) {
+    throw new Error(response.error || '删除群聊画像失败')
+  }
+}
+
+export const deleteUserProfile = async (userId: string, groupId?: string): Promise<void> => {
+  const params = groupId ? { group_id: groupId } : {}
+  const response = await apiClient.delete(`/profile/user/${userId}`, { params }) as unknown as ApiBaseResponse
+  if (!response.success) {
+    throw new Error(response.error || '删除用户画像失败')
+  }
+}
+
 export const getUserList = async (groupId?: string): Promise<UserListItem[]> => {
   const params = groupId ? { group_id: groupId } : {}
   const response = await apiClient.get('/profile/users', { params }) as unknown as UserListApiResponse

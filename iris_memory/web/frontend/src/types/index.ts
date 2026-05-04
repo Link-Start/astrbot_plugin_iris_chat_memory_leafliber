@@ -39,17 +39,20 @@ export interface L1Message {
   content: string
   timestamp?: string
   user_id?: string
+  user_name?: string
 }
 
 // L1 队列项
 export interface L1QueueItem {
   group_id: string
+  group_name?: string
   message_count: number
   total_tokens: number
 }
 
 // L2 记忆条目
 export interface L2Memory {
+  id: string
   content: string
   score: number
   metadata: Record<string, unknown>
@@ -75,6 +78,31 @@ export interface KGEdge {
 export interface KGGraph {
   nodes: KGNode[]
   edges: KGEdge[]
+}
+
+// L3 节点详情（列表页用）
+export interface L3NodeDetail {
+  id: string
+  label: string
+  name: string
+  content: string
+  confidence: number
+  group_id?: string
+  access_count?: number
+  created_time?: string
+  source_memory_id?: string
+  properties?: Record<string, string>
+}
+
+// L3 关系详情（列表页用）
+export interface L3EdgeDetail {
+  source: { id: string; label: string; name: string }
+  target: { id: string; label: string; name: string }
+  relation: string
+  confidence: number
+  weight?: number
+  access_count?: number
+  created_time?: string
 }
 
 // L2 搜索请求
@@ -120,6 +148,8 @@ export interface UserProfile {
   interests?: string[]
   occupation?: string
   language_style?: string
+  communication_style?: string
+  emotional_baseline?: string
   bot_relationship?: string
   important_dates?: Array<{ date: string; description: string }>
   taboo_topics?: string[]

@@ -41,8 +41,11 @@
                     </v-avatar>
                   </template>
 
-                  <v-list-item-title>{{ queue.group_id }}</v-list-item-title>
+                  <v-list-item-title>{{ queue.group_name || queue.group_id }}</v-list-item-title>
                   <v-list-item-subtitle>
+                    <template v-if="queue.group_name">
+                      <code class="text-caption">{{ queue.group_id }}</code> ·
+                    </template>
                     {{ queue.message_count }} 条消息 · {{ queue.total_tokens }} tokens
                   </v-list-item-subtitle>
                 </v-list-item>
@@ -61,9 +64,18 @@
             <v-card-title class="d-flex align-center">
               <span>消息缓冲</span>
               <v-chip v-if="selectedGroupId" size="small" color="primary" variant="tonal" class="ml-2">
-                {{ selectedGroupId }}
+                {{ selectedGroupName || selectedGroupId }}
               </v-chip>
               <v-spacer />
+              <v-btn
+                v-if="selectedGroupId"
+                icon="mdi-delete-sweep"
+                variant="text"
+                size="small"
+                color="error"
+                :loading="clearingBuffer"
+                @click="handleClearBuffer"
+              />
               <v-btn
                 v-if="selectedGroupId"
                 icon="mdi-refresh"
@@ -94,7 +106,7 @@
                     </template>
 
                     <v-list-item-title class="font-weight-medium">
-                      {{ msg.role === 'user' ? '用户' : msg.role === 'assistant' ? '助手' : '系统' }}
+                      {{ getSenderName(msg) }}
                     </v-list-item-title>
 
                     <v-list-item-subtitle class="text-wrap mt-1">
@@ -143,19 +155,48 @@
         </v-col>
       </v-row>
     </ComponentDisabled>
+
+    <v-dialog v-model="showClearDialog" max-width="400">
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-alert-circle" color="warning" class="mr-2" />
+          确认清空
+        </v-card-title>
+        <v-card-text>
+          确定要清空{{ clearTarget === 'group' ? '当前群聊' : '所有群聊' }}的 L1 缓冲吗？此操作不可撤销。
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showClearDialog = false">取消</v-btn>
+          <v-btn color="error" variant="tonal" :loading="clearingBuffer" @click="confirmClearBuffer">
+            确认清空
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useMemoryStore } from '@/stores'
 import { useComponentState } from '@/composables/useComponentState'
 import ComponentDisabled from '@/components/ComponentDisabled.vue'
+import { clearL1Buffer } from '@/api/manage'
 
 const memoryStore = useMemoryStore()
 const { status, error, errorType, refreshState } = useComponentState('l1_buffer')
 
 const selectedGroupId = ref<string | null>(null)
+const clearingBuffer = ref(false)
+const showClearDialog = ref(false)
+const clearTarget = ref<'group' | 'all'>('group')
+
+const selectedGroupName = computed(() => {
+  if (!selectedGroupId.value) return ''
+  const queue = memoryStore.l1Queues.find(q => q.group_id === selectedGroupId.value)
+  return queue?.group_name || ''
+})
 
 const loadL1Queues = () => {
   memoryStore.fetchL1Queues()
@@ -172,6 +213,28 @@ const loadL1Messages = () => {
   }
 }
 
+const handleClearBuffer = () => {
+  clearTarget.value = 'group'
+  showClearDialog.value = true
+}
+
+const confirmClearBuffer = async () => {
+  clearingBuffer.value = true
+  try {
+    const groupId = clearTarget.value === 'group' ? selectedGroupId.value || undefined : undefined
+    await clearL1Buffer(groupId)
+    showClearDialog.value = false
+    loadL1Queues()
+    if (selectedGroupId.value) {
+      memoryStore.fetchL1Messages(selectedGroupId.value)
+    }
+  } catch (error) {
+    console.error('清空缓冲失败:', error)
+  } finally {
+    clearingBuffer.value = false
+  }
+}
+
 const getRoleClass = (role: string): string => {
   return role === 'user' ? 'border-l-primary' : role === 'assistant' ? 'border-l-secondary' : 'border-l-accent'
 }
@@ -182,6 +245,14 @@ const getRoleColor = (role: string): string => {
 
 const getRoleIcon = (role: string): string => {
   return role === 'user' ? 'mdi-account' : role === 'assistant' ? 'mdi-robot' : 'mdi-cog'
+}
+
+const getSenderName = (msg: { role: string; user_name?: string; user_id?: string }): string => {
+  if (msg.role === 'assistant') return '助手'
+  if (msg.role === 'system') return '系统'
+  if (msg.user_name) return msg.user_name
+  if (msg.user_id) return msg.user_id
+  return '用户'
 }
 
 const formatTime = (timestamp?: string): string => {

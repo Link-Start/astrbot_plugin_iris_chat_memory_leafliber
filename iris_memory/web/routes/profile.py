@@ -290,6 +290,87 @@ async def update_user_profile(user_id: str):
         return handle_exception(e, "更新用户画像")
 
 
+@profile_bp.route('/group/<group_id>', methods=['DELETE'])
+@dashboard_auth.require_auth
+async def delete_group_profile(group_id: str):
+    """
+    删除群聊画像
+    
+    Path Params:
+        group_id: 群聊ID
+    
+    Response:
+        {
+            "success": true,
+            "message": "群聊画像已删除"
+        }
+    """
+    try:
+        profile_storage, error = get_profile_storage()
+        if error:
+            return error
+        
+        success = await profile_storage.delete_group_profile(group_id)
+        
+        if success:
+            logger.info(f"删除群聊画像成功：group_id={group_id}")
+            return jsonify({
+                'success': True,
+                'message': '群聊画像已删除'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': '删除失败'
+            }), 500
+    
+    except Exception as e:
+        return handle_exception(e, "删除群聊画像")
+
+
+@profile_bp.route('/user/<user_id>', methods=['DELETE'])
+@dashboard_auth.require_auth
+async def delete_user_profile(user_id: str):
+    """
+    删除用户画像
+    
+    Path Params:
+        user_id: 用户ID
+    
+    Query Params:
+        group_id: 群聊ID（可选，默认为 default）
+    
+    Response:
+        {
+            "success": true,
+            "message": "用户画像已删除"
+        }
+    """
+    try:
+        group_id = request.args.get('group_id', 'default')
+        
+        profile_storage, error = get_profile_storage()
+        if error:
+            return error
+        
+        success = await profile_storage.delete_user_profile(user_id, group_id)
+        
+        if success:
+            logger.info(f"删除用户画像成功：user_id={user_id}, group_id={group_id}")
+            return jsonify({
+                'success': True,
+                'message': '用户画像已删除'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': '删除失败'
+            }), 500
+    
+    except Exception as e:
+        return handle_exception(e, "删除用户画像")
+
+
 @profile_bp.route('/groups', methods=['GET'])
 @dashboard_auth.require_auth
 async def list_group_profiles():

@@ -52,14 +52,43 @@
                   />
 
                   <div v-else-if="memoryStore.l2LatestResults.length > 0">
+                    <div class="d-flex align-center mb-2">
+                      <v-checkbox
+                        v-model="selectAllLatest"
+                        label="全选"
+                        density="compact"
+                        hide-details
+                        class="mr-2"
+                        @update:model-value="toggleSelectAllLatest"
+                      />
+                      <v-spacer />
+                      <v-btn
+                        v-if="selectedLatestIds.length > 0"
+                        color="error"
+                        variant="tonal"
+                        size="small"
+                        :loading="deletingL2"
+                        @click="handleDeleteSelectedLatest"
+                      >
+                        <v-icon icon="mdi-delete" class="mr-1" />
+                        删除选中 ({{ selectedLatestIds.length }})
+                      </v-btn>
+                    </div>
                     <v-card
                       v-for="(result, index) in memoryStore.l2LatestResults"
-                      :key="index"
+                      :key="result.id || index"
                       variant="outlined"
                       class="mb-3"
                     >
                       <v-card-text>
                         <div class="d-flex align-start">
+                          <v-checkbox
+                            :model-value="selectedLatestIds.includes(result.id)"
+                            density="compact"
+                            hide-details
+                            class="mr-2 mt-0"
+                            @update:model-value="toggleSelectLatest(result.id)"
+                          />
                           <v-chip
                             color="secondary"
                             size="small"
@@ -77,6 +106,21 @@
                                 {{ result.metadata.group_id }}
                               </template>
                             </div>
+                          </div>
+                          <div class="d-flex ml-2">
+                            <v-btn
+                              icon="mdi-pencil"
+                              variant="text"
+                              size="small"
+                              @click="openEditDialog(result)"
+                            />
+                            <v-btn
+                              icon="mdi-delete"
+                              variant="text"
+                              size="small"
+                              color="error"
+                              @click="handleDeleteSingle(result.id)"
+                            />
                           </div>
                         </div>
                       </v-card-text>
@@ -165,14 +209,43 @@
                   />
 
                   <div v-else-if="memoryStore.l2Results.length > 0">
+                    <div class="d-flex align-center mb-2">
+                      <v-checkbox
+                        v-model="selectAllSearch"
+                        label="全选"
+                        density="compact"
+                        hide-details
+                        class="mr-2"
+                        @update:model-value="toggleSelectAllSearch"
+                      />
+                      <v-spacer />
+                      <v-btn
+                        v-if="selectedSearchIds.length > 0"
+                        color="error"
+                        variant="tonal"
+                        size="small"
+                        :loading="deletingL2"
+                        @click="handleDeleteSelectedSearch"
+                      >
+                        <v-icon icon="mdi-delete" class="mr-1" />
+                        删除选中 ({{ selectedSearchIds.length }})
+                      </v-btn>
+                    </div>
                     <v-card
                       v-for="(result, index) in memoryStore.l2Results"
-                      :key="index"
+                      :key="result.id || index"
                       variant="outlined"
                       class="mb-3"
                     >
                       <v-card-text>
                         <div class="d-flex align-start">
+                          <v-checkbox
+                            :model-value="selectedSearchIds.includes(result.id)"
+                            density="compact"
+                            hide-details
+                            class="mr-2 mt-0"
+                            @update:model-value="toggleSelectSearch(result.id)"
+                          />
                           <v-chip
                             :color="getScoreColor(result.score)"
                             size="small"
@@ -190,6 +263,21 @@
                                 {{ result.metadata.group_id }}
                               </template>
                             </div>
+                          </div>
+                          <div class="d-flex ml-2">
+                            <v-btn
+                              icon="mdi-pencil"
+                              variant="text"
+                              size="small"
+                              @click="openEditDialog(result)"
+                            />
+                            <v-btn
+                              icon="mdi-delete"
+                              variant="text"
+                              size="small"
+                              color="error"
+                              @click="handleDeleteSingle(result.id)"
+                            />
                           </div>
                         </div>
                       </v-card-text>
@@ -231,6 +319,50 @@
         </v-col>
       </v-row>
     </ComponentDisabled>
+
+    <v-dialog v-model="editDialog" max-width="600">
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-pencil" class="mr-2" />
+          编辑记忆
+        </v-card-title>
+        <v-card-text>
+          <v-textarea
+            v-model="editContent"
+            variant="outlined"
+            rows="5"
+            label="记忆内容"
+            hide-details
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="editDialog = false">取消</v-btn>
+          <v-btn color="primary" variant="tonal" :loading="updatingL2" @click="handleUpdateEntry">
+            保存
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="deleteDialog" max-width="400">
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-alert-circle" color="warning" class="mr-2" />
+          确认删除
+        </v-card-title>
+        <v-card-text>
+          确定要删除{{ deleteTargetIds.length > 1 ? ` ${deleteTargetIds.length} 条` : '该' }}记忆吗？此操作不可撤销。
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="deleteDialog = false">取消</v-btn>
+          <v-btn color="error" variant="tonal" :loading="deletingL2" @click="confirmDelete">
+            确认删除
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -239,6 +371,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useMemoryStore } from '@/stores'
 import { useComponentState } from '@/composables/useComponentState'
 import ComponentDisabled from '@/components/ComponentDisabled.vue'
+import type { L2Memory } from '@/types'
 
 const memoryStore = useMemoryStore()
 const { status, error, errorType, refreshState } = useComponentState('l2_memory')
@@ -247,6 +380,20 @@ const activeTab = ref('latest')
 const searchQuery = ref('')
 const groupIdFilter = ref('')
 const selectedLimit = ref(20)
+
+const selectedLatestIds = ref<string[]>([])
+const selectedSearchIds = ref<string[]>([])
+const selectAllLatest = ref(false)
+const selectAllSearch = ref(false)
+
+const deletingL2 = ref(false)
+const deleteDialog = ref(false)
+const deleteTargetIds = ref<string[]>([])
+
+const editDialog = ref(false)
+const editId = ref('')
+const editContent = ref('')
+const updatingL2 = ref(false)
 
 const limitOptions = [
   { title: '10 条', value: 10 },
@@ -297,6 +444,89 @@ const handleRefresh = () => {
     memoryStore.fetchLatestL2Memories()
   } else if (searchQuery.value.trim()) {
     handleSearch()
+  }
+}
+
+const toggleSelectLatest = (id: string) => {
+  const idx = selectedLatestIds.value.indexOf(id)
+  if (idx >= 0) {
+    selectedLatestIds.value.splice(idx, 1)
+  } else {
+    selectedLatestIds.value.push(id)
+  }
+}
+
+const toggleSelectAllLatest = (checked: boolean | null) => {
+  if (checked) {
+    selectedLatestIds.value = memoryStore.l2LatestResults.map(r => r.id)
+  } else {
+    selectedLatestIds.value = []
+  }
+}
+
+const toggleSelectSearch = (id: string) => {
+  const idx = selectedSearchIds.value.indexOf(id)
+  if (idx >= 0) {
+    selectedSearchIds.value.splice(idx, 1)
+  } else {
+    selectedSearchIds.value.push(id)
+  }
+}
+
+const toggleSelectAllSearch = (checked: boolean | null) => {
+  if (checked) {
+    selectedSearchIds.value = memoryStore.l2Results.map(r => r.id)
+  } else {
+    selectedSearchIds.value = []
+  }
+}
+
+const handleDeleteSingle = (id: string) => {
+  deleteTargetIds.value = [id]
+  deleteDialog.value = true
+}
+
+const handleDeleteSelectedLatest = () => {
+  deleteTargetIds.value = [...selectedLatestIds.value]
+  deleteDialog.value = true
+}
+
+const handleDeleteSelectedSearch = () => {
+  deleteTargetIds.value = [...selectedSearchIds.value]
+  deleteDialog.value = true
+}
+
+const confirmDelete = async () => {
+  deletingL2.value = true
+  try {
+    await memoryStore.deleteL2Entries(deleteTargetIds.value)
+    selectedLatestIds.value = selectedLatestIds.value.filter(id => !deleteTargetIds.value.includes(id))
+    selectedSearchIds.value = selectedSearchIds.value.filter(id => !deleteTargetIds.value.includes(id))
+    deleteDialog.value = false
+    deleteTargetIds.value = []
+  } catch (error) {
+    console.error('删除记忆失败:', error)
+  } finally {
+    deletingL2.value = false
+  }
+}
+
+const openEditDialog = (item: L2Memory) => {
+  editId.value = item.id
+  editContent.value = item.content
+  editDialog.value = true
+}
+
+const handleUpdateEntry = async () => {
+  if (!editId.value || !editContent.value.trim()) return
+  updatingL2.value = true
+  try {
+    await memoryStore.updateL2Entry(editId.value, editContent.value.trim())
+    editDialog.value = false
+  } catch (error) {
+    console.error('更新记忆失败:', error)
+  } finally {
+    updatingL2.value = false
   }
 }
 

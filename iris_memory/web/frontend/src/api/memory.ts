@@ -4,7 +4,9 @@ import type {
   L2SearchResponse,
   KGGraph,
   KGNode,
-  L1QueueItem
+  L1QueueItem,
+  L3NodeDetail,
+  L3EdgeDetail
 } from '@/types'
 import apiClient from './request'
 
@@ -89,6 +91,21 @@ export const getLatestL2Memories = async (limit: number = 20, groupId?: string):
   return { results: response.results || [] }
 }
 
+export const deleteL2Entries = async (ids: string[]): Promise<number> => {
+  const response = await apiClient.post('/memory/l2/delete', { ids }) as unknown as ApiBaseResponse & { deleted_count: number }
+  if (!response.success) {
+    throw new Error(response.error || '删除L2记忆失败')
+  }
+  return response.deleted_count
+}
+
+export const updateL2Entry = async (id: string, content: string): Promise<void> => {
+  const response = await apiClient.post('/memory/l2/update', { id, content }) as unknown as ApiBaseResponse
+  if (!response.success) {
+    throw new Error(response.error || '更新L2记忆失败')
+  }
+}
+
 export const getL3Graph = async (params?: L3GraphParams): Promise<L3GraphApiResponse> => {
   const response = await apiClient.get('/memory/l3/graph', { params }) as unknown as L3GraphApiResponse
   if (!response.success) {
@@ -146,4 +163,55 @@ export const searchL3Edges = async (keyword: string, limit: number = 20): Promis
     throw new Error(response.error || '搜索边失败')
   }
   return response.edges || []
+}
+
+interface L3NodesApiResponse extends ApiBaseResponse {
+  nodes: L3NodeDetail[]
+}
+
+interface L3EdgesApiResponse extends ApiBaseResponse {
+  edges: L3EdgeDetail[]
+}
+
+export const getL3Nodes = async (limit: number = 100, keyword?: string): Promise<L3NodeDetail[]> => {
+  const params: Record<string, unknown> = { limit }
+  if (keyword) {
+    params.keyword = keyword
+  }
+  const response = await apiClient.get('/memory/l3/nodes', { params }) as unknown as L3NodesApiResponse
+  if (!response.success) {
+    throw new Error(response.error || '获取L3节点列表失败')
+  }
+  return response.nodes || []
+}
+
+export const getL3Edges = async (limit: number = 100, keyword?: string): Promise<L3EdgeDetail[]> => {
+  const params: Record<string, unknown> = { limit }
+  if (keyword) {
+    params.keyword = keyword
+  }
+  const response = await apiClient.get('/memory/l3/edges', { params }) as unknown as L3EdgesApiResponse
+  if (!response.success) {
+    throw new Error(response.error || '获取L3关系列表失败')
+  }
+  return response.edges || []
+}
+
+export const deleteL3Nodes = async (ids: string[]): Promise<number> => {
+  const response = await apiClient.post('/memory/l3/nodes/delete', { ids }) as unknown as ApiBaseResponse & { deleted_count: number }
+  if (!response.success) {
+    throw new Error(response.error || '删除L3节点失败')
+  }
+  return response.deleted_count
+}
+
+export const deleteL3Edge = async (sourceId: string, targetId: string, relation: string): Promise<void> => {
+  const response = await apiClient.post('/memory/l3/edges/delete', {
+    source_id: sourceId,
+    target_id: targetId,
+    relation
+  }) as unknown as ApiBaseResponse
+  if (!response.success) {
+    throw new Error(response.error || '删除L3关系失败')
+  }
 }

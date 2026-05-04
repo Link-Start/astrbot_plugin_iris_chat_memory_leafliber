@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { L1Message, L2Memory, KGGraph, KGNode, L1QueueItem } from '@/types'
+import type { L1Message, L2Memory, KGGraph, KGNode, L1QueueItem, L3NodeDetail, L3EdgeDetail } from '@/types'
 import type { L3SearchNodeResult, L3SearchEdgeResult } from '@/api/memory'
 import * as memoryApi from '@/api/memory'
 
@@ -29,6 +29,13 @@ export const useMemoryStore = defineStore('memory', () => {
   const l3SearchResults = ref<{ nodes: L3SearchNodeResult[], edges: L3SearchEdgeResult[] }>({ nodes: [], edges: [] })
   const l3SearchLoading = ref(false)
   const l3SearchKeyword = ref('')
+
+  const l3Nodes = ref<L3NodeDetail[]>([])
+  const l3NodesLoading = ref(false)
+  const l3NodesKeyword = ref('')
+  const l3Edges = ref<L3EdgeDetail[]>([])
+  const l3EdgesLoading = ref(false)
+  const l3EdgesKeyword = ref('')
 
   const fetchL1Messages = async (groupId?: string) => {
     l1Loading.value = true
@@ -154,6 +161,25 @@ export const useMemoryStore = defineStore('memory', () => {
     l2LatestLimit.value = limit
   }
 
+  const deleteL2Entries = async (ids: string[]) => {
+    const count = await memoryApi.deleteL2Entries(ids)
+    l2LatestResults.value = l2LatestResults.value.filter(r => !ids.includes(r.id))
+    l2Results.value = l2Results.value.filter(r => !ids.includes(r.id))
+    return count
+  }
+
+  const updateL2Entry = async (id: string, content: string) => {
+    await memoryApi.updateL2Entry(id, content)
+    const updateInList = (list: L2Memory[]) => {
+      const item = list.find(r => r.id === id)
+      if (item) {
+        item.content = content
+      }
+    }
+    updateInList(l2LatestResults.value)
+    updateInList(l2Results.value)
+  }
+
   const searchL3 = async (keyword: string) => {
     if (!keyword.trim()) {
       l3SearchResults.value = { nodes: [], edges: [] }
@@ -182,6 +208,45 @@ export const useMemoryStore = defineStore('memory', () => {
     l3SearchKeyword.value = ''
   }
 
+  const fetchL3Nodes = async (keyword?: string) => {
+    l3NodesLoading.value = true
+    l3NodesKeyword.value = keyword || ''
+    try {
+      l3Nodes.value = await memoryApi.getL3Nodes(100, keyword)
+    } catch (error) {
+      console.error('获取L3节点列表失败:', error)
+      l3Nodes.value = []
+    } finally {
+      l3NodesLoading.value = false
+    }
+  }
+
+  const fetchL3Edges = async (keyword?: string) => {
+    l3EdgesLoading.value = true
+    l3EdgesKeyword.value = keyword || ''
+    try {
+      l3Edges.value = await memoryApi.getL3Edges(100, keyword)
+    } catch (error) {
+      console.error('获取L3关系列表失败:', error)
+      l3Edges.value = []
+    } finally {
+      l3EdgesLoading.value = false
+    }
+  }
+
+  const deleteL3Nodes = async (ids: string[]) => {
+    const count = await memoryApi.deleteL3Nodes(ids)
+    l3Nodes.value = l3Nodes.value.filter(n => !ids.includes(n.id))
+    return count
+  }
+
+  const deleteL3Edge = async (sourceId: string, targetId: string, relation: string) => {
+    await memoryApi.deleteL3Edge(sourceId, targetId, relation)
+    l3Edges.value = l3Edges.value.filter(
+      e => !(e.source.id === sourceId && e.target.id === targetId && e.relation === relation)
+    )
+  }
+
   return {
     l1Messages,
     l1Loading,
@@ -203,6 +268,12 @@ export const useMemoryStore = defineStore('memory', () => {
     l3SearchResults,
     l3SearchLoading,
     l3SearchKeyword,
+    l3Nodes,
+    l3NodesLoading,
+    l3NodesKeyword,
+    l3Edges,
+    l3EdgesLoading,
+    l3EdgesKeyword,
     fetchL1Messages,
     fetchL1Queues,
     searchL2Memory,
@@ -214,7 +285,13 @@ export const useMemoryStore = defineStore('memory', () => {
     clearL2Results,
     fetchLatestL2Memories,
     setL2LatestLimit,
+    deleteL2Entries,
+    updateL2Entry,
     searchL3,
-    clearL3Search
+    clearL3Search,
+    fetchL3Nodes,
+    fetchL3Edges,
+    deleteL3Nodes,
+    deleteL3Edge
   }
 })

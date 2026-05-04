@@ -8,6 +8,29 @@
       @retry="refreshState"
     >
       <v-row>
+        <v-col cols="12">
+          <v-card color="surface" variant="flat">
+            <v-tabs v-model="activeTab" color="primary" grow>
+              <v-tab value="graph">
+                <v-icon icon="mdi-graph" class="mr-2" />
+                图谱可视化
+              </v-tab>
+              <v-tab value="nodes">
+                <v-icon icon="mdi-circle-multiple" class="mr-2" />
+                节点列表
+              </v-tab>
+              <v-tab value="edges">
+                <v-icon icon="mdi-arrow-right-bold" class="mr-2" />
+                关系列表
+              </v-tab>
+            </v-tabs>
+          </v-card>
+        </v-col>
+      </v-row>
+
+      <v-window v-model="activeTab" class="mt-4">
+        <v-window-item value="graph">
+      <v-row>
         <v-col cols="12" lg="8">
           <v-card color="surface" variant="flat" class="graph-card">
             <v-card-title class="d-flex align-center">
@@ -380,7 +403,223 @@
           </v-card>
         </v-col>
       </v-row>
+        </v-window-item>
+
+        <v-window-item value="nodes">
+          <v-row>
+            <v-col cols="12">
+              <v-card color="surface" variant="flat">
+                <v-card-title class="d-flex align-center">
+                  <v-icon icon="mdi-circle-multiple" color="primary" class="mr-2" />
+                  节点列表
+                  <v-spacer />
+                  <v-text-field
+                    v-model="nodesSearchKeyword"
+                    placeholder="搜索节点..."
+                    prepend-inner-icon="mdi-magnify"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    clearable
+                    style="max-width: 250px"
+                    @keyup.enter="handleNodesSearch"
+                    @click:clear="handleNodesClearSearch"
+                  />
+                  <v-btn
+                    v-if="selectedNodeIds.length > 0"
+                    color="error"
+                    variant="tonal"
+                    size="small"
+                    class="ml-2"
+                    :loading="deletingL3Nodes"
+                    @click="handleDeleteSelectedNodes"
+                  >
+                    <v-icon icon="mdi-delete" class="mr-1" />
+                    删除选中 ({{ selectedNodeIds.length }})
+                  </v-btn>
+                </v-card-title>
+                <v-card-text>
+                  <v-progress-linear
+                    v-if="memoryStore.l3NodesLoading"
+                    indeterminate
+                    color="primary"
+                  />
+                  <v-table v-else-if="memoryStore.l3Nodes.length > 0" density="compact" hover>
+                    <thead>
+                      <tr>
+                        <th class="text-center" style="width: 40px">
+                          <v-checkbox
+                            :model-value="selectAllNodes"
+                            density="compact"
+                            hide-details
+                            @update:model-value="toggleSelectAllNodes"
+                          />
+                        </th>
+                        <th>ID</th>
+                        <th>名称</th>
+                        <th>类型</th>
+                        <th>置信度</th>
+                        <th>访问次数</th>
+                        <th>创建时间</th>
+                        <th class="text-center">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="node in memoryStore.l3Nodes" :key="node.id">
+                        <td class="text-center">
+                          <v-checkbox
+                            :model-value="selectedNodeIds.includes(node.id)"
+                            density="compact"
+                            hide-details
+                            @update:model-value="toggleSelectNode(node.id)"
+                          />
+                        </td>
+                        <td class="text-caption">{{ node.id }}</td>
+                        <td>{{ node.name }}</td>
+                        <td>
+                          <v-chip size="small" :color="getTypeColor(node.label)" variant="tonal">
+                            <v-icon :icon="getNodeIcon(node.label)" start size="x-small" />
+                            {{ node.label }}
+                          </v-chip>
+                        </td>
+                        <td>
+                          <v-chip size="small" :color="getConfidenceColor(node.confidence)" variant="tonal">
+                            {{ (node.confidence * 100).toFixed(0) }}%
+                          </v-chip>
+                        </td>
+                        <td>{{ node.access_count ?? '-' }}</td>
+                        <td class="text-caption">{{ formatTime(node.created_time) }}</td>
+                        <td class="text-center">
+                          <v-btn
+                            icon="mdi-delete"
+                            variant="text"
+                            size="small"
+                            color="error"
+                            @click="handleDeleteSingleNode(node.id)"
+                          />
+                        </td>
+                      </tr>
+                    </tbody>
+                  </v-table>
+                  <div v-else class="text-center text-medium-emphasis py-12">
+                    <v-icon icon="mdi-circle-multiple-outline" size="80" class="mb-3" />
+                    <div class="text-h6">暂无节点数据</div>
+                    <div class="text-body-2 mt-2">L3 知识图谱中暂无节点</div>
+                  </div>
+                </v-card-text>
+              </v-card>
+            </v-col>
+          </v-row>
+        </v-window-item>
+
+        <v-window-item value="edges">
+          <v-row>
+            <v-col cols="12">
+              <v-card color="surface" variant="flat">
+                <v-card-title class="d-flex align-center">
+                  <v-icon icon="mdi-arrow-right-bold" color="secondary" class="mr-2" />
+                  关系列表
+                  <v-spacer />
+                  <v-text-field
+                    v-model="edgesSearchKeyword"
+                    placeholder="搜索关系..."
+                    prepend-inner-icon="mdi-magnify"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    clearable
+                    style="max-width: 250px"
+                    @keyup.enter="handleEdgesSearch"
+                    @click:clear="handleEdgesClearSearch"
+                  />
+                </v-card-title>
+                <v-card-text>
+                  <v-progress-linear
+                    v-if="memoryStore.l3EdgesLoading"
+                    indeterminate
+                    color="primary"
+                  />
+                  <v-table v-else-if="memoryStore.l3Edges.length > 0" density="compact" hover>
+                    <thead>
+                      <tr>
+                        <th>源节点</th>
+                        <th>关系</th>
+                        <th>目标节点</th>
+                        <th>置信度</th>
+                        <th>权重</th>
+                        <th>创建时间</th>
+                        <th class="text-center">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(edge, idx) in memoryStore.l3Edges" :key="idx">
+                        <td>
+                          <v-chip size="small" :color="getTypeColor(edge.source.label)" variant="tonal">
+                            <v-icon :icon="getNodeIcon(edge.source.label)" start size="x-small" />
+                            {{ edge.source.name }}
+                          </v-chip>
+                        </td>
+                        <td>
+                          <v-chip size="small" variant="outlined">
+                            {{ edge.relation }}
+                          </v-chip>
+                        </td>
+                        <td>
+                          <v-chip size="small" :color="getTypeColor(edge.target.label)" variant="tonal">
+                            <v-icon :icon="getNodeIcon(edge.target.label)" start size="x-small" />
+                            {{ edge.target.name }}
+                          </v-chip>
+                        </td>
+                        <td>
+                          <v-chip size="small" :color="getConfidenceColor(edge.confidence)" variant="tonal">
+                            {{ (edge.confidence * 100).toFixed(0) }}%
+                          </v-chip>
+                        </td>
+                        <td>{{ edge.weight?.toFixed(2) ?? '-' }}</td>
+                        <td class="text-caption">{{ formatTime(edge.created_time) }}</td>
+                        <td class="text-center">
+                          <v-btn
+                            icon="mdi-delete"
+                            variant="text"
+                            size="small"
+                            color="error"
+                            @click="handleDeleteSingleEdge(edge)"
+                          />
+                        </td>
+                      </tr>
+                    </tbody>
+                  </v-table>
+                  <div v-else class="text-center text-medium-emphasis py-12">
+                    <v-icon icon="mdi-arrow-right-bold-outline" size="80" class="mb-3" />
+                    <div class="text-h6">暂无关系数据</div>
+                    <div class="text-body-2 mt-2">L3 知识图谱中暂无关系</div>
+                  </div>
+                </v-card-text>
+              </v-card>
+            </v-col>
+          </v-row>
+        </v-window-item>
+      </v-window>
     </ComponentDisabled>
+
+    <v-dialog v-model="l3DeleteDialog" max-width="400">
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-alert-circle" color="warning" class="mr-2" />
+          确认删除
+        </v-card-title>
+        <v-card-text>
+          {{ l3DeleteMessage }}
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="l3DeleteDialog = false">取消</v-btn>
+          <v-btn color="error" variant="tonal" :loading="l3Deleting" @click="confirmL3Delete">
+            确认删除
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -389,10 +628,12 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useMemoryStore } from '@/stores'
 import { useComponentState } from '@/composables/useComponentState'
 import ComponentDisabled from '@/components/ComponentDisabled.vue'
-import type { KGNode, KGEdge } from '@/types'
+import type { KGNode, KGEdge, L3EdgeDetail } from '@/types'
 
 const memoryStore = useMemoryStore()
 const { status, error, errorType, refreshState } = useComponentState('l3_kg')
+
+const activeTab = ref('graph')
 
 const graphContainer = ref<HTMLElement | null>(null)
 const svgElement = ref<SVGSVGElement | null>(null)
@@ -414,6 +655,113 @@ const searchKeyword = ref('')
 
 const currentZoom = ref(1)
 const currentTranslate = ref({ x: 0, y: 0 })
+
+const nodesSearchKeyword = ref('')
+const edgesSearchKeyword = ref('')
+const selectedNodeIds = ref<string[]>([])
+const selectAllNodes = ref(false)
+const deletingL3Nodes = ref(false)
+
+const l3DeleteDialog = ref(false)
+const l3Deleting = ref(false)
+const l3DeleteMessage = ref('')
+const l3DeleteAction = ref<() => Promise<void>>(async () => {})
+
+const getConfidenceColor = (confidence: number): string => {
+  if (confidence >= 0.9) return 'success'
+  if (confidence >= 0.7) return 'info'
+  if (confidence >= 0.5) return 'warning'
+  return 'error'
+}
+
+const formatTime = (timestamp?: string): string => {
+  if (!timestamp) return '-'
+  try {
+    const date = new Date(timestamp)
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  } catch {
+    return timestamp
+  }
+}
+
+const handleNodesSearch = () => {
+  memoryStore.fetchL3Nodes(nodesSearchKeyword.value || undefined)
+}
+
+const handleNodesClearSearch = () => {
+  nodesSearchKeyword.value = ''
+  memoryStore.fetchL3Nodes()
+}
+
+const handleEdgesSearch = () => {
+  memoryStore.fetchL3Edges(edgesSearchKeyword.value || undefined)
+}
+
+const handleEdgesClearSearch = () => {
+  edgesSearchKeyword.value = ''
+  memoryStore.fetchL3Edges()
+}
+
+const toggleSelectNode = (id: string) => {
+  const idx = selectedNodeIds.value.indexOf(id)
+  if (idx >= 0) {
+    selectedNodeIds.value.splice(idx, 1)
+  } else {
+    selectedNodeIds.value.push(id)
+  }
+}
+
+const toggleSelectAllNodes = (checked: boolean | null) => {
+  if (checked) {
+    selectedNodeIds.value = memoryStore.l3Nodes.map(n => n.id)
+  } else {
+    selectedNodeIds.value = []
+  }
+}
+
+const handleDeleteSingleNode = (id: string) => {
+  l3DeleteMessage.value = '确定要删除该节点吗？与之关联的关系也将被删除。此操作不可撤销。'
+  l3DeleteAction.value = async () => {
+    await memoryStore.deleteL3Nodes([id])
+    selectedNodeIds.value = selectedNodeIds.value.filter(nid => nid !== id)
+  }
+  l3DeleteDialog.value = true
+}
+
+const handleDeleteSelectedNodes = () => {
+  l3DeleteMessage.value = `确定要删除 ${selectedNodeIds.value.length} 个节点吗？与之关联的关系也将被删除。此操作不可撤销。`
+  l3DeleteAction.value = async () => {
+    await memoryStore.deleteL3Nodes(selectedNodeIds.value)
+    selectedNodeIds.value = []
+  }
+  l3DeleteDialog.value = true
+}
+
+const handleDeleteSingleEdge = (edge: L3EdgeDetail) => {
+  l3DeleteMessage.value = `确定要删除关系「${edge.source.name} → ${edge.relation} → ${edge.target.name}」吗？此操作不可撤销。`
+  l3DeleteAction.value = async () => {
+    await memoryStore.deleteL3Edge(edge.source.id, edge.target.id, edge.relation)
+  }
+  l3DeleteDialog.value = true
+}
+
+const confirmL3Delete = async () => {
+  l3Deleting.value = true
+  try {
+    await l3DeleteAction.value()
+    l3DeleteDialog.value = false
+  } catch (error) {
+    console.error('删除失败:', error)
+  } finally {
+    l3Deleting.value = false
+  }
+}
 
 const nodeTypeStats = computed(() => {
   const stats: Record<string, number> = {}
@@ -703,8 +1051,22 @@ watch(() => memoryStore.l3Graph, () => {
   })
 }, { deep: true })
 
+watch(activeTab, (newTab) => {
+  if (newTab === 'nodes' && memoryStore.l3Nodes.length === 0) {
+    memoryStore.fetchL3Nodes()
+  } else if (newTab === 'edges' && memoryStore.l3Edges.length === 0) {
+    memoryStore.fetchL3Edges()
+  }
+})
+
 const handleRefresh = () => {
-  loadGraph()
+  if (activeTab.value === 'graph') {
+    loadGraph()
+  } else if (activeTab.value === 'nodes') {
+    memoryStore.fetchL3Nodes(nodesSearchKeyword.value || undefined)
+  } else if (activeTab.value === 'edges') {
+    memoryStore.fetchL3Edges(edgesSearchKeyword.value || undefined)
+  }
 }
 
 onMounted(() => {

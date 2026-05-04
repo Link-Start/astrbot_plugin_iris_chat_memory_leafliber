@@ -706,6 +706,86 @@ class L3KGAdapter(Component):
             logger.error(f"搜索边失败：{e}")
             return []
 
+    async def get_all_edges(self, limit: int = 100) -> list[dict]:
+        """获取所有边（用于前端展示）
+
+        Args:
+            limit: 最大返回数量，默认 100
+
+        Returns:
+            边字典列表（包含 source 和 target 节点信息）
+        """
+        if not self._is_available:
+            return []
+
+        try:
+            result = self._conn.execute(f"""
+                MATCH (a:Entity)-[r:Related]->(b:Entity)
+                RETURN a.id, a.label, a.name, b.id, b.label, b.name,
+                       r.relation_type, r.confidence, r.weight,
+                       r.access_count, r.created_time
+                LIMIT {limit}
+            """)
+
+            edges = []
+            for row in result:
+                edges.append(
+                    {
+                        "source": {"id": row[0], "label": row[1], "name": row[2]},
+                        "target": {"id": row[3], "label": row[4], "name": row[5]},
+                        "relation": row[6],
+                        "confidence": row[7],
+                        "weight": row[8],
+                        "access_count": row[9],
+                        "created_time": row[10],
+                    }
+                )
+
+            logger.debug(f"获取到 {len(edges)} 条边")
+            return edges
+
+        except Exception as e:
+            logger.error(f"获取所有边失败：{e}")
+            return []
+
+    async def delete_edge(
+        self, source_id: str, target_id: str, relation_type: str
+    ) -> bool:
+        """删除指定的边
+
+        Args:
+            source_id: 源节点 ID
+            target_id: 目标节点 ID
+            relation_type: 关系类型
+
+        Returns:
+            是否删除成功
+        """
+        if not self._is_available:
+            return False
+
+        try:
+            self._conn.execute(
+                """
+                MATCH (src:Entity {id: $source_id})
+                      -[r:Related {relation_type: $relation_type}]->
+                      (tgt:Entity {id: $target_id})
+                DELETE r
+            """,
+                {
+                    "source_id": source_id,
+                    "target_id": target_id,
+                    "relation_type": relation_type,
+                },
+            )
+
+            logger.info(f"已删除边：{source_id} -[{relation_type}]-> {target_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"删除边失败：{e}")
+            return False
+
     async def get_random_person_node(self) -> Optional[dict]:
         if not self._is_available:
             return None

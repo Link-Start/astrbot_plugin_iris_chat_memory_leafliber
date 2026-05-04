@@ -140,7 +140,7 @@ class ProfileAnalyzer:
 
 注意：
 1. 基于对话内容客观分析
-2. 兴趣点应是多次出现的话题，最多5个
+2. interests 必须返回完整的兴趣列表（包含仍然相关的旧兴趣 + 新发现的兴趣），最多5个。如果旧兴趣已不再活跃，不要保留
 3. 氛围标签描述群聊整体风格，最多3个
 4. custom_fields 用于存储额外有价值信息
 5. 不确定或无法判断的字段返回空数组
@@ -230,6 +230,8 @@ class ProfileAnalyzer:
     "personality_tags": ["性格标签1", "标签2"],
     "interests": ["兴趣1", "兴趣2"],
     "language_style": "语言风格描述",
+    "communication_style": "沟通偏好",
+    "emotional_baseline": "情感基线",
     "custom_fields": {{
         "自定义字段名": "字段值"
     }}
@@ -237,10 +239,12 @@ class ProfileAnalyzer:
 
 注意：
 1. 性格标签基于对话风格推断，最多3个标签
-2. 兴趣应从对话内容中识别，最多5个
+2. interests 必须返回完整的兴趣列表（包含仍然相关的旧兴趣 + 新发现的兴趣），最多5个。如果旧兴趣已不再活跃，不要保留
 3. 语言风格描述用户的表达习惯（如"简洁"、"幽默"、"正式"）
-4. custom_fields 用于存储额外有价值信息
-5. 不确定或无法判断的字段返回空数组或空字符串
+4. communication_style 描述用户期望的回复方式，从以下选择：简洁/详细/随意/正式。如无法判断则留空
+5. emotional_baseline 描述用户近期的情感倾向，从以下选择：稳定/敏感/乐观/低落/焦虑。如无法判断则留空
+6. custom_fields 用于存储额外有价值信息
+7. 不确定或无法判断的字段返回空数组或空字符串
 
 仅返回JSON，不要其他内容。"""
 
@@ -277,6 +281,8 @@ class ProfileAnalyzer:
     "important_dates": [{{"date": "日期", "description": "描述"}}],
     "personality_tags": ["性格标签（如有变化）"],
     "interests": ["兴趣（如有变化）"],
+    "communication_style": "沟通偏好（如有变化）",
+    "emotional_baseline": "情感基线（如有变化）",
     "custom_fields": {{
         "自定义字段名": "字段值"
     }}
@@ -288,7 +294,9 @@ class ProfileAnalyzer:
 3. bot_relationship 仅在用户有明确称呼习惯时填写（如"小助手"、"老师"）
 4. important_events 只记录真正重要的事件（如工作变动、人生里程碑），最多5个
 5. 只有确实发现显著变化时才更新 personality_tags 和 interests
-6. 不确定或无法判断的字段返回空数组或空字符串
+6. communication_style 从以下选择：简洁/详细/随意/正式
+7. emotional_baseline 从以下选择：稳定/敏感/乐观/低落/焦虑
+8. 不确定或无法判断的字段返回空数组或空字符串
 
 仅返回JSON，不要其他内容。"""
 

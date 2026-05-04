@@ -684,6 +684,10 @@ def _format_profiles_for_injection(
         parts.append(f"性格: {', '.join(user_profile.personality_tags[:3])}")
     if user_profile.interests:
         parts.append(f"兴趣: {', '.join(user_profile.interests[:3])}")
+    if user_profile.communication_style:
+        parts.append(f"沟通偏好: {user_profile.communication_style}")
+    if user_profile.emotional_baseline:
+        parts.append(f"情感: {user_profile.emotional_baseline}")
     if user_profile.bot_relationship:
         parts.append(f"称呼: {user_profile.bot_relationship}")
     if user_profile.taboo_topics:

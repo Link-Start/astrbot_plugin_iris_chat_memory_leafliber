@@ -93,6 +93,8 @@ class UserProfileManager:
         interests: Optional[List[str]] = None,
         occupation: Optional[str] = None,
         language_style: Optional[str] = None,
+        communication_style: Optional[str] = None,
+        emotional_baseline: Optional[str] = None,
         custom_fields: Optional[dict] = None,
         tier: UpdateTier = UpdateTier.MID,
         confidence: float = 0.7
@@ -110,6 +112,8 @@ class UserProfileManager:
             interests: 兴趣爱好列表
             occupation: 职业/身份
             language_style: 语言风格
+            communication_style: 期望的沟通偏好（简洁/详细/随意/正式）
+            emotional_baseline: 情感基线（稳定/敏感/乐观/低落）
             custom_fields: 自定义字段字典
             tier: 更新层级
             confidence: 本次分析的整体置信度
@@ -147,6 +151,32 @@ class UserProfileManager:
                 profile.language_style = language_style
                 meta.record_update(long_term_confidence, source="llm")
                 profile.set_field_meta("language_style", meta)
+                updated = True
+
+        if communication_style is not None:
+            meta = profile.get_field_meta("communication_style")
+            if should_overwrite_field(
+                profile.communication_style,
+                communication_style,
+                meta.confidence,
+                confidence
+            ):
+                profile.communication_style = communication_style
+                meta.record_update(confidence, source="llm")
+                profile.set_field_meta("communication_style", meta)
+                updated = True
+
+        if emotional_baseline is not None:
+            meta = profile.get_field_meta("emotional_baseline")
+            if should_overwrite_field(
+                profile.emotional_baseline,
+                emotional_baseline,
+                meta.confidence,
+                confidence
+            ):
+                profile.emotional_baseline = emotional_baseline
+                meta.record_update(confidence, source="llm")
+                profile.set_field_meta("emotional_baseline", meta)
                 updated = True
 
         if occupation is not None and tier in (UpdateTier.MID, UpdateTier.LONG):
@@ -199,6 +229,8 @@ class UserProfileManager:
         important_dates: Optional[List[Dict[str, str]]] = None,
         personality_tags: Optional[List[str]] = None,
         interests: Optional[List[str]] = None,
+        communication_style: Optional[str] = None,
+        emotional_baseline: Optional[str] = None,
         custom_fields: Optional[dict] = None,
         confidence: float = 0.8
     ) -> None:
@@ -216,6 +248,8 @@ class UserProfileManager:
             important_dates: 重要纪念日列表
             personality_tags: 性格标签（如有变化）
             interests: 兴趣爱好（如有变化）
+            communication_style: 期望的沟通偏好
+            emotional_baseline: 情感基线
             custom_fields: 自定义字段
             confidence: 置信度
         """
@@ -272,6 +306,22 @@ class UserProfileManager:
                 profile.interests = merged
                 meta.record_update(confidence, source="llm")
                 profile.set_field_meta("interests", meta)
+                updated = True
+
+        if communication_style is not None:
+            meta = profile.get_field_meta("communication_style")
+            if should_overwrite_field(profile.communication_style, communication_style, meta.confidence, confidence):
+                profile.communication_style = communication_style
+                meta.record_update(confidence, source="llm")
+                profile.set_field_meta("communication_style", meta)
+                updated = True
+
+        if emotional_baseline is not None:
+            meta = profile.get_field_meta("emotional_baseline")
+            if should_overwrite_field(profile.emotional_baseline, emotional_baseline, meta.confidence, confidence):
+                profile.emotional_baseline = emotional_baseline
+                meta.record_update(confidence, source="llm")
+                profile.set_field_meta("emotional_baseline", meta)
                 updated = True
 
         if custom_fields:

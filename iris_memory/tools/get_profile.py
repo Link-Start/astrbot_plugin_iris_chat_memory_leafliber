@@ -135,6 +135,12 @@ class GetProfileTool(FunctionTool[AstrAgentContext]):
         if profile.language_style:
             lines.append(f"**语言风格**: {profile.language_style}")
 
+        if profile.communication_style:
+            lines.append(f"**沟通偏好**: {profile.communication_style}")
+
+        if profile.emotional_baseline:
+            lines.append(f"**情感基线**: {profile.emotional_baseline}")
+
         if profile.bot_relationship:
             lines.append(f"**用户对你的称呼**: {profile.bot_relationship}")
 

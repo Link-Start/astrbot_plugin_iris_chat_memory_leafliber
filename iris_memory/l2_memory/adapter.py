@@ -992,6 +992,61 @@ class L2MemoryAdapter(Component):
             logger.error(f"更新元数据失败：{e}", exc_info=True)
             return False
 
+    async def update_content(self, memory_id: str, new_content: str) -> bool:
+        """更新记忆条目的内容
+
+        ChromaDB 不支持直接更新 document 并重新计算嵌入，
+        因此采用删除旧记录 + 重新添加的策略。
+
+        Args:
+            memory_id: 记忆 ID
+            new_content: 新的记忆内容
+
+        Returns:
+            是否更新成功
+        """
+        if not self._is_available or not memory_id:
+            return False
+
+        try:
+            loop = asyncio.get_event_loop()
+
+            result = await loop.run_in_executor(
+                None,
+                lambda: self._collection.get(
+                    ids=[memory_id], include=["metadatas", "documents"]
+                ),
+            )
+
+            if not result["ids"]:
+                logger.warning(f"记忆不存在：{memory_id}")
+                return False
+
+            old_metadata = result["metadatas"][0]
+
+            await loop.run_in_executor(
+                None, lambda: self._collection.delete(ids=[memory_id])
+            )
+
+            new_metadata = dict(old_metadata)
+            new_metadata["timestamp"] = datetime.now().isoformat()
+
+            await loop.run_in_executor(
+                None,
+                lambda: self._collection.add(
+                    ids=[memory_id],
+                    documents=[new_content],
+                    metadatas=[new_metadata],
+                ),
+            )
+
+            logger.info(f"已更新记忆内容：{memory_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"更新记忆内容失败：{e}", exc_info=True)
+            return False
+
     async def evict_memories(self, memory_ids: List[str]) -> int:
         """淘汰记忆条目（用于定时任务）
 

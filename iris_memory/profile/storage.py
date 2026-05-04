@@ -296,10 +296,17 @@ class ProfileStorage(Component):
                     logger.warning(f"获取群聊画像失败: {group_id}, 错误: {profile}")
                     continue
                 if profile:
+                    member_count = 0
+                    user_index_key = f"user_index:{persona_id}:{group_id}"
+                    user_ids = await self._storage.get_kv_data(user_index_key, [])
+                    if user_ids:
+                        member_count = len(user_ids)
+
                     groups.append(
                         {
                             "group_id": group_id,
                             "group_name": profile.group_name or group_id,
+                            "member_count": member_count,
                         }
                     )
 

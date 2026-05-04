@@ -258,6 +258,8 @@ USER_FIELD_TIERS: Dict[str, UpdateTier] = {
     "personality_tags": UpdateTier.MID,
     "interests": UpdateTier.MID,
     "language_style": UpdateTier.MID,
+    "communication_style": UpdateTier.MID,
+    "emotional_baseline": UpdateTier.MID,
     "occupation": UpdateTier.LONG,
     "bot_relationship": UpdateTier.LONG,
     "important_dates": UpdateTier.LONG,
@@ -284,6 +286,8 @@ class UserProfile(ProfileMetadataMixin):
         interests: 兴趣爱好（中期）
         occupation: 职业/身份（长期）
         language_style: 常用语言风格（中期）
+        communication_style: 期望的沟通偏好（中期，如简洁/详细/随意/正式）
+        emotional_baseline: 情感基线（中期，如稳定/敏感/乐观/低落）
 
         bot_relationship: 对bot的称呼/关系设定（长期）
         important_dates: 重要纪念日（长期）
@@ -306,6 +310,8 @@ class UserProfile(ProfileMetadataMixin):
     interests: List[str] = field(default_factory=list)
     occupation: str = ""
     language_style: str = ""
+    communication_style: str = ""
+    emotional_baseline: str = ""
 
     bot_relationship: str = ""
     important_dates: List[Dict[str, str]] = field(default_factory=list)
@@ -389,23 +395,35 @@ def dict_to_user_profile(data: dict) -> UserProfile:
 def merge_list_field(
     existing: List[str],
     new_values: List[str],
-    max_items: int = 20
+    max_items: int = 10,
+    replace_threshold: int = 5
 ) -> List[str]:
     """智能合并列表字段
 
-    新值优先，去重，保留最多 max_items 项。
-    新值排在前面，旧值追加在后面。
+    当新值数量 >= replace_threshold 时，视为 LLM 给出了完整的替换列表，
+    直接用新值替换旧值（而非追加），避免列表无限膨胀。
+    否则将新值追加到旧值前面（新值优先），去重后截断。
 
     Args:
         existing: 现有列表
         new_values: 新值列表
         max_items: 最大保留项数
+        replace_threshold: 替换阈值，新值数量达到此值时替换而非追加
 
     Returns:
         合并后的列表
     """
     if not new_values:
         return existing
+
+    if len(new_values) >= replace_threshold:
+        seen = set()
+        deduped = []
+        for item in new_values:
+            if item not in seen:
+                deduped.append(item)
+                seen.add(item)
+        return deduped[:max_items]
 
     merged = list(new_values)
     seen = set(new_values)

@@ -74,6 +74,18 @@ export const useProfileStore = defineStore('profile', () => {
     await fetchUserProfile(userId, groupId)
   }
 
+  const deleteGroupProfile = async (groupId: string) => {
+    await profileApi.deleteGroupProfile(groupId)
+    currentGroupProfile.value = null
+    await fetchGroupList()
+  }
+
+  const deleteUserProfile = async (userId: string, groupId?: string) => {
+    await profileApi.deleteUserProfile(userId, groupId)
+    currentUserProfile.value = null
+    await fetchUserList(groupId)
+  }
+
   return {
     groupList,
     groupListLoading,
@@ -88,6 +100,8 @@ export const useProfileStore = defineStore('profile', () => {
     updateGroupProfile,
     fetchUserList,
     fetchUserProfile,
-    updateUserProfile
+    updateUserProfile,
+    deleteGroupProfile,
+    deleteUserProfile
   }
 })
