@@ -182,7 +182,9 @@ async def list_l1_buffer():
                 "content": msg.content,
                 "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
                 "user_id": msg.source if hasattr(msg, "source") else None,
-                "user_name": msg.metadata.get("user_name") if hasattr(msg, "metadata") and msg.metadata else None,
+                "user_name": msg.metadata.get("user_name")
+                if hasattr(msg, "metadata") and msg.metadata
+                else None,
             }
             for msg in messages
         ]
@@ -240,8 +242,14 @@ async def list_l1_queues():
                     gid = q.get("group_id", "")
                     if gid and gid not in group_names:
                         try:
-                            profile = await group_manager._storage.get_group_profile(gid)
-                            group_names[gid] = profile.group_name if profile and profile.group_name else ""
+                            profile = await group_manager._storage.get_group_profile(
+                                gid
+                            )
+                            group_names[gid] = (
+                                profile.group_name
+                                if profile and profile.group_name
+                                else ""
+                            )
                         except Exception:
                             group_names[gid] = ""
             except Exception as e:

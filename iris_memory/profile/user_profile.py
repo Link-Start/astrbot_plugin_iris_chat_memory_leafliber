@@ -38,9 +38,7 @@ class UserProfileManager:
         self._storage = storage
 
     async def get_or_create(
-        self,
-        user_id: str,
-        group_id: str = "default"
+        self, user_id: str, group_id: str = "default"
     ) -> UserProfile:
         """获取或创建用户画像
 
@@ -61,10 +59,7 @@ class UserProfileManager:
         return profile
 
     async def update_user_name(
-        self,
-        user_id: str,
-        group_id: str = "default",
-        user_name: Optional[str] = None
+        self, user_id: str, group_id: str = "default", user_name: Optional[str] = None
     ) -> None:
         """更新用户昵称
 
@@ -82,7 +77,9 @@ class UserProfileManager:
             if profile.user_name and profile.user_name not in profile.historical_names:
                 profile.historical_names.append(profile.user_name)
             profile.user_name = user_name
-            await self._storage.save_user_profile(profile, group_id, increment_version=True)
+            await self._storage.save_user_profile(
+                profile, group_id, increment_version=True
+            )
             logger.debug(f"更新用户昵称: {user_id} -> {user_name}")
 
     async def update_from_analysis(
@@ -97,7 +94,7 @@ class UserProfileManager:
         emotional_baseline: Optional[str] = None,
         custom_fields: Optional[dict] = None,
         tier: UpdateTier = UpdateTier.MID,
-        confidence: float = 0.7
+        confidence: float = 0.7,
     ) -> None:
         """从分析结果更新字段（LLM分析后调用）
 
@@ -141,12 +138,14 @@ class UserProfileManager:
 
         if language_style is not None:
             meta = profile.get_field_meta("language_style")
-            long_term_confidence = confidence if tier == UpdateTier.LONG else confidence * 0.8
+            long_term_confidence = (
+                confidence if tier == UpdateTier.LONG else confidence * 0.8
+            )
             if should_overwrite_field(
                 profile.language_style,
                 language_style,
                 meta.confidence,
-                long_term_confidence
+                long_term_confidence,
             ):
                 profile.language_style = language_style
                 meta.record_update(long_term_confidence, source="llm")
@@ -159,7 +158,7 @@ class UserProfileManager:
                 profile.communication_style,
                 communication_style,
                 meta.confidence,
-                confidence
+                confidence,
             ):
                 profile.communication_style = communication_style
                 meta.record_update(confidence, source="llm")
@@ -172,7 +171,7 @@ class UserProfileManager:
                 profile.emotional_baseline,
                 emotional_baseline,
                 meta.confidence,
-                confidence
+                confidence,
             ):
                 profile.emotional_baseline = emotional_baseline
                 meta.record_update(confidence, source="llm")
@@ -181,12 +180,11 @@ class UserProfileManager:
 
         if occupation is not None and tier in (UpdateTier.MID, UpdateTier.LONG):
             meta = profile.get_field_meta("occupation")
-            long_term_confidence = confidence if tier == UpdateTier.LONG else confidence * 0.7
+            long_term_confidence = (
+                confidence if tier == UpdateTier.LONG else confidence * 0.7
+            )
             if should_overwrite_field(
-                profile.occupation,
-                occupation,
-                meta.confidence,
-                long_term_confidence
+                profile.occupation, occupation, meta.confidence, long_term_confidence
             ):
                 profile.occupation = occupation
                 meta.record_update(long_term_confidence, source="llm")
@@ -199,10 +197,7 @@ class UserProfileManager:
                     profile.custom_fields[key] = value
                     updated = True
                 elif should_overwrite_field(
-                    profile.custom_fields[key],
-                    value,
-                    0.5,
-                    confidence
+                    profile.custom_fields[key], value, 0.5, confidence
                 ):
                     profile.custom_fields[key] = value
                     updated = True
@@ -214,9 +209,13 @@ class UserProfileManager:
             tracker.record_long_update()
         profile.set_update_tracker(tracker)
 
-        await self._storage.save_user_profile(profile, group_id, increment_version=updated)
+        await self._storage.save_user_profile(
+            profile, group_id, increment_version=updated
+        )
         if updated:
-            logger.info(f"从分析结果更新用户画像: {user_id} (群聊: {group_id}, tier={tier.value})")
+            logger.info(
+                f"从分析结果更新用户画像: {user_id} (群聊: {group_id}, tier={tier.value})"
+            )
 
     async def update_long_term_from_analysis(
         self,
@@ -232,7 +231,7 @@ class UserProfileManager:
         communication_style: Optional[str] = None,
         emotional_baseline: Optional[str] = None,
         custom_fields: Optional[dict] = None,
-        confidence: float = 0.8
+        confidence: float = 0.8,
     ) -> None:
         """从长期分析结果更新字段
 
@@ -258,7 +257,9 @@ class UserProfileManager:
 
         if occupation is not None:
             meta = profile.get_field_meta("occupation")
-            if should_overwrite_field(profile.occupation, occupation, meta.confidence, confidence):
+            if should_overwrite_field(
+                profile.occupation, occupation, meta.confidence, confidence
+            ):
                 profile.occupation = occupation
                 meta.record_update(confidence, source="llm")
                 profile.set_field_meta("occupation", meta)
@@ -266,7 +267,9 @@ class UserProfileManager:
 
         if bot_relationship is not None:
             meta = profile.get_field_meta("bot_relationship")
-            if should_overwrite_field(profile.bot_relationship, bot_relationship, meta.confidence, confidence):
+            if should_overwrite_field(
+                profile.bot_relationship, bot_relationship, meta.confidence, confidence
+            ):
                 profile.bot_relationship = bot_relationship
                 meta.record_update(confidence, source="llm")
                 profile.set_field_meta("bot_relationship", meta)
@@ -310,7 +313,12 @@ class UserProfileManager:
 
         if communication_style is not None:
             meta = profile.get_field_meta("communication_style")
-            if should_overwrite_field(profile.communication_style, communication_style, meta.confidence, confidence):
+            if should_overwrite_field(
+                profile.communication_style,
+                communication_style,
+                meta.confidence,
+                confidence,
+            ):
                 profile.communication_style = communication_style
                 meta.record_update(confidence, source="llm")
                 profile.set_field_meta("communication_style", meta)
@@ -318,7 +326,12 @@ class UserProfileManager:
 
         if emotional_baseline is not None:
             meta = profile.get_field_meta("emotional_baseline")
-            if should_overwrite_field(profile.emotional_baseline, emotional_baseline, meta.confidence, confidence):
+            if should_overwrite_field(
+                profile.emotional_baseline,
+                emotional_baseline,
+                meta.confidence,
+                confidence,
+            ):
                 profile.emotional_baseline = emotional_baseline
                 meta.record_update(confidence, source="llm")
                 profile.set_field_meta("emotional_baseline", meta)
@@ -334,7 +347,9 @@ class UserProfileManager:
         tracker.record_long_update()
         profile.set_update_tracker(tracker)
 
-        await self._storage.save_user_profile(profile, group_id, increment_version=updated)
+        await self._storage.save_user_profile(
+            profile, group_id, increment_version=updated
+        )
         if updated:
             logger.info(f"从长期分析更新用户画像: {user_id} (群聊: {group_id})")
 
@@ -370,10 +385,7 @@ class UserProfileManager:
         return tracker.should_update_long(interval_hours)
 
     async def set_bot_relationship(
-        self,
-        user_id: str,
-        group_id: str,
-        relationship: str
+        self, user_id: str, group_id: str, relationship: str
     ) -> None:
         """设置用户对 bot 的称呼/关系设定"""
         profile = await self.get_or_create(user_id, group_id)
@@ -385,11 +397,7 @@ class UserProfileManager:
         logger.info(f"设置用户对bot的关系: {user_id} -> {relationship}")
 
     async def add_important_date(
-        self,
-        user_id: str,
-        group_id: str,
-        date: str,
-        description: str
+        self, user_id: str, group_id: str, date: str, description: str
     ) -> None:
         """添加重要纪念日"""
         profile = await self.get_or_create(user_id, group_id)
@@ -403,12 +411,7 @@ class UserProfileManager:
             await self._storage.save_user_profile(profile, group_id)
             logger.info(f"添加用户重要日期: {user_id} -> {date} ({description})")
 
-    async def add_taboo_topic(
-        self,
-        user_id: str,
-        group_id: str,
-        topic: str
-    ) -> None:
+    async def add_taboo_topic(self, user_id: str, group_id: str, topic: str) -> None:
         """添加禁忌话题"""
         profile = await self.get_or_create(user_id, group_id)
 
@@ -421,10 +424,7 @@ class UserProfileManager:
             logger.info(f"添加用户禁忌话题: {user_id} -> {topic}")
 
     async def add_important_event(
-        self,
-        user_id: str,
-        group_id: str,
-        event: str
+        self, user_id: str, group_id: str, event: str
     ) -> None:
         """添加历史重要事件"""
         profile = await self.get_or_create(user_id, group_id)

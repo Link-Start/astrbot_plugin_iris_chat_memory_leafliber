@@ -13,7 +13,7 @@ from .models import (
     GraphEdge,
     ExtractionResult,
     NODE_TYPE_WHITELIST,
-    RELATION_TYPE_WHITELIST
+    RELATION_TYPE_WHITELIST,
 )
 from .adapter import L3KGAdapter
 from .extractor import EntityExtractor

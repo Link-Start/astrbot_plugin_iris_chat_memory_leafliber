@@ -5,7 +5,7 @@ Iris Chat Memory - 画像分析器
 仅保留中长期字段分析。
 """
 
-from typing import List, Dict, Optional, Union, TYPE_CHECKING
+from typing import List, Dict, Union, TYPE_CHECKING
 import json
 
 from iris_memory.core import get_logger
@@ -35,7 +35,7 @@ class ProfileAnalyzer:
         self,
         messages: List[str],
         current_profile: Dict,
-        tier: UpdateTier = UpdateTier.MID
+        tier: UpdateTier = UpdateTier.MID,
     ) -> Dict[str, List[str]]:
         """分析群聊画像
 
@@ -51,8 +51,7 @@ class ProfileAnalyzer:
 
         try:
             response = await self._llm_manager.generate(
-                prompt=prompt,
-                module="profile_analysis"
+                prompt=prompt, module="profile_analysis"
             )
 
             result = self._parse_json_response(response)
@@ -67,7 +66,7 @@ class ProfileAnalyzer:
         self,
         messages: List[str],
         current_profile: Dict,
-        tier: UpdateTier = UpdateTier.MID
+        tier: UpdateTier = UpdateTier.MID,
     ) -> Dict[str, Union[str, List[str]]]:
         """分析用户画像
 
@@ -83,8 +82,7 @@ class ProfileAnalyzer:
 
         try:
             response = await self._llm_manager.generate(
-                prompt=prompt,
-                module="profile_analysis"
+                prompt=prompt, module="profile_analysis"
             )
 
             result = self._parse_json_response(response)
@@ -99,7 +97,7 @@ class ProfileAnalyzer:
         self,
         messages: List[str],
         current_profile: Dict,
-        tier: UpdateTier = UpdateTier.MID
+        tier: UpdateTier = UpdateTier.MID,
     ) -> str:
         """构建群聊画像分析 prompt
 
@@ -148,9 +146,7 @@ class ProfileAnalyzer:
 仅返回JSON，不要其他内容。"""
 
     def _build_group_long_prompt(
-        self,
-        messages: List[str],
-        current_profile: Dict
+        self, messages: List[str], current_profile: Dict
     ) -> str:
         """构建群聊画像长期分析 prompt
 
@@ -195,7 +191,7 @@ class ProfileAnalyzer:
         self,
         messages: List[str],
         current_profile: Dict,
-        tier: UpdateTier = UpdateTier.MID
+        tier: UpdateTier = UpdateTier.MID,
     ) -> str:
         """构建用户画像分析 prompt
 
@@ -249,9 +245,7 @@ class ProfileAnalyzer:
 仅返回JSON，不要其他内容。"""
 
     def _build_user_long_prompt(
-        self,
-        messages: List[str],
-        current_profile: Dict
+        self, messages: List[str], current_profile: Dict
     ) -> str:
         """构建用户画像长期分析 prompt
 
@@ -315,7 +309,8 @@ class ProfileAnalyzer:
             return json.loads(response)
         except json.JSONDecodeError:
             import re
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+
+            json_match = re.search(r"\{.*\}", response, re.DOTALL)
             if json_match:
                 try:
                     return json.loads(json_match.group())

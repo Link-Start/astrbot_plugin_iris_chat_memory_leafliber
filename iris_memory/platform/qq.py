@@ -448,3 +448,88 @@ class OneBot11Adapter(PlatformAdapter):
             return "webp"
 
         return ""
+
+    async def get_msg_by_id(self, event: Any, message_id: str) -> ReplyInfo:
+        """通过消息ID获取消息内容（OneBot11 get_msg API）
+
+        调用 OneBot11 的 get_msg API 获取指定消息的详细内容。
+        需要事件对象中包含 bot（CQHttp 实例）属性。
+
+        Args:
+            event: AstrBot 消息事件对象，需包含 bot 属性
+            message_id: 消息ID
+
+        Returns:
+            ReplyInfo 实例，包含消息内容和发送者信息；
+            获取失败时返回空 ReplyInfo
+
+        Notes:
+            - 依赖 aiocqhttp 的 call_action 方法
+            - 不同 OneBot11 实现对 get_msg 支持程度不同
+            - Lagrange.OneBot 不支持此 API
+            - NapCat / go-cqhttp 通常支持此 API
+        """
+        import asyncio
+
+        if not message_id:
+            return ReplyInfo()
+
+        bot = getattr(event, "bot", None)
+        if bot is None:
+            logger.debug("event.bot 不存在，无法调用 get_msg API")
+            return ReplyInfo()
+
+        try:
+            result = await asyncio.wait_for(
+                bot.call_action("get_msg", message_id=int(message_id)),
+                timeout=5.0,
+            )
+        except asyncio.TimeoutError:
+            logger.debug(f"get_msg API 超时：message_id={message_id}")
+            return ReplyInfo()
+        except AttributeError:
+            logger.debug("bot.call_action 方法不存在，无法调用 get_msg API")
+            return ReplyInfo()
+        except Exception as e:
+            err_str = str(e)
+            if "API_NOT_FOUND" in err_str or "api not found" in err_str.lower():
+                logger.debug(f"get_msg API 不可用：message_id={message_id}")
+            else:
+                logger.debug(
+                    f"get_msg API 调用失败：message_id={message_id}, error={e}"
+                )
+            return ReplyInfo()
+
+        if not result or not isinstance(result, dict):
+            return ReplyInfo()
+
+        sender = result.get("sender", {})
+        user_id = str(sender.get("user_id", "")) if sender else ""
+        user_name = ""
+        if sender:
+            card = sender.get("card", "")
+            nickname = sender.get("nickname", "")
+            user_name = card or nickname
+
+        message_segments = result.get("message", [])
+        content = ""
+
+        if isinstance(message_segments, str):
+            content = message_segments
+        elif isinstance(message_segments, list):
+            content = self._extract_text_from_segments(message_segments)
+
+        if not content:
+            raw_message = result.get("raw_message", "")
+            if isinstance(raw_message, str) and raw_message:
+                content = raw_message
+
+        if not content and not user_id:
+            return ReplyInfo()
+
+        return ReplyInfo(
+            message_id=message_id,
+            user_id=user_id,
+            user_name=user_name,
+            content=content,
+        )

@@ -5,7 +5,6 @@ Iris Chat Memory - L2 记忆数据模型
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Optional, Dict, Any
 
 
@@ -13,12 +12,13 @@ from typing import Optional, Dict, Any
 # 数据类定义
 # ============================================================================
 
+
 @dataclass
 class MemoryEntry:
     """记忆条目数据类
-    
+
     存储单条记忆的完整信息，包括内容、向量、元数据等。
-    
+
     Attributes:
         id: 记忆唯一标识符
         content: 记忆内容文本
@@ -31,7 +31,7 @@ class MemoryEntry:
             - last_access_time: 最近访问时间
             - confidence: 置信度
             - source: 来源（summary/tool）
-    
+
     Examples:
         >>> entry = MemoryEntry(
         ...     id="mem_001",
@@ -44,15 +44,15 @@ class MemoryEntry:
         ...     }
         ... )
     """
-    
+
     id: str
     content: str
     metadata: Dict[str, Any] = field(default_factory=dict)
     embedding: Optional[list[float]] = None
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式
-        
+
         Returns:
             包含所有字段的字典（不含 embedding）
         """
@@ -61,14 +61,14 @@ class MemoryEntry:
             "content": self.content,
             "metadata": self.metadata,
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "MemoryEntry":
         """从字典创建实例
-        
+
         Args:
             data: 包含记忆数据的字典
-        
+
         Returns:
             MemoryEntry 实例
         """
@@ -78,56 +78,56 @@ class MemoryEntry:
             metadata=data.get("metadata", {}),
             embedding=data.get("embedding"),
         )
-    
+
     @property
     def group_id(self) -> Optional[str]:
         """获取群聊ID
-        
+
         Returns:
             群聊ID，不存在时返回 None
         """
         return self.metadata.get("group_id")
-    
+
     @property
     def timestamp(self) -> Optional[str]:
         """获取创建时间戳
-        
+
         Returns:
             ISO 格式时间戳字符串，不存在时返回 None
         """
         return self.metadata.get("timestamp")
-    
+
     @property
     def access_count(self) -> int:
         """获取访问次数
-        
+
         Returns:
             访问次数，默认为 0
         """
         return self.metadata.get("access_count", 0)
-    
+
     @property
     def last_access_time(self) -> Optional[str]:
         """获取最近访问时间
-        
+
         Returns:
             ISO 格式时间戳字符串，不存在时返回 None
         """
         return self.metadata.get("last_access_time")
-    
+
     @property
     def confidence(self) -> float:
         """获取置信度
-        
+
         Returns:
             置信度分数，默认为 0.5
         """
         return self.metadata.get("confidence", 0.5)
-    
+
     @property
     def kg_processed(self) -> bool:
         """获取知识图谱处理状态
-        
+
         Returns:
             是否已处理，默认为 False
         """
@@ -137,28 +137,28 @@ class MemoryEntry:
 @dataclass
 class MemorySearchResult:
     """记忆检索结果数据类
-    
+
     存储单条检索结果，包括记忆条目、相似度分数和距离。
-    
+
     Attributes:
         entry: 记忆条目
         score: 相似度分数（越高越相似，范围 [0, 1]）
         distance: 向量距离（越低越相似）
-    
+
     Examples:
         >>> entry = MemoryEntry(id="mem_001", content="测试")
         >>> result = MemorySearchResult(entry=entry, score=0.85, distance=0.15)
         >>> result.score
         0.85
     """
-    
+
     entry: MemoryEntry
     score: float
     distance: float
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式
-        
+
         Returns:
             包含条目信息和分数的字典
         """

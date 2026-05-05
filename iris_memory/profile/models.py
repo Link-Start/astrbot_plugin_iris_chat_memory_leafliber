@@ -13,10 +13,11 @@ from enum import Enum
 
 class UpdateTier(Enum):
     """字段更新层级
-    
+
     中期字段：按时间间隔或总结次数触发LLM分析
     长期字段：仅检测到显著新信息时更新，需高置信度
     """
+
     MID = "mid"
     LONG = "long"
 
@@ -24,15 +25,16 @@ class UpdateTier(Enum):
 @dataclass
 class FieldMeta:
     """字段元数据
-    
+
     跟踪单个字段的置信度和更新历史。
-    
+
     Attributes:
         confidence: 置信度 0.0~1.0，越高越可靠
         last_updated: 最近更新时间
         update_count: 累计更新次数
         source: 最近一次更新来源（rule/llm/manual）
     """
+
     confidence: float = 0.0
     last_updated: Optional[datetime] = None
     update_count: int = 0
@@ -78,11 +80,14 @@ class ProfileUpdateTracker:
         last_mid_update_time: 上次中期更新时间
         last_long_update_time: 上次长期更新时间
     """
+
     summary_count_since_mid_update: int = 0
     last_mid_update_time: Optional[datetime] = None
     last_long_update_time: Optional[datetime] = None
 
-    def should_update_mid(self, interval_summaries: int = 5, interval_hours: float = 24.0) -> bool:
+    def should_update_mid(
+        self, interval_summaries: int = 5, interval_hours: float = 24.0
+    ) -> bool:
         """判断是否应该进行中期更新
 
         Args:
@@ -97,7 +102,9 @@ class ProfileUpdateTracker:
         if self.last_mid_update_time is None:
             return True
         if interval_hours > 0:
-            elapsed = (datetime.now() - self.last_mid_update_time).total_seconds() / 3600
+            elapsed = (
+                datetime.now() - self.last_mid_update_time
+            ).total_seconds() / 3600
             if elapsed >= interval_hours:
                 return True
         return False
@@ -114,7 +121,9 @@ class ProfileUpdateTracker:
         if self.last_long_update_time is None:
             return True
         if interval_hours > 0:
-            elapsed = (datetime.now() - self.last_long_update_time).total_seconds() / 3600
+            elapsed = (
+                datetime.now() - self.last_long_update_time
+            ).total_seconds() / 3600
             if elapsed >= interval_hours:
                 return True
         return False
@@ -137,9 +146,10 @@ class ProfileUpdateTracker:
 # 画像元数据混入类
 # ============================================================================
 
+
 class ProfileMetadataMixin:
     """画像元数据混入类
-    
+
     提供字段元数据和更新追踪器的通用操作方法。
     """
 
@@ -149,15 +159,21 @@ class ProfileMetadataMixin:
             return ProfileUpdateTracker()
         tracker = ProfileUpdateTracker()
         data = self.update_tracker
-        tracker.summary_count_since_mid_update = data.get("summary_count_since_mid_update", 0)
+        tracker.summary_count_since_mid_update = data.get(
+            "summary_count_since_mid_update", 0
+        )
         if data.get("last_mid_update_time"):
             if isinstance(data["last_mid_update_time"], str):
-                tracker.last_mid_update_time = datetime.fromisoformat(data["last_mid_update_time"])
+                tracker.last_mid_update_time = datetime.fromisoformat(
+                    data["last_mid_update_time"]
+                )
             elif isinstance(data["last_mid_update_time"], datetime):
                 tracker.last_mid_update_time = data["last_mid_update_time"]
         if data.get("last_long_update_time"):
             if isinstance(data["last_long_update_time"], str):
-                tracker.last_long_update_time = datetime.fromisoformat(data["last_long_update_time"])
+                tracker.last_long_update_time = datetime.fromisoformat(
+                    data["last_long_update_time"]
+                )
             elif isinstance(data["last_long_update_time"], datetime):
                 tracker.last_long_update_time = data["last_long_update_time"]
         return tracker
@@ -166,8 +182,12 @@ class ProfileMetadataMixin:
         """保存更新追踪器（转为dict存储）"""
         self.update_tracker = {
             "summary_count_since_mid_update": tracker.summary_count_since_mid_update,
-            "last_mid_update_time": tracker.last_mid_update_time.isoformat() if tracker.last_mid_update_time else None,
-            "last_long_update_time": tracker.last_long_update_time.isoformat() if tracker.last_long_update_time else None,
+            "last_mid_update_time": tracker.last_mid_update_time.isoformat()
+            if tracker.last_mid_update_time
+            else None,
+            "last_long_update_time": tracker.last_long_update_time.isoformat()
+            if tracker.last_long_update_time
+            else None,
         }
 
     def get_field_meta(self, field_name: str) -> FieldMeta:
@@ -190,7 +210,9 @@ class ProfileMetadataMixin:
         """设置字段元数据"""
         self.field_meta[field_name] = {
             "confidence": meta.confidence,
-            "last_updated": meta.last_updated.isoformat() if meta.last_updated else None,
+            "last_updated": meta.last_updated.isoformat()
+            if meta.last_updated
+            else None,
             "update_count": meta.update_count,
             "source": meta.source,
         }
@@ -330,6 +352,7 @@ class UserProfile(ProfileMetadataMixin):
 # 辅助函数
 # ============================================================================
 
+
 def profile_to_dict(profile: Union[GroupProfile, UserProfile]) -> dict:
     """将画像对象转换为字典（处理datetime序列化）
 
@@ -396,7 +419,7 @@ def merge_list_field(
     existing: List[str],
     new_values: List[str],
     max_items: int = 10,
-    replace_threshold: int = 5
+    replace_threshold: int = 5,
 ) -> List[str]:
     """智能合并列表字段
 
@@ -441,7 +464,7 @@ def should_overwrite_field(
     new_value,
     existing_confidence: float,
     new_confidence: float,
-    min_confidence_gap: float = 0.2
+    min_confidence_gap: float = 0.2,
 ) -> bool:
     """判断是否应该用新值覆盖旧值
 
@@ -472,25 +495,31 @@ def should_overwrite_field(
 
 class ProfileConfig:
     """画像配置辅助类
-    
+
     提供画像更新间隔配置的统一访问接口。
     """
-    
+
     DEFAULT_MID_INTERVAL_SUMMARIES = 5
     DEFAULT_MID_INTERVAL_HOURS = 24.0
     DEFAULT_LONG_INTERVAL_HOURS = 168.0
-    
+
     @classmethod
     def get_mid_update_interval_summaries(cls, config) -> int:
         """获取中期更新的总结次数间隔"""
-        return config.get("profile_mid_update_interval_summaries", cls.DEFAULT_MID_INTERVAL_SUMMARIES)
-    
+        return config.get(
+            "profile_mid_update_interval_summaries", cls.DEFAULT_MID_INTERVAL_SUMMARIES
+        )
+
     @classmethod
     def get_mid_update_interval_hours(cls, config) -> float:
         """获取中期更新的时间间隔（小时）"""
-        return config.get("profile_mid_update_interval_hours", cls.DEFAULT_MID_INTERVAL_HOURS)
-    
+        return config.get(
+            "profile_mid_update_interval_hours", cls.DEFAULT_MID_INTERVAL_HOURS
+        )
+
     @classmethod
     def get_long_update_interval_hours(cls, config) -> float:
         """获取长期更新的时间间隔（小时）"""
-        return config.get("profile_long_update_interval_hours", cls.DEFAULT_LONG_INTERVAL_HOURS)
+        return config.get(
+            "profile_long_update_interval_hours", cls.DEFAULT_LONG_INTERVAL_HOURS
+        )

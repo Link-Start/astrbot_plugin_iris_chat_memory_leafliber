@@ -5,7 +5,7 @@ Iris Chat Memory - 画像存储组件
 支持群聊隔离和人格隔离。
 """
 
-from typing import Optional, TYPE_CHECKING, Set, Any, List
+from typing import Optional, TYPE_CHECKING, Set
 import asyncio
 
 from iris_memory.core import Component, get_logger

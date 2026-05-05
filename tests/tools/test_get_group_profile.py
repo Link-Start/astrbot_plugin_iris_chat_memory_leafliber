@@ -1,19 +1,17 @@
-"""测试 GetGroupProfileTool（占位符）"""
+"""测试 GetProfileTool（群聊画像模式）"""
 
 import pytest
-from unittest.mock import Mock
-from iris_memory.tools import GetGroupProfileTool
+from unittest.mock import Mock, AsyncMock
+from iris_memory.tools import GetProfileTool
 
 
 @pytest.fixture
 def tool():
-    """创建Tool实例"""
-    return GetGroupProfileTool()
+    return GetProfileTool()
 
 
 @pytest.fixture
 def mock_context():
-    """创建模拟上下文"""
     context = Mock()
     event = Mock()
     inner_context = Mock()
@@ -24,35 +22,59 @@ def mock_context():
 
 @pytest.mark.asyncio
 async def test_tool_initialization(tool):
-    """测试Tool初始化"""
-    assert tool.name == "get_group_profile"
+    assert tool.name == "get_profile"
     assert "画像" in tool.description
 
 
 @pytest.mark.asyncio
-async def test_placeholder_returns_message(tool, mock_context, monkeypatch):
-    """测试占位符返回提示消息"""
-    # 模拟platform adapter
+async def test_get_group_profile(tool, mock_context, monkeypatch):
     mock_adapter = Mock()
     mock_adapter.get_group_id = Mock(return_value="group_123")
-    
-    monkeypatch.setattr("iris_memory.tools.get_group_profile.get_adapter", Mock(return_value=mock_adapter))
-    
-    result = await tool.call(mock_context)
-    
-    # 验证返回占位符消息
+
+    mock_profile = Mock()
+    mock_profile.group_name = "测试群"
+    mock_profile.group_id = "group_123"
+    mock_profile.interests = ["技术"]
+    mock_profile.atmosphere_tags = ["轻松"]
+    mock_profile.long_term_tags = []
+    mock_profile.blacklist_topics = []
+
+    mock_profile_storage = Mock()
+    mock_profile_storage.is_available = True
+
+    mock_group_manager = Mock()
+    mock_group_manager.get_or_create = AsyncMock(return_value=mock_profile)
+
+    monkeypatch.setattr(
+        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+    )
+    monkeypatch.setattr(
+        "iris_memory.tools.get_profile.get_component_manager",
+        Mock(return_value=Mock(get_component=Mock(return_value=mock_profile_storage))),
+    )
+    monkeypatch.setattr(
+        "iris_memory.tools.get_profile.GroupProfileManager",
+        Mock(return_value=mock_group_manager),
+    )
+    monkeypatch.setattr(
+        "iris_memory.tools.get_profile.get_config",
+        Mock(return_value=Mock(get=Mock(return_value=False))),
+    )
+
+    result = await tool.call(mock_context, target_type="group", target_id="group_123")
+
     assert result.result is not None
-    assert "开发中" in result.result or "阶段9" in result.result or "后续版本" in result.result
 
 
 @pytest.mark.asyncio
-async def test_custom_group_id(tool, mock_context, monkeypatch):
-    """测试自定义群ID"""
+async def test_get_group_profile_no_id(tool, mock_context, monkeypatch):
     mock_adapter = Mock()
-    mock_adapter.get_group_id = Mock(return_value="group_123")
-    
-    monkeypatch.setattr("iris_memory.tools.get_group_profile.get_adapter", Mock(return_value=mock_adapter))
-    
-    result = await tool.call(mock_context, group_id="custom_group_456")
-    
-    assert "custom_group_456" in result.result
+    mock_adapter.get_group_id = Mock(return_value=None)
+
+    monkeypatch.setattr(
+        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+    )
+
+    result = await tool.call(mock_context, target_type="group")
+
+    assert "无法获取群聊ID" in result.result

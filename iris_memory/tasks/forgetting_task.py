@@ -12,8 +12,8 @@ Features:
     - 写锁保护
 """
 
-from typing import TYPE_CHECKING, List, Optional
-from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, List
+from datetime import datetime
 
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
@@ -21,99 +21,99 @@ from iris_memory.utils.forgetting import calculate_forgetting_score, should_evic
 
 if TYPE_CHECKING:
     from iris_memory.core import ComponentManager
-    from iris_memory.llm import LLMManager
 
 logger = get_logger("tasks.forgetting")
 
 
 class ForgettingTask:
     """遗忘清洗任务
-    
+
     定期执行遗忘清洗，清理过期和低质量记忆。
-    
+
     Attributes:
         _component_manager: 组件管理器引用
         _batch_size: 批处理大小
-    
+
     Examples:
         >>> task = ForgettingTask(component_manager)
         >>> await task.execute()
     """
-    
+
     def __init__(self, component_manager: "ComponentManager"):
         """初始化遗忘清洗任务
-        
+
         Args:
             component_manager: 组件管理器实例
         """
         self._component_manager = component_manager
         self._batch_size = 100
-    
+
     async def execute(self) -> None:
         """执行遗忘清洗任务
-        
+
         依次执行 L2 和 L3 的遗忘清洗。
         """
         config = get_config()
         self._batch_size = config.get("eviction_batch_size")
-        
+
         if not config.get("scheduled_tasks.enable_forgetting"):
             logger.debug("遗忘清洗任务未启用，跳过")
             return
-        
+
         await self._mark_low_confidence_l2()
         await self._evict_l2_memories()
         await self._merge_l3_duplicates()
         await self._mark_low_confidence_l3()
         await self._evict_l3_nodes()
-    
+
     # =========================================================================
     # L2 遗忘清洗
     # =========================================================================
-    
+
     async def _evict_l2_memories(self) -> None:
         """L2 记忆库遗忘清洗
-        
+
         获取所有记忆，计算遗忘评分，淘汰低分记忆。
         启用 LLM 兜底确认时，对评分极低的记忆进行二次确认。
         """
-        from iris_memory.l2_memory import L2MemoryAdapter
-        
+
         # 获取 L2 适配器
         l2_adapter = self._component_manager.get_component("l2_memory")
         if not l2_adapter or not l2_adapter.is_available:
             logger.debug("L2 记忆库不可用，跳过遗忘清洗")
             return
-        
+
         l2_adapter = l2_adapter  # type: L2MemoryAdapter
-        
+
         try:
             # 获取所有记忆条目
             entries = await l2_adapter.get_all_entries()
-            
+
             if not entries:
                 logger.debug("L2 记忆库为空，无需清洗")
                 return
-            
+
             logger.info(f"开始评估 {len(entries)} 条 L2 记忆...")
-            
+
             # 计算遗忘评分并筛选待淘汰记忆
             to_evict_with_score = []
             config = get_config()
-            
+
             for entry in entries:
                 # 检查是否应该淘汰
                 if should_evict(entry):
                     score = calculate_forgetting_score(entry)
                     to_evict_with_score.append((entry.id, entry.content, score))
-            
+
             if not to_evict_with_score:
                 logger.debug("L2 无需淘汰的记忆")
                 return
-            
+
             # LLM 兜底确认
-            confirmed_ids = await self._llm_confirm_eviction(to_evict_with_score, source="l2")
-            
+            confirmed_ids = await self._llm_confirm_eviction(
+                to_evict_with_score, source="l2"
+            )
+
             # 批量删除确认淘汰的记忆
             evicted_count = 0
             batch = []
@@ -123,80 +123,80 @@ class ForgettingTask:
                     await l2_adapter.evict_memories(batch)
                     evicted_count += len(batch)
                     batch = []
-            
+
             if batch:
                 await l2_adapter.evict_memories(batch)
                 evicted_count += len(batch)
-            
+
             logger.info(f"L2 遗忘清洗完成，共淘汰 {evicted_count} 条记忆")
-            
+
         except Exception as e:
             logger.error(f"L2 遗忘清洗失败：{e}", exc_info=True)
-    
+
     # =========================================================================
     # L3 图谱去重合并
     # =========================================================================
-    
+
     async def _merge_l3_duplicates(self) -> None:
         """L3 知识图谱重复节点合并
-        
+
         查找同名同 label 的重复节点并合并。
         """
-        from iris_memory.l3_kg import L3KGAdapter
-        
+
         l3_adapter = self._component_manager.get_component("l3_kg")
         if not l3_adapter or not l3_adapter.is_available:
             logger.debug("L3 知识图谱不可用，跳过去重合并")
             return
-        
+
         l3_adapter = l3_adapter  # type: L3KGAdapter
-        
+
         try:
             merged, deleted = await l3_adapter.merge_duplicate_nodes()
             if merged > 0:
-                logger.info(f"L3 去重合并完成：合并 {merged} 组，删除 {deleted} 个重复节点")
+                logger.info(
+                    f"L3 去重合并完成：合并 {merged} 组，删除 {deleted} 个重复节点"
+                )
         except Exception as e:
             logger.error(f"L3 去重合并失败：{e}", exc_info=True)
-    
+
     # =========================================================================
     # L3 图谱淘汰
     # =========================================================================
-    
+
     async def _evict_l3_nodes(self) -> None:
         """L3 知识图谱节点淘汰
-        
+
         获取所有节点，计算遗忘评分，淘汰低分节点及关联边。
         启用 LLM 兜底确认时，对评分极低的节点进行二次确认。
         """
-        from iris_memory.l3_kg import L3KGAdapter
         from iris_memory.l3_kg.models import GraphNode
-        
+
         # 获取 L3 适配器
         l3_adapter = self._component_manager.get_component("l3_kg")
         if not l3_adapter or not l3_adapter.is_available:
             logger.debug("L3 知识图谱不可用，跳过淘汰")
             return
-        
+
         l3_adapter = l3_adapter  # type: L3KGAdapter
-        
+
         try:
             # 获取所有节点
             nodes = await l3_adapter.get_all_nodes()
-            
+
             if not nodes:
                 logger.debug("L3 知识图谱为空，无需淘汰")
                 return
-            
+
             logger.info(f"开始评估 {len(nodes)} 个 L3 节点...")
-            
+
             connection_counts = await l3_adapter.get_node_connection_counts()
-            
+
             to_evict_with_score = []
             config = get_config()
-            
+
             threshold_kg = float(config.get("forgetting_threshold_kg", 0.3))
             retention_days = int(config.get("kg_retention_days", 30))
-            
+
             for node_dict in nodes:
                 node = GraphNode(
                     id=node_dict["id"],
@@ -209,22 +209,26 @@ class ForgettingTask:
                     created_time=node_dict["created_time"],
                     source_memory_id=node_dict["source_memory_id"],
                     group_id=node_dict["group_id"],
-                    properties=node_dict["properties"]
+                    properties=node_dict["properties"],
                 )
-                
+
                 connected_count = connection_counts.get(node.id, 0)
-                
-                if self._should_evict_node(node, threshold_kg, retention_days, connected_count):
+
+                if self._should_evict_node(
+                    node, threshold_kg, retention_days, connected_count
+                ):
                     score = self._calculate_node_score(node, connected_count)
                     to_evict_with_score.append((node.id, node.content, score))
-            
+
             if not to_evict_with_score:
                 logger.debug("L3 无需淘汰的节点")
                 return
-            
+
             # LLM 兜底确认
-            confirmed_ids = await self._llm_confirm_eviction(to_evict_with_score, source="l3")
-            
+            confirmed_ids = await self._llm_confirm_eviction(
+                to_evict_with_score, source="l3"
+            )
+
             # 批量删除确认淘汰的节点
             evicted_count = 0
             batch = []
@@ -234,16 +238,16 @@ class ForgettingTask:
                     await l3_adapter.evict_nodes(batch)
                     evicted_count += len(batch)
                     batch = []
-            
+
             if batch:
                 await l3_adapter.evict_nodes(batch)
                 evicted_count += len(batch)
-            
+
             logger.info(f"L3 图谱淘汰完成，共淘汰 {evicted_count} 个节点")
-            
+
         except Exception as e:
             logger.error(f"L3 图谱淘汰失败：{e}", exc_info=True)
-    
+
     def _calculate_node_score(self, node, connected_count: int = 0) -> float:
         """计算图谱节点的遗忘评分
 
@@ -260,31 +264,29 @@ class ForgettingTask:
             id=node.id,
             content=node.content,
             metadata={
-                "last_access_time": node.last_access_time.isoformat() if node.last_access_time else None,
+                "last_access_time": node.last_access_time.isoformat()
+                if node.last_access_time
+                else None,
                 "access_count": node.access_count,
                 "confidence": node.confidence,
                 "low_confidence": node.properties.get("low_confidence", False),
                 "connected_count": connected_count,
-            }
+            },
         )
 
         return calculate_forgetting_score(temp_entry)
-    
+
     def _should_evict_node(
-        self,
-        node,
-        threshold: float,
-        retention_days: int,
-        connected_count: int = 0
+        self, node, threshold: float, retention_days: int, connected_count: int = 0
     ) -> bool:
         """判断节点是否应该被淘汰
-        
+
         Args:
             node: 图谱节点
             threshold: 遗忘阈值
             retention_days: 保留天数
             connected_count: 节点连接边数
-        
+
         Returns:
             是否应该淘汰
         """
@@ -294,16 +296,18 @@ class ForgettingTask:
             id=node.id,
             content=node.content,
             metadata={
-                "last_access_time": node.last_access_time.isoformat() if node.last_access_time else None,
+                "last_access_time": node.last_access_time.isoformat()
+                if node.last_access_time
+                else None,
                 "access_count": node.access_count,
                 "confidence": node.confidence,
                 "low_confidence": node.properties.get("low_confidence", False),
                 "connected_count": connected_count,
-            }
+            },
         )
-        
+
         score = calculate_forgetting_score(temp_entry)
-        
+
         if score < threshold:
             last_access = node.last_access_time
             if last_access:
@@ -312,7 +316,7 @@ class ForgettingTask:
                     return True
             else:
                 return True
-        
+
         return False
 
     # =========================================================================
@@ -320,9 +324,7 @@ class ForgettingTask:
     # =========================================================================
 
     async def _llm_confirm_eviction(
-        self,
-        entries: List[tuple],
-        source: str = "l2"
+        self, entries: List[tuple], source: str = "l2"
     ) -> List[str]:
         """使用 LLM 最终兜底确认是否遗忘
 
@@ -357,15 +359,13 @@ class ForgettingTask:
                 prompt = (
                     "以下是一条记忆内容，系统评估其重要性极低，建议遗忘。\n"
                     "请判断该记忆是否确实没有保留价值。\n"
-                    "回复 \"FORGET\" 表示确认遗忘，回复 \"KEEP\" 表示应保留。\n\n"
+                    '回复 "FORGET" 表示确认遗忘，回复 "KEEP" 表示应保留。\n\n'
                     f"记忆内容：{content[:500]}\n\n"
                     "请只回复 FORGET 或 KEEP："
                 )
 
                 response = await llm_manager.generate(
-                    prompt=prompt,
-                    module="forgetting_confirm",
-                    provider_id=provider
+                    prompt=prompt, module="forgetting_confirm", provider_id=provider
                 )
 
                 decision = response.strip().upper() if response else "FORGET"
@@ -391,7 +391,6 @@ class ForgettingTask:
         将置信度低于阈值的记忆标记为 low_confidence=True，
         但不删除，仅作为后续遗忘评估的参考。
         """
-        from iris_memory.l2_memory import L2MemoryAdapter
 
         l2_adapter = self._component_manager.get_component("l2_memory")
         if not l2_adapter or not l2_adapter.is_available:
@@ -427,7 +426,6 @@ class ForgettingTask:
         将置信度低于阈值的节点标记为 low_confidence=True，
         但不删除，仅作为后续遗忘评估的参考。
         """
-        from iris_memory.l3_kg import L3KGAdapter
 
         l3_adapter = self._component_manager.get_component("l3_kg")
         if not l3_adapter or not l3_adapter.is_available:
@@ -454,7 +452,7 @@ class ForgettingTask:
                             node_id = node_dict["id"]
                             l3_adapter._conn.execute(
                                 "MATCH (e:Entity {id: $id}) SET e.low_confidence = true",
-                                {"id": node_id}
+                                {"id": node_id},
                             )
                             marked_count += 1
                         except Exception as e:

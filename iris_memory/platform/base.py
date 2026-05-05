@@ -11,7 +11,7 @@ Iris Chat Memory - 平台适配器抽象基类
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from iris_memory.image.models import ImageInfo
@@ -298,3 +298,32 @@ class PlatformAdapter(ABC):
             - go-cqhttp 等实现可能包含 content 字段（被回复消息的完整内容）
         """
         pass
+
+    async def get_msg_by_id(
+        self, event: "AstrMessageEvent", message_id: str
+    ) -> ReplyInfo:
+        """通过消息ID获取消息内容
+
+        调用平台 API 根据消息 ID 获取历史消息的内容和发送者信息。
+        默认实现返回空 ReplyInfo，子类可覆盖以支持具体平台。
+
+        Args:
+            event: AstrBot 消息事件对象 (AstrMessageEvent)，用于获取平台客户端
+            message_id: 消息ID
+
+        Returns:
+            ReplyInfo 实例，包含消息内容和发送者信息；
+            获取失败时返回空 ReplyInfo（has_reply 为 False）
+
+        Examples:
+            >>> reply = await adapter.get_msg_by_id(event, "6283")
+            >>> if reply.has_reply:
+            ...     print(f"消息内容: {reply.content}")
+            ...     print(f"发送者: {reply.user_name}")
+
+        Notes:
+            - 此方法为异步方法，需要调用平台 API
+            - OneBot11 使用 get_msg API 获取消息
+            - 不同平台实现可能不支持此 API，将返回空 ReplyInfo
+        """
+        return ReplyInfo()

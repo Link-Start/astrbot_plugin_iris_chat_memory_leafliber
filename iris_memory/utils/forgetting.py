@@ -14,7 +14,7 @@ Iris Chat Memory - 遗忘权重算法
 得分越高，记忆越重要，越不容易被淘汰。
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Any, Optional, TYPE_CHECKING
 
 from iris_memory.config import get_config
@@ -27,21 +27,21 @@ if TYPE_CHECKING:
 # 遗忘权重计算
 # ============================================================================
 
+
 def calculate_recency(
-    last_access_time: Optional[str],
-    lambda_decay: float = 0.1
+    last_access_time: Optional[str], lambda_decay: float = 0.1
 ) -> float:
     """计算近因性得分
-    
+
     使用指数衰减函数计算近因性得分，最近访问的记忆得分更高。
-    
+
     Args:
         last_access_time: 最近访问时间（ISO 格式字符串）
         lambda_decay: 衰减系数，越大则衰减越快
-    
+
     Returns:
         近因性得分 [0, 1]，越接近 1 表示越近期访问
-    
+
     Examples:
         >>> now = datetime.now().isoformat()
         >>> calculate_recency(now)
@@ -53,32 +53,32 @@ def calculate_recency(
     if not last_access_time:
         # 无访问记录，使用创建时间的一半得分
         return 0.5
-    
+
     try:
         access_dt = datetime.fromisoformat(last_access_time)
         now = datetime.now()
         days_elapsed = (now - access_dt).total_seconds() / 86400
-        
+
         # 指数衰减：exp(-lambda * t)
         recency = 2.71828 ** (-lambda_decay * days_elapsed)
         return max(0.0, min(1.0, recency))
-    
+
     except (ValueError, TypeError):
         return 0.5
 
 
 def calculate_frequency(access_count: int, max_count: int = 100) -> float:
     """计算频率性得分
-    
+
     使用对数函数计算频率得分，访问次数越多得分越高。
-    
+
     Args:
         access_count: 访问次数
         max_count: 参考最大访问次数（用于归一化）
-    
+
     Returns:
         频率性得分 [0, 1]，越接近 1 表示访问越频繁
-    
+
     Examples:
         >>> calculate_frequency(0)
         0.0
@@ -89,24 +89,25 @@ def calculate_frequency(access_count: int, max_count: int = 100) -> float:
     """
     if access_count <= 0:
         return 0.0
-    
+
     # 对数归一化：log(count + 1) / log(max_count + 1)
     import math
+
     normalized = math.log(access_count + 1) / math.log(max_count + 1)
     return max(0.0, min(1.0, normalized))
 
 
 def calculate_confidence(confidence: float) -> float:
     """计算置信度得分
-    
+
     直接返回置信度值，假设置信度已在 [0, 1] 范围内。
-    
+
     Args:
         confidence: 原始置信度值
-    
+
     Returns:
         置信度得分 [0, 1]
-    
+
     Examples:
         >>> calculate_confidence(0.85)
         0.85
@@ -116,56 +117,55 @@ def calculate_confidence(confidence: float) -> float:
 
 def calculate_isolation_degree(metadata: Dict[str, Any]) -> float:
     """计算孤立度得分
-    
+
     孤立度表示记忆缺乏关联的程度。在 L2 阶段返回固定值 0，
     在 L3 知识图谱阶段根据节点连接数计算。
-    
+
     公式：D = 1.0 / (connected_count + 1)
-    
+
     Args:
         metadata: 记忆元数据，包含 connected_count 字段
-    
+
     Returns:
         孤立度得分 [0, 1]，越接近 1 表示越孤立
-    
+
     Note:
         - L2 阶段：connected_count 为 0，返回 0（不参与评分）
         - L3 阶段：connected_count 为节点的连接边数，连接越多孤立度越低
     """
     # 从 metadata 中获取连接数
     connected_count = metadata.get("connected_count", 0)
-    
+
     has_connected_count = "connected_count" in metadata
-    
+
     if not has_connected_count:
         return 0.0
-    
+
     if connected_count == 0:
         return 1.0
-    
+
     isolation = 1.0 / (connected_count + 1)
-    
+
     return isolation
 
 
 def calculate_forgetting_score(
-    entry: "MemoryEntry",
-    weights: Dict[str, float] = None
+    entry: "MemoryEntry", weights: Dict[str, float] = None
 ) -> float:
     """计算综合遗忘评分
-    
+
     综合考虑近因性、频率性、置信度和孤立度，计算记忆的重要性得分。
     得分越高，记忆越重要，越不容易被淘汰。
-    
+
     公式：S = w1·R + w2·F + w3·C + w4·(1 - D)
-    
+
     Args:
         entry: 记忆条目
         weights: 权重字典，包含 w1, w2, w3, w4
-    
+
     Returns:
         综合评分 [0, 1]，越接近 1 表示越重要
-    
+
     Examples:
         >>> from iris_memory.l2_memory.models import MemoryEntry
         >>> entry = MemoryEntry(
@@ -182,7 +182,7 @@ def calculate_forgetting_score(
         True
     """
     config = get_config()
-    
+
     if weights is None:
         D = calculate_isolation_degree(entry.metadata)
         if D > 0:
@@ -199,49 +199,44 @@ def calculate_forgetting_score(
                 "w3": 0.25,
                 "w4": 0.0,
             }
-    
+
     lambda_decay = float(config.get("forgetting_lambda", 0.1))  # type: ignore[arg-type]
-    
-    R = calculate_recency(
-        entry.last_access_time,
-        lambda_decay=lambda_decay
-    )
+
+    R = calculate_recency(entry.last_access_time, lambda_decay=lambda_decay)
     F = calculate_frequency(entry.access_count)
     C = calculate_confidence(entry.confidence)
     D = calculate_isolation_degree(entry.metadata)
-    
+
     score = (
-        weights["w1"] * R +
-        weights["w2"] * F +
-        weights["w3"] * C +
-        weights["w4"] * (1 - D)
+        weights["w1"] * R
+        + weights["w2"] * F
+        + weights["w3"] * C
+        + weights["w4"] * (1 - D)
     )
-    
+
     return max(0.0, min(1.0, score))
 
 
 def should_evict(
-    entry: "MemoryEntry",
-    threshold: float = 0.3,
-    retention_days: int = 30
+    entry: "MemoryEntry", threshold: float = 0.3, retention_days: int = 30
 ) -> bool:
     """判断记忆是否应该被淘汰
-    
+
     综合考虑遗忘评分、保留期和低置信度标记，判断记忆是否应该被淘汰。
-    
+
     淘汰条件（满足任一即淘汰）：
     1. 遗忘评分极低（低于 immediate_eviction_threshold），无需等待保留期直接淘汰
     2. 遗忘评分低于阈值 且 距上次访问超过保留期
     3. 被标记为低置信度的记忆，阈值提高 30% 以加速淘汰
-    
+
     Args:
         entry: 记忆条目
         threshold: 遗忘阈值
         retention_days: 保留期天数
-    
+
     Returns:
         是否应该被淘汰
-    
+
     Examples:
         >>> from iris_memory.l2_memory.models import MemoryEntry
         >>> entry = MemoryEntry(
@@ -258,16 +253,18 @@ def should_evict(
     """
     config = get_config()
     evict_threshold = float(config.get("forgetting_threshold", 0.3))  # type: ignore[arg-type]
-    immediate_threshold = float(config.get("forgetting_immediate_eviction_threshold", 0.1))  # type: ignore[arg-type]
-    
+    immediate_threshold = float(
+        config.get("forgetting_immediate_eviction_threshold", 0.1)
+    )  # type: ignore[arg-type]
+
     if entry.metadata.get("low_confidence"):
         evict_threshold *= 1.3
-    
+
     score = calculate_forgetting_score(entry)
-    
+
     if score < immediate_threshold:
         return True
-    
+
     if score < evict_threshold:
         # 评分低于阈值，检查保留期
         last_access = entry.last_access_time
@@ -275,7 +272,7 @@ def should_evict(
             try:
                 access_dt = datetime.fromisoformat(last_access)
                 days_elapsed = (datetime.now() - access_dt).days
-                
+
                 if days_elapsed > retention_days:
                     return True
             except (ValueError, TypeError):
@@ -283,5 +280,5 @@ def should_evict(
         else:
             # 无访问记录，根据评分决定
             return True
-    
+
     return False

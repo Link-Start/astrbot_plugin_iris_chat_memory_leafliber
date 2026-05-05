@@ -7,8 +7,6 @@ from datetime import datetime, timedelta
 from iris_memory.profile.group_profile import GroupProfileManager
 from iris_memory.profile.models import (
     GroupProfile,
-    FieldMeta,
-    ProfileUpdateTracker,
     UpdateTier,
 )
 from iris_memory.profile.storage import ProfileStorage
@@ -54,10 +52,7 @@ class TestGroupProfileManager:
         existing_profile = GroupProfile(group_id="group_123")
         mock_storage.get_group_profile.return_value = existing_profile
 
-        await manager.update_group_name(
-            group_id="group_123",
-            group_name="新群名"
-        )
+        await manager.update_group_name(group_id="group_123", group_name="新群名")
 
         assert existing_profile.group_name == "新群名"
         mock_storage.save_group_profile.assert_called_once()
@@ -72,7 +67,7 @@ class TestGroupProfileManager:
             interests=["技术", "AI"],
             atmosphere_tags=["轻松", "技术范"],
             tier=UpdateTier.MID,
-            confidence=0.7
+            confidence=0.7,
         )
 
         assert existing_profile.interests == ["技术", "AI"]
@@ -85,9 +80,7 @@ class TestGroupProfileManager:
     @pytest.mark.asyncio
     async def test_update_from_analysis_merges_lists(self, manager, mock_storage):
         existing_profile = GroupProfile(
-            group_id="group_123",
-            interests=["技术"],
-            atmosphere_tags=["轻松"]
+            group_id="group_123", interests=["技术"], atmosphere_tags=["轻松"]
         )
         mock_storage.get_group_profile.return_value = existing_profile
 
@@ -96,7 +89,7 @@ class TestGroupProfileManager:
             interests=["AI", "技术"],
             atmosphere_tags=["技术范", "轻松"],
             tier=UpdateTier.MID,
-            confidence=0.7
+            confidence=0.7,
         )
 
         assert "技术" in existing_profile.interests
@@ -114,7 +107,7 @@ class TestGroupProfileManager:
             long_term_tags=["技术交流群"],
             blacklist_topics=["政治"],
             interests=["编程"],
-            confidence=0.85
+            confidence=0.85,
         )
 
         assert "技术交流群" in existing_profile.long_term_tags

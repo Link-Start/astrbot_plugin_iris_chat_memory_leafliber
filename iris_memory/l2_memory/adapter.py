@@ -16,7 +16,7 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 import uuid
 
-from iris_memory.core import Component, get_logger
+from iris_memory.core import Component, get_logger, InitMode
 from iris_memory.config import get_config
 from .models import MemoryEntry, MemorySearchResult
 
@@ -177,6 +177,7 @@ class L2MemoryAdapter(Component):
         self._persona_id = persona_id
         self._similarity_threshold = 0.90
         self._distance_space: str = "l2"
+        self._init_mode = InitMode.BACKGROUND
 
     @property
     def name(self) -> str:

@@ -11,17 +11,25 @@ Iris Chat Memory - 输入清理模块
 """
 
 import re
-from typing import Optional
 
 from iris_memory.core import get_logger
 
 logger = get_logger("utils.input_sanitizer")
 
 _INJECTION_PATTERNS = [
-    re.compile(r"ignore\s+(all\s+)?previous\s+(instructions?|prompts?|rules?)", re.IGNORECASE),
-    re.compile(r"forget\s+(all\s+)?previous\s+(instructions?|prompts?|rules?)", re.IGNORECASE),
-    re.compile(r"disregard\s+(all\s+)?previous\s+(instructions?|prompts?|rules?)", re.IGNORECASE),
-    re.compile(r"you\s+are\s+now\s+(?:a\s+)?(?:DAN|jailbreak|unrestricted)", re.IGNORECASE),
+    re.compile(
+        r"ignore\s+(all\s+)?previous\s+(instructions?|prompts?|rules?)", re.IGNORECASE
+    ),
+    re.compile(
+        r"forget\s+(all\s+)?previous\s+(instructions?|prompts?|rules?)", re.IGNORECASE
+    ),
+    re.compile(
+        r"disregard\s+(all\s+)?previous\s+(instructions?|prompts?|rules?)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"you\s+are\s+now\s+(?:a\s+)?(?:DAN|jailbreak|unrestricted)", re.IGNORECASE
+    ),
     re.compile(r"system\s*:\s*", re.IGNORECASE),
     re.compile(r"<\|im_start\|>", re.IGNORECASE),
     re.compile(r"<\|im_end\|>", re.IGNORECASE),
@@ -29,13 +37,25 @@ _INJECTION_PATTERNS = [
     re.compile(r"\[/INST\]", re.IGNORECASE),
     re.compile(r"###\s*(?:system|instruction|human|assistant)\s*:", re.IGNORECASE),
     re.compile(r"pretend\s+(you\s+are|to\s+be)\s+", re.IGNORECASE),
-    re.compile(r"act\s+as\s+(if\s+you\s+(are|were)\s+)?(?:a\s+)?(?:unrestricted|DAN|jailbreak)", re.IGNORECASE),
-    re.compile(r"bypass\s+(?:your|the)\s+(?:restrictions?|rules?|guidelines?)", re.IGNORECASE),
-    re.compile(r"override\s+(?:your|the)\s+(?:restrictions?|rules?|guidelines?)", re.IGNORECASE),
-    re.compile(r"do\s+not\s+(?:follow|obey|comply\s+with)\s+(?:your|the)\s+rules", re.IGNORECASE),
+    re.compile(
+        r"act\s+as\s+(if\s+you\s+(are|were)\s+)?(?:a\s+)?(?:unrestricted|DAN|jailbreak)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"bypass\s+(?:your|the)\s+(?:restrictions?|rules?|guidelines?)", re.IGNORECASE
+    ),
+    re.compile(
+        r"override\s+(?:your|the)\s+(?:restrictions?|rules?|guidelines?)", re.IGNORECASE
+    ),
+    re.compile(
+        r"do\s+not\s+(?:follow|obey|comply\s+with)\s+(?:your|the)\s+rules",
+        re.IGNORECASE,
+    ),
     re.compile(r"reveal\s+(?:your|the)\s+(?:system\s+)?prompt", re.IGNORECASE),
     re.compile(r"show\s+me\s+(?:your|the)\s+(?:system\s+)?prompt", re.IGNORECASE),
-    re.compile(r"what\s+(?:are|is)\s+(?:your|the)\s+(?:system\s+)?prompt", re.IGNORECASE),
+    re.compile(
+        r"what\s+(?:are|is)\s+(?:your|the)\s+(?:system\s+)?prompt", re.IGNORECASE
+    ),
 ]
 
 
@@ -56,6 +76,7 @@ def sanitize_input(text: str, source: str = "unknown") -> str:
         return text
 
     from iris_memory.config import get_config
+
     config = get_config()
 
     if not config.get("input_sanitizer_enable"):
@@ -75,8 +96,7 @@ def sanitize_input(text: str, source: str = "unknown") -> str:
 
     if detected_patterns:
         logger.warning(
-            f"检测到潜在 Prompt 注入，来源：{source}，"
-            f"匹配模式：{detected_patterns[:3]}"
+            f"检测到潜在 Prompt 注入，来源：{source}，匹配模式：{detected_patterns[:3]}"
         )
         text = _strip_injection_patterns(text)
 

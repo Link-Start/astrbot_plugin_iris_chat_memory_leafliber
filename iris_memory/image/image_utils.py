@@ -6,7 +6,6 @@ Iris Chat Memory - 图片工具模块
 
 import hashlib
 import io
-import struct
 from typing import Optional, Tuple
 
 from iris_memory.core import get_logger
@@ -22,6 +21,7 @@ def _check_pil() -> bool:
     if _PIL_AVAILABLE is None:
         try:
             from PIL import Image  # noqa: F401
+
             _PIL_AVAILABLE = True
         except ImportError:
             _PIL_AVAILABLE = False
@@ -65,7 +65,7 @@ async def compute_phash(image_data: bytes, hash_size: int = 8) -> Optional[str]:
         for bit in hash_bits:
             hash_int = (hash_int << 1) | int(bit)
 
-        return format(hash_int, f'0{hash_size * hash_size // 4}x')
+        return format(hash_int, f"0{hash_size * hash_size // 4}x")
 
     except Exception as e:
         logger.debug(f"计算 pHash 失败：{e}")
@@ -117,7 +117,7 @@ def hamming_distance(hash1: str, hash2: str) -> int:
     val1 = int(hash1, 16)
     val2 = int(hash2, 16)
     xor = val1 ^ val2
-    return bin(xor).count('1')
+    return bin(xor).count("1")
 
 
 def is_similar_image(hash1: str, hash2: str, threshold: int = 10) -> bool:
@@ -184,7 +184,7 @@ def compute_url_hash(url: str) -> str:
 async def compute_image_hash(
     image_data: Optional[bytes] = None,
     url: Optional[str] = None,
-    use_phash: bool = True
+    use_phash: bool = True,
 ) -> str:
     """计算图片哈希（优先 pHash，降级为 URL hash）
 

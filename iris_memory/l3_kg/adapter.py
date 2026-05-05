@@ -1,10 +1,9 @@
 """KuzuDB 图谱适配器"""
 
-from iris_memory.core import Component, get_logger
+from iris_memory.core import Component, get_logger, InitMode
 from iris_memory.config import get_config
 from .models import GraphNode, GraphEdge
 import kuzu
-from pathlib import Path
 from typing import Optional
 from datetime import datetime
 
@@ -44,6 +43,10 @@ class L3KGAdapter(Component):
     - MAP 类型存储扩展属性
     - 路径扩展检索
     """
+
+    def __init__(self):
+        super().__init__()
+        self._init_mode = InitMode.BACKGROUND
 
     @property
     def name(self) -> str:
@@ -978,10 +981,18 @@ class L3KGAdapter(Component):
             return 0
 
         try:
-            # 1. 删除关联边
+            # 1. 删除关联边（KuzuDB 不支持删除无向关系，需分两个方向）
             self._conn.execute(
                 """
-                MATCH ()-[r:Related]-(e:Entity)
+                MATCH (e:Entity)-[r:Related]->()
+                WHERE e.id IN $node_ids
+                DELETE r
+            """,
+                {"node_ids": node_ids},
+            )
+            self._conn.execute(
+                """
+                MATCH ()-[r:Related]->(e:Entity)
                 WHERE e.id IN $node_ids
                 DELETE r
             """,

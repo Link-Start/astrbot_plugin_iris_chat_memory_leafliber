@@ -238,8 +238,8 @@ async def _collect_l1_context(
     """
     from iris_memory.platform import get_adapter
 
-    buffer = component_manager.get_component("l1_buffer")
-    if not buffer or not buffer.is_available:
+    buffer = component_manager.get_available_component("l1_buffer")
+    if not buffer:
         logger.debug("L1 Buffer 组件不可用，跳过上下文注入")
         return ""
 
@@ -292,6 +292,16 @@ async def _collect_l1_context(
             "仅用于辅助理解对话内容："
         )
 
+    msg_id_map: dict[str, tuple[str, str]] = {}
+    for msg in messages:
+        if msg.metadata:
+            mid = msg.metadata.get("message_id")
+            if mid:
+                uname = (
+                    msg.metadata.get("user_name", "") if msg.role == "user" else "Bot"
+                )
+                msg_id_map[str(mid)] = (msg.content, uname)
+
     for msg in messages:
         content = msg.content
         role = msg.role
@@ -306,12 +316,22 @@ async def _collect_l1_context(
                 msg.metadata.get("reply_user_name") if msg.metadata else None
             )
 
+            if not reply_content and msg.metadata:
+                reply_mid = msg.metadata.get("reply_message_id")
+                if reply_mid and str(reply_mid) in msg_id_map:
+                    ref_content, ref_name = msg_id_map[str(reply_mid)]
+                    reply_content = ref_content
+                    if not reply_user_name and ref_name:
+                        reply_user_name = ref_name
+
             reply_tag = ""
             if reply_content:
                 ref_sender = reply_user_name or "某人"
                 if len(reply_content) > 80:
                     reply_content = reply_content[:80] + "..."
                 reply_tag = f" ↩️回复{ref_sender}「{reply_content}」"
+            elif msg.metadata and msg.metadata.get("reply_message_id"):
+                reply_tag = " ↩️回复了某条消息"
 
             sender = user_name or "对方"
 
@@ -356,8 +376,8 @@ async def _collect_user_profile(
     if enable_auto_injection is not None and not enable_auto_injection:
         return ""
 
-    profile_storage = component_manager.get_component("profile")
-    if not profile_storage or not profile_storage.is_available:
+    profile_storage = component_manager.get_available_component("profile")
+    if not profile_storage:
         logger.debug("画像系统组件不可用，跳过画像注入")
         return ""
 
@@ -477,8 +497,14 @@ async def _collect_l2_memory(
         logger.debug("L2 记忆库未启用，跳过记忆注入")
         return "", []
 
-    l2_adapter = component_manager.get_component("l2_memory")
-    if not l2_adapter or not l2_adapter.is_available:
+    l2_status = component_manager.check_component("l2_memory")
+    if l2_status == "disabled":
+        logger.debug("L2 记忆库未启用，跳过记忆注入")
+        return "", []
+    if l2_status == "initializing":
+        logger.debug("L2 记忆库正在初始化中，跳过记忆注入")
+        return "", []
+    if l2_status != "available":
         logger.debug("L2 记忆库组件不可用，跳过记忆注入")
         return "", []
 
@@ -581,10 +607,18 @@ async def _collect_l3_knowledge_graph(
         logger.debug("L3 知识图谱未启用，跳过图谱注入")
         return ""
 
-    kg_adapter = component_manager.get_component("l3_kg")
-    if not kg_adapter or not kg_adapter.is_available:
+    l3_status = component_manager.check_component("l3_kg")
+    if l3_status == "disabled":
+        logger.debug("L3 知识图谱未启用，跳过图谱注入")
+        return ""
+    if l3_status == "initializing":
+        logger.debug("L3 知识图谱正在初始化中，跳过图谱注入")
+        return ""
+    if l3_status != "available":
         logger.debug("L3 知识图谱组件不可用，跳过图谱注入")
         return ""
+
+    kg_adapter = component_manager.get_available_component("l3_kg")
 
     adapter = get_adapter(event)
     group_id = adapter.get_group_id(event)
@@ -750,17 +784,17 @@ async def _parse_images_if_related_mode(
     adapter = get_adapter(event)
     group_id = adapter.get_group_id(event)
 
-    buffer = component_manager.get_component("l1_buffer")
-    if not buffer or not buffer.is_available:
+    buffer = component_manager.get_available_component("l1_buffer")
+    if not buffer:
         return
 
     l1_buffer = cast("L1Buffer", buffer)
 
-    cache_manager = component_manager.get_component("image_cache")
-    quota_manager = component_manager.get_component("image_quota")
-    llm_manager = component_manager.get_component("llm_manager")
+    cache_manager = component_manager.get_available_component("image_cache")
+    quota_manager = component_manager.get_available_component("image_quota")
+    llm_manager = component_manager.get_available_component("llm_manager")
 
-    if not llm_manager or not llm_manager.is_available:
+    if not llm_manager:
         logger.warning("LLM Manager 不可用，跳过图片解析")
         return
 

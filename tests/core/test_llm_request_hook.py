@@ -27,6 +27,16 @@ def _make_msg(role, content, source="user1", metadata=None, token_count=1):
     )
 
 
+def _make_component_manager(buffer=None):
+    cm = MagicMock()
+    if buffer is not None:
+        cm.get_component.return_value = buffer
+        cm.get_available_component.return_value = (
+            buffer if buffer.is_available else None
+        )
+    return cm
+
+
 _ADAPTER_PATCH = "iris_memory.platform.get_adapter"
 _COLLECT_PROFILE_PATCH = "iris_memory.core.llm_request_hook._collect_user_profile"
 _COLLECT_L2_PATCH = "iris_memory.core.llm_request_hook._collect_l2_memory"
@@ -34,6 +44,16 @@ _COLLECT_L3_PATCH = "iris_memory.core.llm_request_hook._collect_l3_knowledge_gra
 _PARSE_IMAGES_PATCH = "iris_memory.core.llm_request_hook._parse_images_if_related_mode"
 _BUILD_IMAGE_MAP_PATCH = "iris_memory.core.llm_request_hook._build_image_map"
 _LOG_CONTEXT_PATCH = "iris_memory.core.llm_request_hook._log_final_context"
+_GET_CONFIG_PATCH = "iris_memory.config.get_config"
+
+
+def _default_config():
+    cfg = MagicMock()
+    cfg.get.side_effect = lambda key, default=None: {
+        "l1_buffer.inject_queue_length": 30,
+        "l1_buffer.inject_max_content_chars": 200,
+    }.get(key, default)
+    return cfg
 
 
 def _patch_collect_fns(
@@ -52,6 +72,7 @@ def _patch_collect_fns(
         patch(_PARSE_IMAGES_PATCH, new_callable=AsyncMock, return_value=None),
         patch(_BUILD_IMAGE_MAP_PATCH, new_callable=AsyncMock, return_value={}),
         patch(_LOG_CONTEXT_PATCH),
+        patch(_GET_CONFIG_PATCH, return_value=_default_config()),
     ]
     if adapter:
         patches.append(patch(_ADAPTER_PATCH, return_value=adapter))
@@ -338,8 +359,7 @@ class TestPreprocessLLMRequest:
         ]
         buffer.get_context.return_value = messages
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
@@ -366,11 +386,13 @@ class TestPreprocessLLMRequest:
         buffer = MagicMock()
         buffer.is_available = False
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
+
+        adapter = MagicMock()
+        adapter.get_group_id.return_value = "group123"
 
         with ExitStack() as stack:
-            for p in _patch_collect_fns():
+            for p in _patch_collect_fns(adapter=adapter):
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
@@ -389,8 +411,7 @@ class TestPreprocessLLMRequest:
         buffer.is_available = True
         buffer.get_context.return_value = []
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
@@ -416,8 +437,7 @@ class TestPreprocessLLMRequest:
         messages = [_make_msg("user", "问题", token_count=1)]
         buffer.get_context.return_value = messages
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
@@ -448,8 +468,7 @@ class TestPreprocessLLMRequest:
         ]
         buffer.get_context.return_value = messages
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
@@ -476,8 +495,7 @@ class TestPreprocessLLMRequest:
         messages = [_make_msg("user", "你好", token_count=2)]
         buffer.get_context.return_value = messages
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
@@ -510,8 +528,7 @@ class TestPreprocessLLMRequest:
         ]
         buffer.get_context.return_value = messages
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
@@ -550,8 +567,7 @@ class TestPreprocessLLMRequest:
         ]
         buffer.get_context.return_value = messages
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
@@ -590,8 +606,7 @@ class TestPreprocessLLMRequest:
         ]
         buffer.get_context.return_value = messages
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
@@ -605,6 +620,53 @@ class TestPreprocessLLMRequest:
 
     @pytest.mark.asyncio
     async def test_preprocess_with_reply_no_content(self):
+        """测试回复信息无内容时从 L1 上下文回填"""
+        event = MagicMock()
+        req = MagicMock()
+        req.contexts = []
+        req.prompt = "你好"
+        req.system_prompt = ""
+
+        buffer = MagicMock()
+        buffer.is_available = True
+
+        messages = [
+            _make_msg(
+                "user",
+                "你好啊",
+                source="user123",
+                metadata={"message_id": "6283", "user_name": "张三"},
+                token_count=3,
+            ),
+            _make_msg(
+                "user",
+                "是的",
+                source="user456",
+                metadata={
+                    "user_name": "李四",
+                    "reply_message_id": "6283",
+                },
+                token_count=2,
+            ),
+        ]
+        buffer.get_context.return_value = messages
+
+        component_manager = _make_component_manager(buffer)
+
+        adapter = MagicMock()
+        adapter.get_group_id.return_value = "group123"
+
+        with ExitStack() as stack:
+            for p in _patch_collect_fns(adapter=adapter):
+                stack.enter_context(p)
+            await preprocess_llm_request(event, req, component_manager)
+
+        assert "李四: ↩️回复张三「你好啊」" in req.system_prompt
+        assert "是的" in req.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_preprocess_with_reply_no_content_no_match(self):
+        """测试回复信息无内容且 L1 上下文中也找不到时显示降级提示"""
         event = MagicMock()
         req = MagicMock()
         req.contexts = []
@@ -619,14 +681,16 @@ class TestPreprocessLLMRequest:
                 "user",
                 "是的",
                 source="user456",
-                metadata={"user_name": "李四", "reply_message_id": "6283"},
+                metadata={
+                    "user_name": "李四",
+                    "reply_message_id": "9999",
+                },
                 token_count=2,
-            )
+            ),
         ]
         buffer.get_context.return_value = messages
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
@@ -636,8 +700,7 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "李四: 是的" in req.system_prompt
-        assert "↩️" not in req.system_prompt
+        assert "李四: ↩️回复了某条消息 是的" in req.system_prompt
 
 
 class TestMarkerReplacement:
@@ -727,8 +790,7 @@ class TestMarkerReplacement:
             _make_msg("assistant", "新消息2", token_count=3),
         ]
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
@@ -769,8 +831,7 @@ class TestMarkerReplacement:
         buffer.is_available = True
         buffer.get_context.return_value = []
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
@@ -800,8 +861,7 @@ class TestMarkerReplacement:
         buffer = MagicMock()
         buffer.is_available = False
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         with ExitStack() as stack:
             for p in _patch_collect_fns():
@@ -827,8 +887,7 @@ class TestMarkerReplacement:
         buffer.is_available = True
         buffer.get_context.return_value = []
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
@@ -854,8 +913,7 @@ class TestMarkerReplacement:
         buffer.is_available = True
         buffer.get_context.return_value = [_make_msg("user", "你好", token_count=1)]
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
@@ -885,8 +943,7 @@ class TestMarkerReplacement:
         buffer.is_available = True
         buffer.get_context.return_value = [_make_msg("user", "历史", token_count=1)]
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
@@ -912,8 +969,7 @@ class TestMarkerReplacement:
         buffer.is_available = True
         buffer.get_context.return_value = [_make_msg("user", "历史", token_count=1)]
 
-        component_manager = MagicMock()
-        component_manager.get_component.return_value = buffer
+        component_manager = _make_component_manager(buffer)
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"

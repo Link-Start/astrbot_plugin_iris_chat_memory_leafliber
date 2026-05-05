@@ -36,14 +36,11 @@ __all__ = [
     "merge_list_field",
     "should_overwrite_field",
     "ProfileConfig",
-    
     # 存储组件
     "ProfileStorage",
-    
     # 管理器
     "GroupProfileManager",
     "UserProfileManager",
-    
     # 分析器
     "ProfileAnalyzer",
 ]

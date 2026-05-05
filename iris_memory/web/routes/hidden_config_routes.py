@@ -216,6 +216,7 @@ def _get_literal_options(field_obj) -> list:
     if "Literal" not in type_str:
         return []
     import re
+
     matches = re.findall(r"'([^']*)'", type_str)
     return matches
 
@@ -258,8 +259,7 @@ async def get_hidden_config():
             items.append(item)
 
         groups = [
-            {"name": name, "keys": keys}
-            for name, keys in _HIDDEN_CONFIG_GROUPS.items()
+            {"name": name, "keys": keys} for name, keys in _HIDDEN_CONFIG_GROUPS.items()
         ]
 
         return jsonify({"success": True, "items": items, "groups": groups})
@@ -294,10 +294,9 @@ async def update_hidden_config():
         valid_keys = {f.name for f in fields(HiddenConfig)}
         invalid_keys = [k for k in updates if k not in valid_keys]
         if invalid_keys:
-            return jsonify({
-                "success": False,
-                "error": f"无效的配置键: {', '.join(invalid_keys)}"
-            }), 400
+            return jsonify(
+                {"success": False, "error": f"无效的配置键: {', '.join(invalid_keys)}"}
+            ), 400
 
         config.update_hidden(updates)
 
@@ -331,7 +330,9 @@ async def delete_hidden_config(key: str):
             logger.info(f"已删除隐藏配置项: {key}，将使用默认值")
             return jsonify({"success": True, "message": f"配置项 {key} 已恢复为默认值"})
         else:
-            return jsonify({"success": True, "message": f"配置项 {key} 未被修改，已是默认值"})
+            return jsonify(
+                {"success": True, "message": f"配置项 {key} 未被修改，已是默认值"}
+            )
 
     except Exception as e:
         logger.error(f"删除隐藏配置项失败：{e}", exc_info=True)

@@ -13,6 +13,6 @@ from .config import Config, init_config, get_config
 
 __all__ = [
     "Config",
-    "init_config", 
+    "init_config",
     "get_config",
 ]

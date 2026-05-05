@@ -1,148 +1,149 @@
 """认证中间件测试"""
 
 import pytest
-import jwt
-import time
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-from iris_memory.web.auth import DashboardAuth
+from unittest.mock import Mock, patch
+
+from iris_memory.web.auth import (
+    dashboard_auth,
+    get_access_key,
+    verify_access_key,
+    require_auth,
+)
 
 
-class TestDashboardAuth:
-    """Dashboard 认证测试"""
+class TestGetAccessKey:
+    """get_access_key 函数测试"""
 
-    def test_init_default_config_path(self, tmp_path: Path):
-        """测试默认配置路径初始化"""
-        with patch('iris_memory.web.auth.Path') as mock_path:
-            mock_path.return_value = tmp_path
-            auth = DashboardAuth()
-            assert auth.jwt_secret is None
+    def test_returns_none_when_no_config(self):
+        with patch("iris_memory.config.get_config") as mock_get_config:
+            mock_get_config.side_effect = Exception("no config")
+            result = get_access_key()
+            assert result is None
 
-    def test_load_jwt_secret_success(self, tmp_path: Path):
-        """测试成功加载 JWT 密钥"""
-        # 创建模拟配置文件
-        config_file = tmp_path / "cmd_config.json"
-        config_file.write_text('{"dashboard": {"jwt_secret": "test_secret_key"}}')
-        
-        with patch('iris_memory.web.auth.Path') as mock_path:
-            mock_path.return_value = tmp_path
-            auth = DashboardAuth()
-            assert auth.jwt_secret == "test_secret_key"
+    def test_returns_none_when_empty_key(self):
+        with patch("iris_memory.config.get_config") as mock_get_config:
+            mock_config = Mock()
+            mock_config.get = Mock(return_value="")
+            mock_get_config.return_value = mock_config
+            result = get_access_key()
+            assert result is None
 
-    def test_load_jwt_secret_file_not_found(self, tmp_path: Path):
-        """测试配置文件不存在"""
-        with patch('iris_memory.web.auth.Path') as mock_path:
-            mock_path.return_value = tmp_path
-            auth = DashboardAuth()
-            assert auth.jwt_secret is None
+    def test_returns_key_when_set(self):
+        with patch("iris_memory.config.get_config") as mock_get_config:
+            mock_config = Mock()
+            mock_config.get = Mock(return_value="my_secret_key  ")
+            mock_get_config.return_value = mock_config
+            result = get_access_key()
+            assert result == "my_secret_key"
 
-    def test_verify_token_valid(self):
-        """测试有效 Token 验证"""
-        auth = DashboardAuth()
-        auth.jwt_secret = "test_secret"
-        
-        # 创建有效 Token
-        payload = {
-            "username": "admin",
-            "exp": int(time.time()) + 3600  # 1小时后过期
-        }
-        token = jwt.encode(payload, "test_secret", algorithm="HS256")
-        
-        result = auth.verify_token(token)
-        assert result["username"] == "admin"
 
-    def test_verify_token_expired(self):
-        """测试过期 Token 验证"""
-        auth = DashboardAuth()
-        auth.jwt_secret = "test_secret"
-        
-        # 创建过期 Token
-        payload = {
-            "username": "admin",
-            "exp": int(time.time()) - 3600  # 1小时前过期
-        }
-        token = jwt.encode(payload, "test_secret", algorithm="HS256")
-        
-        with pytest.raises(ValueError, match="登录已过期"):
-            auth.verify_token(token)
+class TestVerifyAccessKey:
+    """verify_access_key 函数测试"""
 
-    def test_verify_token_invalid_signature(self):
-        """测试无效签名 Token"""
-        auth = DashboardAuth()
-        auth.jwt_secret = "correct_secret"
-        
-        # 使用错误密钥创建 Token
-        payload = {"username": "admin", "exp": int(time.time()) + 3600}
-        token = jwt.encode(payload, "wrong_secret", algorithm="HS256")
-        
-        with pytest.raises(ValueError, match="无效Token"):
-            auth.verify_token(token)
+    def test_no_expected_key_returns_true(self):
+        with patch("iris_memory.web.auth.get_access_key", return_value=None):
+            result = verify_access_key("any_key")
+            assert result is True
 
-    def test_verify_token_no_secret_fallback(self):
-        """测试无密钥时的降级验证"""
-        auth = DashboardAuth()
-        auth.jwt_secret = None
-        auth.admin_username = "admin"
-        
-        # 创建 Token（无签名验证）
-        payload = {
-            "username": "admin",
-            "exp": int(time.time()) + 3600
-        }
-        token = jwt.encode(payload, "any_secret", algorithm="HS256")
-        
-        # 应该能够验证（降级模式）
-        result = auth.verify_token(token)
-        assert result["username"] == "admin"
+    def test_correct_key_returns_true(self):
+        with patch("iris_memory.web.auth.get_access_key", return_value="secret123"):
+            result = verify_access_key("secret123")
+            assert result is True
 
-    def test_verify_token_wrong_user_fallback(self):
-        """测试降级模式下非管理员用户"""
-        auth = DashboardAuth()
-        auth.jwt_secret = None
-        auth.admin_username = "admin"
-        
-        payload = {
-            "username": "guest",
-            "exp": int(time.time()) + 3600
-        }
-        token = jwt.encode(payload, "any_secret", algorithm="HS256")
-        
-        with pytest.raises(ValueError, match="非管理员"):
-            auth.verify_token(token)
+    def test_wrong_key_returns_false(self):
+        with patch("iris_memory.web.auth.get_access_key", return_value="secret123"):
+            result = verify_access_key("wrong_key")
+            assert result is False
+
+    def test_empty_provided_key_returns_false(self):
+        with patch("iris_memory.web.auth.get_access_key", return_value="secret123"):
+            result = verify_access_key("")
+            assert result is False
+
+    def test_none_provided_key_returns_false(self):
+        with patch("iris_memory.web.auth.get_access_key", return_value="secret123"):
+            result = verify_access_key(None)
+            assert result is False
+
+
+class TestDashboardAuthSingleton:
+    """dashboard_auth 单例测试"""
+
+    def test_singleton_has_require_auth(self):
+        assert hasattr(dashboard_auth, "require_auth")
+
+    def test_singleton_has_get_access_key(self):
+        assert hasattr(dashboard_auth, "get_access_key")
+
+    def test_singleton_has_verify_access_key(self):
+        assert hasattr(dashboard_auth, "verify_access_key")
+
+    def test_require_auth_is_callable(self):
+        assert callable(dashboard_auth.require_auth)
+
+    def test_get_access_key_is_callable(self):
+        assert callable(dashboard_auth.get_access_key)
+
+    def test_verify_access_key_is_callable(self):
+        assert callable(dashboard_auth.verify_access_key)
+
+
+class TestRequireAuthDecorator:
+    """require_auth 装饰器测试"""
 
     @pytest.mark.asyncio
-    async def test_require_auth_decorator(self):
-        """测试认证装饰器"""
-        auth = DashboardAuth()
-        auth.jwt_secret = "test_secret"
-        
-        # 模拟请求
-        request = Mock()
-        request.cookies = {"jwt_token": jwt.encode(
-            {"username": "admin", "exp": int(time.time()) + 3600},
-            "test_secret",
-            algorithm="HS256"
-        )}
-        
-        # 模拟被装饰的函数
-        @auth.require_auth
-        async def protected_route(request):
-            return {"success": True}
-        
-        result = await protected_route(request)
-        assert result["success"] is True
+    async def test_no_key_required(self):
+        with patch("iris_memory.web.auth.get_access_key", return_value=None):
+
+            @require_auth
+            async def protected_route():
+                return {"success": True}
+
+            result = await protected_route()
+            assert result["success"] is True
 
     @pytest.mark.asyncio
-    async def test_require_auth_missing_token(self):
-        """测试缺少 Token 的认证"""
-        auth = DashboardAuth()
-        
-        request = Mock()
-        request.cookies = {}
-        
-        @auth.require_auth
-        async def protected_route(request):
-            return {"success": True}
-        
-        with pytest.raises(ValueError, match="缺少认证Token"):
-            await protected_route(request)
+    async def test_valid_cookie_auth(self):
+        with patch("iris_memory.web.auth.get_access_key", return_value="secret123"):
+            from unittest.mock import MagicMock
+
+            mock_request = MagicMock()
+            mock_request.cookies = {"iris_access_key": "secret123"}
+            mock_request.args = {}
+            mock_request.headers = {}
+
+            with patch("iris_memory.web.auth.request", mock_request):
+
+                @require_auth
+                async def protected_route():
+                    return {"success": True}
+
+                result = await protected_route()
+                assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_invalid_key_returns_unauthorized(self):
+        with patch("iris_memory.web.auth.get_access_key", return_value="secret123"):
+            from unittest.mock import MagicMock
+
+            mock_request = MagicMock()
+            mock_request.cookies = {}
+            mock_request.args = {}
+            mock_request.headers = {}
+
+            with patch("iris_memory.web.auth.request", mock_request):
+                with patch("iris_memory.web.auth.jsonify") as mock_jsonify:
+                    mock_jsonify.return_value = {
+                        "success": False,
+                        "error": "unauthorized",
+                    }
+                    with patch(
+                        "iris_memory.web.auth.verify_access_key", return_value=False
+                    ):
+
+                        @require_auth
+                        async def protected_route():
+                            return {"success": True}
+
+                        result, status_code = await protected_route()
+                        assert status_code == 401

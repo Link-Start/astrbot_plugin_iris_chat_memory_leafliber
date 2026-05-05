@@ -7,8 +7,6 @@ from datetime import datetime, timedelta
 from iris_memory.profile.user_profile import UserProfileManager
 from iris_memory.profile.models import (
     UserProfile,
-    FieldMeta,
-    ProfileUpdateTracker,
     UpdateTier,
 )
 from iris_memory.profile.storage import ProfileStorage
@@ -55,9 +53,7 @@ class TestUserProfileManager:
         mock_storage.get_user_profile.return_value = existing_profile
 
         await manager.update_user_name(
-            user_id="user_456",
-            group_id="group_123",
-            user_name="小明"
+            user_id="user_456", group_id="group_123", user_name="小明"
         )
 
         assert existing_profile.user_name == "小明"
@@ -69,9 +65,7 @@ class TestUserProfileManager:
         mock_storage.get_user_profile.return_value = existing_profile
 
         await manager.update_user_name(
-            user_id="user_456",
-            group_id="group_123",
-            user_name="新昵称"
+            user_id="user_456", group_id="group_123", user_name="新昵称"
         )
 
         assert existing_profile.user_name == "新昵称"
@@ -90,7 +84,7 @@ class TestUserProfileManager:
             interests=["编程", "游戏"],
             language_style="简洁",
             tier=UpdateTier.MID,
-            confidence=0.7
+            confidence=0.7,
         )
 
         assert existing_profile.personality_tags == ["外向", "幽默"]
@@ -105,9 +99,7 @@ class TestUserProfileManager:
     @pytest.mark.asyncio
     async def test_update_from_analysis_merges_lists(self, manager, mock_storage):
         existing_profile = UserProfile(
-            user_id="user_456",
-            personality_tags=["外向"],
-            interests=["编程"]
+            user_id="user_456", personality_tags=["外向"], interests=["编程"]
         )
         mock_storage.get_user_profile.return_value = existing_profile
 
@@ -117,7 +109,7 @@ class TestUserProfileManager:
             personality_tags=["幽默", "外向"],
             interests=["游戏", "编程"],
             tier=UpdateTier.MID,
-            confidence=0.7
+            confidence=0.7,
         )
 
         assert "外向" in existing_profile.personality_tags
@@ -138,7 +130,7 @@ class TestUserProfileManager:
             important_events=["入职新公司"],
             taboo_topics=["个人隐私"],
             important_dates=["2024-01-15: 入职纪念日"],
-            confidence=0.85
+            confidence=0.85,
         )
 
         assert existing_profile.occupation == "软件工程师"
@@ -211,7 +203,9 @@ class TestUserProfileManager:
         existing_profile = UserProfile(user_id="user_456")
         mock_storage.get_user_profile.return_value = existing_profile
 
-        await manager.add_important_date("user_456", "group_123", "2024-01-15", "入职纪念日")
+        await manager.add_important_date(
+            "user_456", "group_123", "2024-01-15", "入职纪念日"
+        )
 
         assert len(existing_profile.important_dates) > 0
         assert existing_profile.important_dates[0]["date"] == "2024-01-15"

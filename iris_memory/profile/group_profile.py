@@ -78,7 +78,7 @@ class GroupProfileManager:
         atmosphere_tags: Optional[List[str]] = None,
         custom_fields: Optional[dict] = None,
         tier: UpdateTier = UpdateTier.MID,
-        confidence: float = 0.7
+        confidence: float = 0.7,
     ) -> None:
         """从分析结果更新字段（LLM分析后调用）
 
@@ -139,7 +139,7 @@ class GroupProfileManager:
         interests: Optional[List[str]] = None,
         atmosphere_tags: Optional[List[str]] = None,
         custom_fields: Optional[dict] = None,
-        confidence: float = 0.8
+        confidence: float = 0.8,
     ) -> None:
         """从长期分析结果更新字段
 
@@ -159,7 +159,9 @@ class GroupProfileManager:
 
         if long_term_tags is not None:
             meta = profile.get_field_meta("long_term_tags")
-            merged = merge_list_field(profile.long_term_tags, long_term_tags, max_items=10)
+            merged = merge_list_field(
+                profile.long_term_tags, long_term_tags, max_items=10
+            )
             if merged != profile.long_term_tags:
                 profile.long_term_tags = merged
                 meta.record_update(confidence, source="llm")
@@ -239,11 +241,7 @@ class GroupProfileManager:
         tracker = profile.get_update_tracker()
         return tracker.should_update_long(interval_hours)
 
-    async def add_long_term_tag(
-        self,
-        group_id: str,
-        tag: str
-    ) -> None:
+    async def add_long_term_tag(self, group_id: str, tag: str) -> None:
         """添加长期标签（人工或高质量LLM更新）"""
         profile = await self.get_or_create(group_id)
 
@@ -255,11 +253,7 @@ class GroupProfileManager:
             await self._storage.save_group_profile(profile)
             logger.info(f"添加群聊长期标签: {group_id} -> {tag}")
 
-    async def add_blacklist_topic(
-        self,
-        group_id: str,
-        topic: str
-    ) -> None:
+    async def add_blacklist_topic(self, group_id: str, topic: str) -> None:
         """添加禁忌话题"""
         profile = await self.get_or_create(group_id)
 

@@ -52,6 +52,42 @@ async def handle_user_message(
     await _parse_images_if_enabled(event, component_manager)
 
 
+def _backfill_reply_from_buffer(
+    l1_buffer: "L1Buffer",
+    group_id: str,
+    reply_message_id: str,
+    metadata: dict,
+) -> None:
+    """从 L1 Buffer 中回填被回复消息的内容
+
+    当平台未提供 reply_content 时，尝试从 L1 Buffer 中
+    通过 message_id 查找被回复的消息，回填其内容和发送者名称。
+
+    Args:
+        l1_buffer: L1 Buffer 实例
+        group_id: 群聊ID
+        reply_message_id: 被回复消息的ID
+        metadata: 待回填的 metadata 字典
+    """
+    try:
+        messages = l1_buffer.get_context(group_id)
+        for msg in reversed(messages):
+            msg_mid = msg.metadata.get("message_id") if msg.metadata else None
+            if msg_mid and str(msg_mid) == str(reply_message_id):
+                if msg.content and "reply_content" not in metadata:
+                    metadata["reply_content"] = msg.content
+                if "reply_user_name" not in metadata and msg.metadata:
+                    msg_name = msg.metadata.get("user_name")
+                    if msg_name:
+                        metadata["reply_user_name"] = msg_name
+                logger.debug(
+                    f"从 L1 Buffer 回填回复信息：message_id={reply_message_id}"
+                )
+                return
+    except Exception as e:
+        logger.debug(f"回填回复信息失败: {e}")
+
+
 async def _update_profile_names(
     component_manager: "ComponentManager",
     group_id: str,
@@ -78,8 +114,8 @@ async def _update_profile_names(
     if not config.get("profile.enable"):
         return
 
-    profile_storage = component_manager.get_component("profile")
-    if not profile_storage or not profile_storage.is_available:
+    profile_storage = component_manager.get_available_component("profile")
+    if not profile_storage:
         return
 
     group_key = f"group:{group_id}"
@@ -132,8 +168,8 @@ async def _add_to_l1_buffer(
 
     content = sanitize_input(content, source="user_message")
 
-    buffer = component_manager.get_component("l1_buffer")
-    if not buffer or not buffer.is_available:
+    buffer = component_manager.get_available_component("l1_buffer")
+    if not buffer:
         logger.debug("L1 Buffer 组件不可用，跳过消息添加")
         return
 
@@ -149,6 +185,11 @@ async def _add_to_l1_buffer(
     if user_name:
         metadata["user_name"] = user_name
 
+    raw_msg = adapter.get_raw_message(event)
+    message_id = str(raw_msg.get("message_id", "")) if raw_msg else ""
+    if message_id:
+        metadata["message_id"] = message_id
+
     reply_info = adapter.get_reply_info(event)
     if reply_info.has_reply:
         metadata["reply_message_id"] = reply_info.message_id
@@ -158,6 +199,22 @@ async def _add_to_l1_buffer(
             metadata["reply_user_name"] = reply_info.user_name
         if reply_info.content:
             metadata["reply_content"] = reply_info.content
+        elif reply_info.message_id:
+            _backfill_reply_from_buffer(
+                l1_buffer, group_id, reply_info.message_id, metadata
+            )
+            if "reply_content" not in metadata:
+                api_reply = await adapter.get_msg_by_id(event, reply_info.message_id)
+                if api_reply.has_reply:
+                    if api_reply.content:
+                        metadata["reply_content"] = api_reply.content
+                    if not metadata.get("reply_user_name") and api_reply.user_name:
+                        metadata["reply_user_name"] = api_reply.user_name
+                    if not metadata.get("reply_user_id") and api_reply.user_id:
+                        metadata["reply_user_id"] = api_reply.user_id
+                    logger.debug(
+                        f"从平台 API 回填回复信息：message_id={reply_info.message_id}"
+                    )
 
     await l1_buffer.add_message(
         group_id=group_id,
@@ -193,12 +250,11 @@ async def update_l1_buffer(
     """
     from iris_memory.platform import get_adapter
 
-    buffer = component_manager.get_component("l1_buffer")
-    if not buffer or not buffer.is_available:
+    buffer = component_manager.get_available_component("l1_buffer")
+    if not buffer:
         logger.debug("L1 Buffer 组件不可用，跳过消息更新")
         return
 
-    # 类型转换：get_component 返回 Component，实际为 L1Buffer
     l1_buffer = cast("L1Buffer", buffer)
 
     adapter = get_adapter(event)
@@ -232,7 +288,6 @@ async def _queue_images_to_l1_buffer(
     from iris_memory.image.image_utils import (
         compute_image_hash,
         is_similar_image,
-        check_invalid_image,
     )
 
     config = get_config()
@@ -245,8 +300,8 @@ async def _queue_images_to_l1_buffer(
     if not images:
         return
 
-    buffer = component_manager.get_component("l1_buffer")
-    if not buffer or not buffer.is_available:
+    buffer = component_manager.get_available_component("l1_buffer")
+    if not buffer:
         return
 
     l1_buffer = cast("L1Buffer", buffer)
@@ -334,17 +389,17 @@ async def _parse_images_if_enabled(
     adapter = get_adapter(event)
     group_id = adapter.get_group_id(event)
 
-    buffer = component_manager.get_component("l1_buffer")
-    if not buffer or not buffer.is_available:
+    buffer = component_manager.get_available_component("l1_buffer")
+    if not buffer:
         return
 
     l1_buffer = cast("L1Buffer", buffer)
 
-    cache_manager = component_manager.get_component("image_cache")
-    quota_manager = component_manager.get_component("image_quota")
-    llm_manager = component_manager.get_component("llm_manager")
+    cache_manager = component_manager.get_available_component("image_cache")
+    quota_manager = component_manager.get_available_component("image_quota")
+    llm_manager = component_manager.get_available_component("llm_manager")
 
-    if not llm_manager or not llm_manager.is_available:
+    if not llm_manager:
         logger.warning("LLM Manager 不可用，跳过图片解析")
         return
 
@@ -384,8 +439,6 @@ async def _parse_images_if_enabled(
     parser = ImageParser(llm_manager, provider)
 
     logger.info(f"开始解析 {len(images_to_parse)} 张图片（all 模式）")
-
-    from iris_memory.image import ImageInfo
 
     image_infos = [
         img.image_info
