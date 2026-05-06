@@ -74,9 +74,18 @@ async def preprocess_llm_request(
     l1_text = await _collect_l1_context(event, req, component_manager)
     profile_text = await _collect_user_profile(event, component_manager)
     l2_text, l2_results = await _collect_l2_memory(event, component_manager)
-    l3_text = await _collect_l3_knowledge_graph(event, component_manager, l2_results)
 
-    _inject_all_to_system_prompt(req, l1_text, profile_text, l3_text, l2_text)
+    user_message = ""
+    if hasattr(event, "message_str") and event.message_str:
+        user_message = event.message_str
+    elif hasattr(event, "get_message_str"):
+        user_message = event.get_message_str()
+
+    l3_text = await _collect_l3_knowledge_graph(
+        event, component_manager, l2_results, user_message
+    )
+
+    _inject_all_to_system_prompt(req, l1_text, profile_text, l2_text, l3_text)
 
     _takeover_context_if_enabled(req)
 
@@ -128,32 +137,47 @@ def _takeover_context_if_enabled(req: "ProviderRequest") -> None:
             f"保留 {len(filtered)} 条非对话上下文"
         )
 
+    if req.system_prompt:
+        cleaned = re.sub(
+            r"\n*-{3,}\n*\[Contexts\].*",
+            "",
+            req.system_prompt,
+            flags=re.DOTALL,
+        )
+        cleaned = re.sub(r"\n-{3,}\s*$", "", cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        if cleaned != req.system_prompt:
+            logger.debug("接管上下文管理：清理 system_prompt 中的 [Contexts] 段")
+            req.system_prompt = cleaned
+
 
 def _inject_all_to_system_prompt(
     req: "ProviderRequest",
     l1_text: str,
     profile_text: str,
-    l3_text: str,
     l2_text: str,
+    l3_text: str,
 ) -> None:
     """将所有内容注入到 req.system_prompt 中
 
     使用标记包裹各 section，支持重复调用时替换而非追加。
 
+    注入顺序：人格 → L1 上下文 → 画像 → L2 记忆 → L3 知识图谱
+
     Args:
         req: LLM 提供者请求对象
         l1_text: L1 对话历史文本
         profile_text: 用户画像文本
-        l3_text: 知识图谱文本
         l2_text: 相关记忆文本
+        l3_text: 知识图谱文本
     """
     original = _extract_original_prompt(req.system_prompt or "")
 
     sections = [
         ("l1_context", l1_text),
         ("profile", profile_text),
-        ("l3_kg", l3_text),
         ("l2_memory", l2_text),
+        ("l3_kg", l3_text),
     ]
 
     prompt_parts = []
@@ -632,16 +656,21 @@ async def _collect_l3_knowledge_graph(
     event: "AstrMessageEvent",
     component_manager: "ComponentManager",
     l2_results: List["MemorySearchResult"],
+    user_message: str = "",
 ) -> str:
     """收集 L3 知识图谱文本（不直接修改 req）
 
-    当 enable_graph_enhancement=True 时跳过（L2 阶段已处理）。
-    否则基于 L2 记忆关联的节点 ID 进行路径扩展。
+    检索策略：
+    1. 当 enable_graph_enhancement=True 时跳过（L2 阶段已处理）
+    2. 优先基于 L2 记忆关联的节点 ID 进行路径扩展
+    3. 若 L2 结果无节点 ID，则基于用户消息关键词搜索图谱
+    4. 两种策略的结果合并去重
 
     Args:
         event: AstrBot 消息事件对象
         component_manager: 组件管理器实例
         l2_results: L2 检索结果
+        user_message: 用户当前消息文本
 
     Returns:
         格式化的图谱文本，不可用时返回空字符串
@@ -680,8 +709,14 @@ async def _collect_l3_knowledge_graph(
             logger.debug("图增强已在 L2 阶段执行，跳过 L3 独立图谱注入以避免重复")
             return ""
 
-        memory_node_ids: List[str] = []
+        from iris_memory.l3_kg import GraphRetriever
 
+        retriever = GraphRetriever(kg_adapter)
+
+        all_nodes: dict[str, dict] = {}
+        all_edges: dict[str, dict] = {}
+
+        memory_node_ids: List[str] = []
         if l2_results:
             for result in l2_results:
                 metadata = result.entry.metadata
@@ -695,28 +730,120 @@ async def _collect_l3_knowledge_graph(
                     memory_node_ids.append(node_id)
 
         if memory_node_ids:
-            from iris_memory.l3_kg import GraphRetriever
-
-            retriever = GraphRetriever(kg_adapter)
-
             nodes, edges = await retriever.retrieve_with_expansion(
                 memory_node_ids=memory_node_ids, group_id=group_id
             )
+            for n in nodes:
+                nid = n.get("id")
+                if nid:
+                    all_nodes[nid] = n
+            for e in edges:
+                eid = f"{e.get('source', '')}-{e.get('relation_type', '')}-{e.get('target', '')}"
+                all_edges[eid] = e
+            logger.debug(f"基于 L2 节点扩展：{len(nodes)} 节点，{len(edges)} 边")
 
-            if nodes or edges:
-                graph_text = retriever.format_for_context(nodes, edges)
+        if not memory_node_ids and user_message:
+            keywords = _extract_kg_keywords(user_message)
+            if keywords:
+                nodes, edges = await retriever.retrieve_by_keywords(
+                    keywords=keywords, group_id=group_id
+                )
+                for n in nodes:
+                    nid = n.get("id")
+                    if nid:
+                        all_nodes[nid] = n
+                for e in edges:
+                    eid = f"{e.get('source', '')}-{e.get('relation_type', '')}-{e.get('target', '')}"
+                    all_edges[eid] = e
+                logger.debug(f"基于关键词检索：{len(nodes)} 节点，{len(edges)} 边")
 
-                if graph_text:
-                    logger.debug(
-                        f"纯图谱检索完成（基于 {len(memory_node_ids)} 个记忆节点）"
-                    )
-                    return graph_text
+        if not all_nodes:
+            return ""
 
-        return ""
+        l3_max_tokens = cast(int, config.get("l3_kg.max_inject_tokens", 400))
+
+        graph_text = retriever.format_for_context(
+            list(all_nodes.values()),
+            list(all_edges.values()),
+            max_tokens=l3_max_tokens,
+        )
+
+        if graph_text:
+            node_ids = [nid for nid in all_nodes.keys()]
+            await retriever.update_access_count(node_ids)
+
+            logger.debug(f"图谱检索完成（{len(all_nodes)} 节点，{len(all_edges)} 边）")
+
+        return graph_text
 
     except Exception as e:
         logger.error(f"L3 知识图谱注入失败: {e}", exc_info=True)
         return ""
+
+
+def _extract_kg_keywords(text: str) -> List[str]:
+    """从用户消息中提取知识图谱检索关键词
+
+    Args:
+        text: 用户消息文本
+
+    Returns:
+        关键词列表
+    """
+    import re
+
+    if not text:
+        return []
+
+    keywords: List[str] = []
+
+    quoted = re.findall(r'[""「」『』]([^""「」『』]+)[""「」『』]', text)
+    keywords.extend(quoted)
+
+    chinese_words = re.findall(r"[\u4e00-\u9fa5]{2,6}", text)
+    stopwords = {
+        "什么",
+        "怎么",
+        "如何",
+        "为什么",
+        "这个",
+        "那个",
+        "今天",
+        "昨天",
+        "明天",
+        "喜欢",
+        "觉得",
+        "想要",
+        "可以",
+        "知道",
+        "一下",
+        "一些",
+        "告诉",
+        "请问",
+        "还是",
+        "的话",
+        "不是",
+        "没有",
+        "什么",
+        "现在",
+        "已经",
+        "应该",
+        "可能",
+        "因为",
+        "所以",
+        "但是",
+    }
+    filtered = [w for w in chinese_words if w not in stopwords and len(w) >= 2]
+    keywords.extend(filtered)
+
+    seen = set()
+    unique: List[str] = []
+    for k in keywords:
+        if k not in seen:
+            seen.add(k)
+            unique.append(k)
+
+    return unique[:8]
 
 
 def _format_l2_memories_for_injection(memories: List["MemorySearchResult"]) -> str:

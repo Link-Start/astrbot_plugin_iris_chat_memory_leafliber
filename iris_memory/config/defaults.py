@@ -49,6 +49,7 @@ class L3KGConfig:
     timeout_ms: int = 1500
     expansion_depth: int = 2
     enable_type_whitelist: bool = True
+    max_inject_tokens: int = 600
 
 
 @dataclass

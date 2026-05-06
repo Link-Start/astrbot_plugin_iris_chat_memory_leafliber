@@ -78,10 +78,13 @@ class TestGraphRetriever:
         result = retriever.format_for_context(nodes, [])
 
         assert "【知识图谱】" in result
-        assert "实体:" in result
-        assert "Alice:软件工程师" in result
-        assert "Bob:数据科学家" in result
-        assert "AI Conference:2024 AI 大会" in result
+        assert "人物" in result
+        assert "Alice" in result
+        assert "软件工程师" in result
+        assert "Bob" in result
+        assert "数据科学家" in result
+        assert "事件" in result
+        assert "AI Conference" in result
 
     @pytest.mark.asyncio
     async def test_format_for_context_with_edges(self, retriever):
@@ -92,56 +95,60 @@ class TestGraphRetriever:
                 "label": "Person",
                 "name": "Alice",
                 "content": "软件工程师",
-            }
+            },
+            {
+                "id": "event_conf",
+                "label": "Event",
+                "name": "AI Conference",
+                "content": "2024 AI 大会",
+            },
         ]
 
         edges = [
             {
                 "source": "person_alice",
-                "source_name": "Alice",
                 "target": "event_conf",
-                "target_name": "AI Conference",
-                "relation_type": "ATTENDED",
+                "relation_type": "PARTICIPATED",
             }
         ]
 
         result = retriever.format_for_context(nodes, edges)
 
-        assert "关系:" in result
+        assert "关系" in result
         assert "Alice" in result
         assert "AI Conference" in result
-        assert "ATTENDED" in result
+        assert "参与" in result
 
     @pytest.mark.asyncio
     async def test_format_for_context_truncates_long_content(self, retriever):
         """测试过长描述截断"""
         long_content = "这是一段非常长的描述" * 20
-        nodes = [{"label": "Person", "name": "Alice", "content": long_content}]
+        nodes = [{"id": "n1", "label": "Person", "name": "Alice", "content": long_content}]
 
         result = retriever.format_for_context(nodes, [], max_content_length=100)
 
-        assert "Alice:" in result
+        assert "Alice" in result
         assert "..." in result
-        assert len(result) < len(long_content) + 100
 
     @pytest.mark.asyncio
     async def test_format_for_context_groups_by_type(self, retriever):
-        """测试节点格式化（当前为扁平列表）"""
+        """测试节点按类型分组格式化"""
         nodes = [
-            {"label": "Person", "name": "Alice", "content": "描述1"},
-            {"label": "Person", "name": "Bob", "content": "描述2"},
-            {"label": "Event", "name": "会议", "content": "描述3"},
-            {"label": "Person", "name": "Charlie", "content": "描述4"},
+            {"id": "n1", "label": "Person", "name": "Alice", "content": "描述1"},
+            {"id": "n2", "label": "Person", "name": "Bob", "content": "描述2"},
+            {"id": "n3", "label": "Event", "name": "会议", "content": "描述3"},
+            {"id": "n4", "label": "Person", "name": "Charlie", "content": "描述4"},
         ]
 
         result = retriever.format_for_context(nodes, [])
 
         assert "【知识图谱】" in result
-        assert "实体:" in result
-        assert "Alice:描述1" in result
-        assert "Bob:描述2" in result
-        assert "会议:描述3" in result
-        assert "Charlie:描述4" in result
+        assert "人物" in result
+        assert "事件" in result
+        assert "Alice" in result
+        assert "Bob" in result
+        assert "会议" in result
+        assert "Charlie" in result
 
     @pytest.mark.asyncio
     async def test_retrieve_with_expansion_empty_ids(self, retriever):

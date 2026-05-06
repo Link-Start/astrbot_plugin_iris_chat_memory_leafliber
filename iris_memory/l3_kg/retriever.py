@@ -4,9 +4,34 @@ from iris_memory.core import get_logger
 from iris_memory.config import get_config
 from .adapter import L3KGAdapter
 from datetime import datetime
+from collections import defaultdict
 import asyncio
 
 logger = get_logger("l3_kg")
+
+_RELATION_TYPE_LABELS = {
+    "KNOWS": "认识",
+    "MENTIONED": "提及",
+    "RELATED_TO": "相关",
+    "PART_OF": "属于",
+    "LOCATED_AT": "位于",
+    "HAPPENED_AT": "发生在",
+    "DISCUSSED": "讨论过",
+    "PARTICIPATED": "参与",
+}
+
+_NODE_TYPE_LABELS = {
+    "Person": "人物",
+    "Event": "事件",
+    "Concept": "概念",
+    "Location": "地点",
+    "Item": "物品",
+    "Topic": "话题",
+}
+
+
+def _estimate_tokens(text: str) -> int:
+    return max(1, len(text) // 2)
 
 
 class GraphRetriever:
@@ -20,35 +45,19 @@ class GraphRetriever:
     """
 
     def __init__(self, adapter: L3KGAdapter):
-        """初始化检索器
-
-        Args:
-            adapter: L3KGAdapter 实例
-        """
         self.adapter = adapter
         self.config = get_config()
 
     async def retrieve_with_expansion(
         self, memory_node_ids: list[str], group_id: str = None
     ) -> tuple[list[dict], list[dict]]:
-        """图增强检索：基于向量检索命中的记忆节点进行路径扩展
-
-        Args:
-            memory_node_ids: 向量检索命中的记忆对应的节点ID列表
-            group_id: 群聊ID
-
-        Returns:
-            (节点列表, 边列表)
-        """
         if not self.adapter._is_available:
             return [], []
 
         try:
-            # 获取扩展深度配置
             max_depth = self.config.get("l3_kg.expansion_depth", 2)
             timeout_ms = self.config.get("l3_kg.timeout_ms", 1500)
 
-            # 设置超时保护
             nodes, edges = await asyncio.wait_for(
                 self.adapter.expand_from_nodes(
                     node_ids=memory_node_ids, max_depth=max_depth, group_id=group_id
@@ -69,17 +78,49 @@ class GraphRetriever:
             logger.error(f"图增强检索失败：{e}")
             return [], []
 
-    async def update_access_count(self, node_ids: list[str]):
-        """更新节点访问计数
+    async def retrieve_by_keywords(
+        self, keywords: list[str], group_id: str = None, limit: int = 10
+    ) -> tuple[list[dict], list[dict]]:
+        """基于关键词搜索图谱节点并扩展
 
         Args:
-            node_ids: 需要更新的节点ID列表
+            keywords: 搜索关键词列表
+            group_id: 群聊ID
+            limit: 每个关键词最大返回节点数
+
+        Returns:
+            (节点列表, 边列表)
         """
+        if not self.adapter._is_available or not keywords:
+            return [], []
+
+        matched_node_ids: set[str] = set()
+
+        for keyword in keywords:
+            try:
+                found = await self.adapter.search_nodes(keyword, limit=5)
+                for node in found:
+                    node_id = node.get("id")
+                    if node_id:
+                        matched_node_ids.add(node_id)
+            except Exception as e:
+                logger.debug(f"关键词 '{keyword}' 搜索失败：{e}")
+
+        if not matched_node_ids:
+            return [], []
+
+        if len(matched_node_ids) > 20:
+            matched_node_ids = set(list(matched_node_ids)[:20])
+
+        return await self.retrieve_with_expansion(
+            memory_node_ids=list(matched_node_ids), group_id=group_id
+        )
+
+    async def update_access_count(self, node_ids: list[str]):
         if not self.adapter._is_available:
             return
 
         try:
-            # 批量更新节点访问计数
             for node_id in node_ids:
                 self.adapter._conn.execute(
                     """
@@ -95,14 +136,22 @@ class GraphRetriever:
             logger.error(f"更新节点访问计数失败：{e}")
 
     def format_for_context(
-        self, nodes: list[dict], edges: list[dict], max_content_length: int = 100
+        self,
+        nodes: list[dict],
+        edges: list[dict],
+        max_tokens: int = 400,
+        max_content_length: int = 150,
     ) -> str:
         """格式化图谱结果为上下文文本
+
+        按节点类型分组展示实体，使用自然语言描述关系，
+        支持 token 预算控制。
 
         Args:
             nodes: 节点列表
             edges: 边列表
-            max_content_length: 节点描述最大字符数，超出截断
+            max_tokens: 最大 token 预算（估算）
+            max_content_length: 节点描述最大字符数
 
         Returns:
             格式化的文本，如果为空则返回空字符串
@@ -110,31 +159,92 @@ class GraphRetriever:
         if not nodes:
             return ""
 
-        lines = ["【知识图谱】"]
-
-        node_lines = []
+        node_map: dict[str, dict] = {}
         for node in nodes:
-            name = node.get("name", "")
-            content = node.get("content", "")
-            if name and content:
-                if len(content) > max_content_length:
-                    content = content[:max_content_length] + "..."
-                node_lines.append(f"{name}:{content}")
-            elif name:
-                node_lines.append(name)
+            node_id = node.get("id")
+            if node_id:
+                node_map[node_id] = node
 
-        if node_lines:
-            lines.append("实体: " + " | ".join(node_lines[:10]))
+        type_groups: dict[str, list[dict]] = defaultdict(list)
+        for node in nodes:
+            label = node.get("label", "Entity")
+            type_groups[label].append(node)
 
-        if edges:
-            edge_lines = []
-            for edge in edges[:10]:
-                source = edge.get("source_name", "")
-                target = edge.get("target_name", "")
+        lines: list[str] = []
+        token_budget = max_tokens
+
+        header = "【知识图谱】以下是你了解的结构化知识，请自然地运用："
+        lines.append(header)
+        token_budget -= _estimate_tokens(header)
+
+        ordered_types = sorted(
+            type_groups.keys(),
+            key=lambda t: (0 if t == "Person" else 1 if t == "Event" else 2, t),
+        )
+
+        for node_type in ordered_types:
+            if token_budget <= 0:
+                break
+
+            group = type_groups[node_type]
+            type_label = _NODE_TYPE_LABELS.get(node_type, node_type)
+
+            entity_lines: list[str] = []
+            for node in group:
+                name = node.get("name", "")
+                content = node.get("content", "")
+                if name and content:
+                    if len(content) > max_content_length:
+                        content = content[:max_content_length] + "..."
+                    entity_lines.append(f"  - {name}：{content}")
+                elif name:
+                    entity_lines.append(f"  - {name}")
+
+            if not entity_lines:
+                continue
+
+            section = f"{type_label}：\n" + "\n".join(entity_lines)
+            section_tokens = _estimate_tokens(section)
+
+            if section_tokens > token_budget:
+                remaining = max(1, token_budget // 30)
+                section = f"{type_label}：\n" + "\n".join(entity_lines[:remaining])
+                section_tokens = _estimate_tokens(section)
+
+            if section_tokens <= token_budget:
+                lines.append(section)
+                token_budget -= section_tokens
+
+        if edges and token_budget > 20:
+            edge_lines: list[str] = []
+            for edge in edges:
+                source_id = edge.get("source", edge.get("_src", ""))
+                target_id = edge.get("target", edge.get("_dst", ""))
                 relation = edge.get("relation_type", "")
-                if source and target:
-                    edge_lines.append(f"{source}-{relation}->{target}")
-            if edge_lines:
-                lines.append("关系: " + " | ".join(edge_lines))
 
-        return "\n".join(lines)
+                source_node = node_map.get(source_id, {})
+                target_node = node_map.get(target_id, {})
+
+                source_name = source_node.get("name", source_id)
+                target_name = target_node.get("name", target_id)
+
+                if source_name and target_name and relation:
+                    rel_label = _RELATION_TYPE_LABELS.get(relation, relation)
+                    edge_lines.append(f"  - {source_name} {rel_label} {target_name}")
+
+            if edge_lines:
+                rel_section = "关系：\n" + "\n".join(edge_lines)
+                rel_tokens = _estimate_tokens(rel_section)
+
+                if rel_tokens > token_budget:
+                    remaining = max(1, token_budget // 20)
+                    rel_section = "关系：\n" + "\n".join(edge_lines[:remaining])
+
+                if _estimate_tokens(rel_section) <= token_budget:
+                    lines.append(rel_section)
+
+        result = "\n".join(lines)
+        if result.strip() == header.strip():
+            return ""
+
+        return result

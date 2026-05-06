@@ -136,7 +136,7 @@ class TestInjectAllToSystemPrompt:
     def test_inject_all_to_empty_system_prompt(self):
         req = MagicMock()
         req.system_prompt = ""
-        _inject_all_to_system_prompt(req, "对话", "画像", "图谱", "记忆")
+        _inject_all_to_system_prompt(req, "对话", "画像", "记忆", "图谱")
         assert "<!-- iris:start:l1_context -->" in req.system_prompt
         assert "对话" in req.system_prompt
         assert "<!-- iris:start:profile -->" in req.system_prompt
@@ -197,12 +197,12 @@ class TestInjectAllToSystemPrompt:
     def test_inject_all_section_order(self):
         req = MagicMock()
         req.system_prompt = "系统提示"
-        _inject_all_to_system_prompt(req, "对话", "画像", "图谱", "记忆")
+        _inject_all_to_system_prompt(req, "对话", "画像", "记忆", "图谱")
         l1_idx = req.system_prompt.index("l1_context")
         profile_idx = req.system_prompt.index("profile")
-        l3_idx = req.system_prompt.index("l3_kg")
         l2_idx = req.system_prompt.index("l2_memory")
-        assert l1_idx < profile_idx < l3_idx < l2_idx
+        l3_idx = req.system_prompt.index("l3_kg")
+        assert l1_idx < profile_idx < l2_idx < l3_idx
 
 
 class TestBuildImageMap:
