@@ -4,7 +4,8 @@
 """
 
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from typing import List
 
 from iris_memory.image import ImageInfo, ParseResult
 from iris_memory.core.message_hook import handle_user_message

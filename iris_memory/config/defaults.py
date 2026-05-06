@@ -80,6 +80,7 @@ class EnhancementConfig:
 
     enable_rerank: bool = False
     rerank_provider: str = ""
+    takeover_context: bool = False
 
 
 @dataclass

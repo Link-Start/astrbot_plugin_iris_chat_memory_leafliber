@@ -61,7 +61,7 @@ async def preprocess_llm_request(
 
     注入策略（参考 astrbot_plugin_iris_memory，统一注入 system_prompt）：
     - req.system_prompt: 人格/L1（含内联图片）/画像/L2/L3（全部带标记替换）
-    - req.contexts: 不修改
+    - req.contexts: 当 takeover_context 启用时清空，由插件接管上下文管理
     - req.prompt: 不修改
 
     Args:
@@ -78,7 +78,55 @@ async def preprocess_llm_request(
 
     _inject_all_to_system_prompt(req, l1_text, profile_text, l3_text, l2_text)
 
+    _takeover_context_if_enabled(req)
+
     _log_final_context(req)
+
+
+def _takeover_context_if_enabled(req: "ProviderRequest") -> None:
+    """接管 AstrBot 的上下文管理
+
+    当 takeover_context 启用时，从 req.contexts 中移除 AstrBot 自动注入的
+    对话历史（user/assistant 角色），避免与插件自身的 L1/L2/L3 上下文管理
+    产生冗余。
+
+    保留策略（兼容其他插件）：
+    - 保留 system 角色条目（如文件提取结果、其他插件注入的系统消息）
+    - 保留带 _no_save 标记的条目（人格预设对话 begin_dialogs）
+    - 保留非标准角色的条目
+    - 仅移除 user/assistant 角色且无 _no_save 标记的真实对话历史条目
+
+    参考 AstrBot 源码 astr_main_agent.py / persona_mgr.py：
+    - req.contexts = json.loads(conversation.history)  # 对话历史（无 _no_save）
+    - req.contexts[:0] = begin_dialogs                  # 人格开场对话（带 _no_save）
+    - req.contexts.append({"role": "system", ...})      # 文件提取结果
+
+    Args:
+        req: LLM 提供者请求对象
+    """
+    from iris_memory.config import get_config
+
+    config = get_config()
+    if not config.get("enhancement.takeover_context"):
+        return
+
+    if not req.contexts:
+        return
+
+    original_count = len(req.contexts)
+    filtered = [
+        ctx
+        for ctx in req.contexts
+        if ctx.get("role") not in ("user", "assistant") or ctx.get("_no_save")
+    ]
+    removed_count = original_count - len(filtered)
+
+    if removed_count > 0:
+        req.contexts = filtered
+        logger.debug(
+            f"接管上下文管理：移除 {removed_count} 条对话历史，"
+            f"保留 {len(filtered)} 条非对话上下文"
+        )
 
 
 def _inject_all_to_system_prompt(
