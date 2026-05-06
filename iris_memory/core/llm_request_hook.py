@@ -874,46 +874,50 @@ def _format_profiles_for_injection(
 ) -> str:
     """格式化画像为注入文本
 
-    明确标识为当前发送消息的用户，并包含所有可用字段。
+    将用户画像和群聊画像分开显示，节约 token。
 
     Args:
         group_profile: 群聊画像对象
         user_profile: 用户画像对象
 
     Returns:
-        格式化的画像文本
+        格式化的画像文本，任一部分为空则不注入该部分
     """
-    parts = [f"【当前发送者画像】(ID: {user_profile.user_id})"]
+    sections = []
 
+    user_parts = [f"【发送者】ID: {user_profile.user_id}"]
     if user_profile.user_name:
-        parts.append(f"昵称: {user_profile.user_name}")
+        user_parts.append(f"昵称: {user_profile.user_name}")
     if user_profile.historical_names:
-        parts.append(f"曾用昵称: {', '.join(user_profile.historical_names)}")
+        user_parts.append(f"曾用昵称: {', '.join(user_profile.historical_names)}")
     if user_profile.personality_tags:
-        parts.append(f"性格: {', '.join(user_profile.personality_tags)}")
+        user_parts.append(f"性格: {', '.join(user_profile.personality_tags)}")
     if user_profile.interests:
-        parts.append(f"兴趣: {', '.join(user_profile.interests)}")
+        user_parts.append(f"兴趣: {', '.join(user_profile.interests)}")
     if user_profile.occupation:
-        parts.append(f"职业: {user_profile.occupation}")
+        user_parts.append(f"职业: {user_profile.occupation}")
     if user_profile.language_style:
-        parts.append(f"语言风格: {user_profile.language_style}")
+        user_parts.append(f"语言风格: {user_profile.language_style}")
     if user_profile.communication_style:
-        parts.append(f"沟通偏好: {user_profile.communication_style}")
+        user_parts.append(f"沟通偏好: {user_profile.communication_style}")
     if user_profile.emotional_baseline:
-        parts.append(f"情感: {user_profile.emotional_baseline}")
+        user_parts.append(f"情感: {user_profile.emotional_baseline}")
     if user_profile.bot_relationship:
-        parts.append(f"称呼: {user_profile.bot_relationship}")
+        user_parts.append(f"称呼: {user_profile.bot_relationship}")
     if user_profile.important_dates:
         dates_str = ", ".join(
             f"{d['date']}({d['description']})" for d in user_profile.important_dates
         )
-        parts.append(f"重要日期: {dates_str}")
+        user_parts.append(f"重要日期: {dates_str}")
     if user_profile.important_events:
-        parts.append(f"重要事件: {', '.join(user_profile.important_events)}")
+        user_parts.append(f"重要事件: {', '.join(user_profile.important_events)}")
     if user_profile.taboo_topics:
-        parts.append(f"禁忌: {', '.join(user_profile.taboo_topics)}")
+        user_parts.append(f"禁忌: {', '.join(user_profile.taboo_topics)}")
 
-    group_parts = []
+    if len(user_parts) > 1:
+        sections.append("\n".join(user_parts))
+
+    group_parts = ["【群聊】"]
     if group_profile.interests:
         group_parts.append(f"兴趣: {', '.join(group_profile.interests)}")
     if group_profile.atmosphere_tags:
@@ -923,10 +927,10 @@ def _format_profiles_for_injection(
     if group_profile.blacklist_topics:
         group_parts.append(f"禁忌: {', '.join(group_profile.blacklist_topics)}")
 
-    if group_parts:
-        parts.append("群聊: " + ", ".join(group_parts))
+    if len(group_parts) > 1:
+        sections.append("\n".join(group_parts))
 
-    return "\n".join(parts) if len(parts) > 1 else ""
+    return "\n\n".join(sections) if sections else ""
 
 
 async def _parse_images_if_related_mode(
