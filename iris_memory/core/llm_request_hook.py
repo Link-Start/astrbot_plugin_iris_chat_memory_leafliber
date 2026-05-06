@@ -119,23 +119,21 @@ def _takeover_context_if_enabled(req: "ProviderRequest") -> None:
     if not config.get("enhancement.takeover_context"):
         return
 
-    if not req.contexts:
-        return
+    if req.contexts:
+        original_count = len(req.contexts)
+        filtered = [
+            ctx
+            for ctx in req.contexts
+            if ctx.get("role") not in ("user", "assistant") or ctx.get("_no_save")
+        ]
+        removed_count = original_count - len(filtered)
 
-    original_count = len(req.contexts)
-    filtered = [
-        ctx
-        for ctx in req.contexts
-        if ctx.get("role") not in ("user", "assistant") or ctx.get("_no_save")
-    ]
-    removed_count = original_count - len(filtered)
-
-    if removed_count > 0:
-        req.contexts = filtered
-        logger.debug(
-            f"接管上下文管理：移除 {removed_count} 条对话历史，"
-            f"保留 {len(filtered)} 条非对话上下文"
-        )
+        if removed_count > 0:
+            req.contexts = filtered
+            logger.debug(
+                f"接管上下文管理：移除 {removed_count} 条对话历史，"
+                f"保留 {len(filtered)} 条非对话上下文"
+            )
 
     if req.system_prompt:
         cleaned = re.sub(
@@ -876,7 +874,7 @@ def _format_profiles_for_injection(
 ) -> str:
     """格式化画像为注入文本
 
-    格式参考 astrbot_plugin_iris_memory 的 PersonaCoordinator._build_persona_summary。
+    明确标识为当前发送消息的用户，并包含所有可用字段。
 
     Args:
         group_profile: 群聊画像对象
@@ -885,28 +883,43 @@ def _format_profiles_for_injection(
     Returns:
         格式化的画像文本
     """
-    parts = ["【用户画像】"]
+    parts = [f"【当前发送者画像】(ID: {user_profile.user_id})"]
 
     if user_profile.user_name:
         parts.append(f"昵称: {user_profile.user_name}")
+    if user_profile.historical_names:
+        parts.append(f"曾用昵称: {', '.join(user_profile.historical_names)}")
     if user_profile.personality_tags:
-        parts.append(f"性格: {', '.join(user_profile.personality_tags[:3])}")
+        parts.append(f"性格: {', '.join(user_profile.personality_tags)}")
     if user_profile.interests:
-        parts.append(f"兴趣: {', '.join(user_profile.interests[:3])}")
+        parts.append(f"兴趣: {', '.join(user_profile.interests)}")
+    if user_profile.occupation:
+        parts.append(f"职业: {user_profile.occupation}")
+    if user_profile.language_style:
+        parts.append(f"语言风格: {user_profile.language_style}")
     if user_profile.communication_style:
         parts.append(f"沟通偏好: {user_profile.communication_style}")
     if user_profile.emotional_baseline:
         parts.append(f"情感: {user_profile.emotional_baseline}")
     if user_profile.bot_relationship:
         parts.append(f"称呼: {user_profile.bot_relationship}")
+    if user_profile.important_dates:
+        dates_str = ", ".join(
+            f"{d['date']}({d['description']})" for d in user_profile.important_dates
+        )
+        parts.append(f"重要日期: {dates_str}")
+    if user_profile.important_events:
+        parts.append(f"重要事件: {', '.join(user_profile.important_events)}")
     if user_profile.taboo_topics:
         parts.append(f"禁忌: {', '.join(user_profile.taboo_topics)}")
 
     group_parts = []
     if group_profile.interests:
-        group_parts.append(f"兴趣: {', '.join(group_profile.interests[:3])}")
+        group_parts.append(f"兴趣: {', '.join(group_profile.interests)}")
     if group_profile.atmosphere_tags:
-        group_parts.append(f"氛围: {', '.join(group_profile.atmosphere_tags[:3])}")
+        group_parts.append(f"氛围: {', '.join(group_profile.atmosphere_tags)}")
+    if group_profile.long_term_tags:
+        group_parts.append(f"核心特征: {', '.join(group_profile.long_term_tags)}")
     if group_profile.blacklist_topics:
         group_parts.append(f"禁忌: {', '.join(group_profile.blacklist_topics)}")
 
