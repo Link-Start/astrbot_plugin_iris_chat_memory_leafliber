@@ -721,7 +721,9 @@ class ComponentManager:
         """更新系统状态
 
         根据各组件的可用性更新 SystemStatus。
+        保留当前全局状态，避免后台组件初始化时重置。
         """
+        previous_global = self._status.global_status
         self._status = SystemStatus()
         for component in self._components:
             self._status.register_module(component.name, default_available=False)
@@ -730,6 +732,8 @@ class ComponentManager:
         for component in self._components:
             if component.is_available:
                 self._status.set_available(component.name, True)
+
+        self._status.set_global_status(previous_global)
 
     async def shutdown_all(self) -> None:
         """关闭所有组件
