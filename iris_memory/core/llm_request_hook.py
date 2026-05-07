@@ -560,12 +560,10 @@ async def _collect_l2_memory(
                 max_tokens=config.get("token_budget_max_tokens", 2000),
             )
 
-            results = await retriever.retrieve(search_query, group_id)
-
             if context_text:
                 logger.debug(f"已收集增强检索记忆到群聊 {group_id}")
 
-            return context_text, results
+            return context_text, []
         else:
             results = await retriever.retrieve(search_query, group_id)
 
