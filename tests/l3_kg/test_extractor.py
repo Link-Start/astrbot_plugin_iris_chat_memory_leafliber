@@ -49,8 +49,8 @@ class TestEntityExtractor:
 
         # 验证 prompt 包含必要内容
         assert "Alice 和 Bob 讨论了 AI 技术" in prompt
-        assert "节点类型白名单" in prompt
-        assert "关系类型白名单" in prompt
+        assert "可用节点类型" in prompt
+        assert "可用关系类型" in prompt
         assert "Person" in prompt  # 白名单中的类型
         assert "KNOWS" in prompt  # 白名单中的关系
 
@@ -62,7 +62,7 @@ class TestEntityExtractor:
             text = "Alice 和 Bob 讨论了 AI 技术"
             prompt = extractor._build_extraction_prompt(text)
 
-            assert "节点类型白名单" not in prompt
+            assert "可用节点类型" not in prompt
 
     @pytest.mark.asyncio
     async def test_parse_extraction_result_success(self, extractor):

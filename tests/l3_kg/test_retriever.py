@@ -77,7 +77,7 @@ class TestGraphRetriever:
 
         result = retriever.format_for_context(nodes, [])
 
-        assert "【知识图谱】" in result
+        assert "【长期知识】" in result
         assert "人物" in result
         assert "Alice" in result
         assert "软件工程师" in result
@@ -108,7 +108,7 @@ class TestGraphRetriever:
             {
                 "source": "person_alice",
                 "target": "event_conf",
-                "relation_type": "PARTICIPATED",
+                "relation_type": "PARTICIPATED_IN",
             }
         ]
 
@@ -128,7 +128,7 @@ class TestGraphRetriever:
         result = retriever.format_for_context(nodes, [], max_content_length=100)
 
         assert "Alice" in result
-        assert "..." in result
+        assert "…" in result
 
     @pytest.mark.asyncio
     async def test_format_for_context_groups_by_type(self, retriever):
@@ -142,7 +142,7 @@ class TestGraphRetriever:
 
         result = retriever.format_for_context(nodes, [])
 
-        assert "【知识图谱】" in result
+        assert "【长期知识】" in result
         assert "人物" in result
         assert "事件" in result
         assert "Alice" in result

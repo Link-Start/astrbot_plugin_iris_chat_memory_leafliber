@@ -84,6 +84,10 @@ class RelatedMemoryRetriever:
 
         related_by_score: dict[str, float] = {}
 
+        semantic_results: List[tuple[MemoryEntry, float]] = []
+        group_results: List[tuple[MemoryEntry, float]] = []
+        user_results: List[tuple[MemoryEntry, float]] = []
+
         if semantic_weight > 0:
             semantic_results = await self._retrieve_semantic(adapter, memory, top_k * 2)
             for entry, score in semantic_results:
@@ -117,19 +121,12 @@ class RelatedMemoryRetriever:
         )
 
         all_entries: dict[str, MemoryEntry] = {}
-        if semantic_weight > 0:
-            for entry, _ in await self._retrieve_semantic(adapter, memory, top_k * 2):
-                all_entries[entry.id] = entry
-        if same_group_weight > 0 and memory.group_id:
-            for entry, _ in await self._retrieve_same_group(adapter, memory, top_k):
-                all_entries[entry.id] = entry
-        if same_user_weight > 0:
-            user_id = memory.metadata.get("user_id")
-            if user_id:
-                for entry, _ in await self._retrieve_same_user(
-                    adapter, memory, user_id, top_k
-                ):
-                    all_entries[entry.id] = entry
+        for entry, _ in semantic_results:
+            all_entries[entry.id] = entry
+        for entry, _ in group_results:
+            all_entries[entry.id] = entry
+        for entry, _ in user_results:
+            all_entries[entry.id] = entry
 
         result = []
         for memory_id in sorted_ids[:top_k]:

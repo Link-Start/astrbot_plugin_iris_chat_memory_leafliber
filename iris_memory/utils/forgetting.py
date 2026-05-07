@@ -282,3 +282,119 @@ def should_evict(
             return True
 
     return False
+
+
+def calculate_kg_forgetting_score(
+    last_access_time: Optional[str] = None,
+    access_count: int = 0,
+    confidence: float = 1.0,
+    connected_count: int = 0,
+    source_memory_count: int = 0,
+    lambda_decay: float = 0.05,
+) -> float:
+    """L3 知识图谱专用遗忘评分
+
+    L3 是高度抽象的结构化知识，遗忘逻辑应与 L2 不同：
+    - 结构重要性（连接度）远比访问频率重要
+    - 来源记忆数越多，节点越稳固（被多次验证）
+    - 近因性衰减更慢（抽象知识时效性更长）
+
+    公式：S = w1·R + w2·(1-D) + w3·C + w4·V
+
+    其中：
+    - R (Recency): 近因性，衰减系数更低（0.05 vs 0.1）
+    - D (Degree): 孤立度 = 1/(connected_count+1)
+    - C (Confidence): 置信度
+    - V (Verification): 验证度 = min(1.0, source_memory_count / 5)
+
+    权重：w1=0.15, w2=0.40, w3=0.15, w4=0.30
+    结构重要性（1-D）占 40%，验证度占 30%，远高于 L2。
+
+    Args:
+        last_access_time: 最近访问时间（ISO 格式字符串）
+        access_count: 访问次数
+        confidence: 置信度
+        connected_count: 连接边数
+        source_memory_count: 来源记忆数量
+        lambda_decay: 衰减系数（默认 0.05，比 L2 更慢）
+
+    Returns:
+        综合评分 [0, 1]，越接近 1 表示越重要
+    """
+    R = calculate_recency(last_access_time, lambda_decay=lambda_decay)
+
+    if connected_count == 0:
+        D = 1.0
+    else:
+        D = 1.0 / (connected_count + 1)
+
+    C = calculate_confidence(confidence)
+
+    import math
+
+    V = (
+        min(1.0, math.log(source_memory_count + 1) / math.log(6))
+        if source_memory_count > 0
+        else 0.0
+    )
+
+    score = 0.15 * R + 0.40 * (1 - D) + 0.15 * C + 0.30 * V
+
+    return max(0.0, min(1.0, score))
+
+
+def should_evict_kg_node(
+    last_access_time: Optional[str] = None,
+    access_count: int = 0,
+    confidence: float = 1.0,
+    connected_count: int = 0,
+    source_memory_count: int = 0,
+    threshold: float = 0.3,
+    retention_days: int = 30,
+) -> bool:
+    """判断 L3 知识图谱节点是否应该被淘汰
+
+    与 L2 不同：
+    - 连接度 >= 5 的枢纽节点永不淘汰
+    - 来源记忆数 >= 3 的节点永不淘汰
+    - 评分低于阈值且超过保留期才淘汰
+
+    Args:
+        last_access_time: 最近访问时间
+        access_count: 访问次数
+        confidence: 置信度
+        connected_count: 连接边数
+        source_memory_count: 来源记忆数量
+        threshold: 遗忘阈值
+        retention_days: 保留期天数
+
+    Returns:
+        是否应该被淘汰
+    """
+    if connected_count >= 5:
+        return False
+
+    if source_memory_count >= 3:
+        return False
+
+    score = calculate_kg_forgetting_score(
+        last_access_time=last_access_time,
+        access_count=access_count,
+        confidence=confidence,
+        connected_count=connected_count,
+        source_memory_count=source_memory_count,
+    )
+
+    if score < threshold:
+        if last_access_time:
+            try:
+                access_dt = datetime.fromisoformat(last_access_time)
+                days_elapsed = (datetime.now() - access_dt).days
+                if days_elapsed > retention_days:
+                    return True
+            except (ValueError, TypeError):
+                pass
+        else:
+            return True
+
+    return False

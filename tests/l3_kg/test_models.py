@@ -215,8 +215,13 @@ class TestWhitelists:
     def test_relation_type_whitelist(self):
         """测试关系类型白名单"""
         assert "KNOWS" in RELATION_TYPE_WHITELIST
-        assert "MENTIONED" in RELATION_TYPE_WHITELIST
+        assert "HAS_PREFERENCE" in RELATION_TYPE_WHITELIST
+        assert "HAS_SKILL" in RELATION_TYPE_WHITELIST
+        assert "HAS_TRAIT" in RELATION_TYPE_WHITELIST
+        assert "HAS_GOAL" in RELATION_TYPE_WHITELIST
+        assert "HAS_BELIEF" in RELATION_TYPE_WHITELIST
         assert "RELATED_TO" in RELATION_TYPE_WHITELIST
         assert "PART_OF" in RELATION_TYPE_WHITELIST
-        assert "LOCATED_AT" in RELATION_TYPE_WHITELIST
-        assert "HAPPENED_AT" in RELATION_TYPE_WHITELIST
+        assert "LEADS_TO" in RELATION_TYPE_WHITELIST
+        assert "CONTRADICTS" in RELATION_TYPE_WHITELIST
+        assert "SUPPORTS" in RELATION_TYPE_WHITELIST

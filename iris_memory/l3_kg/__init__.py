@@ -13,7 +13,9 @@ from .models import (
     GraphEdge,
     ExtractionResult,
     NODE_TYPE_WHITELIST,
+    NODE_TYPE_DESCRIPTIONS,
     RELATION_TYPE_WHITELIST,
+    RELATION_TYPE_DESCRIPTIONS,
 )
 from .adapter import L3KGAdapter
 from .extractor import EntityExtractor
@@ -25,7 +27,9 @@ __all__ = [
     "GraphEdge",
     "ExtractionResult",
     "NODE_TYPE_WHITELIST",
+    "NODE_TYPE_DESCRIPTIONS",
     "RELATION_TYPE_WHITELIST",
+    "RELATION_TYPE_DESCRIPTIONS",
     "L3KGAdapter",
     "EntityExtractor",
     "GraphRetriever",

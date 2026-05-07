@@ -238,7 +238,7 @@
   "enhancement": {
     "type": "object",
     "description": "记忆增强",
-    "hint": "重排序与上下文接管",
+    "hint": "重排序",
     "items": {
       "enable_rerank": {
         "type": "bool",
@@ -252,12 +252,6 @@
         "description": "重排序模型 Provider",
         "hint": "选择用于重排序的模型，留空则使用默认 Provider",
         "_special": "select_provider"
-      },
-      "takeover_context": {
-        "type": "bool",
-        "default": true,
-        "description": "接管上下文管理",
-        "hint": "启用后将清空AstrBot自动注入的对话历史[Contexts]，由插件统一管理上下文，避免上下文混乱导致的回答不相关"
       }
     }
   },

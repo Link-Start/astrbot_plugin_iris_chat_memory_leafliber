@@ -11,22 +11,36 @@ logger = get_logger("l3_kg")
 
 _RELATION_TYPE_LABELS = {
     "KNOWS": "认识",
-    "MENTIONED": "提及",
-    "RELATED_TO": "相关",
-    "PART_OF": "属于",
+    "HAS_PREFERENCE": "偏好",
+    "HAS_SKILL": "掌握",
+    "HAS_TRAIT": "具有",
+    "HAS_GOAL": "追求",
+    "HAS_BELIEF": "相信",
+    "PARTICIPATED_IN": "参与",
     "LOCATED_AT": "位于",
     "HAPPENED_AT": "发生在",
+    "PART_OF": "属于",
+    "LEADS_TO": "导致",
+    "CONTRADICTS": "矛盾",
+    "SUPPORTS": "支持",
+    "RELATED_TO": "相关",
+    "MENTIONED": "提及",
     "DISCUSSED": "讨论过",
-    "PARTICIPATED": "参与",
 }
 
 _NODE_TYPE_LABELS = {
     "Person": "人物",
+    "Preference": "偏好",
+    "Skill": "技能",
+    "Trait": "性格特征",
+    "Goal": "目标",
+    "Belief": "信念",
     "Event": "事件",
     "Concept": "概念",
     "Location": "地点",
     "Item": "物品",
     "Topic": "话题",
+    "Group": "群体",
 }
 
 
@@ -173,13 +187,28 @@ class GraphRetriever:
         lines: list[str] = []
         token_budget = max_tokens
 
-        header = "【知识图谱】以下是你了解的结构化知识，请自然地运用："
+        header = "【长期知识】以下是关于相关人物和概念的深层知识，在回答时自然参考："
         lines.append(header)
         token_budget -= _estimate_tokens(header)
 
+        _PRIORITY_ORDER = {
+            "Person": 0,
+            "Trait": 1,
+            "Preference": 2,
+            "Skill": 3,
+            "Goal": 4,
+            "Belief": 5,
+            "Concept": 6,
+            "Event": 7,
+            "Group": 8,
+            "Topic": 9,
+            "Location": 10,
+            "Item": 11,
+        }
+
         ordered_types = sorted(
             type_groups.keys(),
-            key=lambda t: (0 if t == "Person" else 1 if t == "Event" else 2, t),
+            key=lambda t: (_PRIORITY_ORDER.get(t, 99), t),
         )
 
         for node_type in ordered_types:
@@ -195,7 +224,13 @@ class GraphRetriever:
                 content = node.get("content", "")
                 if name and content:
                     if len(content) > max_content_length:
-                        content = content[:max_content_length] + "..."
+                        truncated = content[:max_content_length]
+                        for sep in ("。", "；", "，", " "):
+                            last_sep = truncated.rfind(sep)
+                            if last_sep > max_content_length // 2:
+                                truncated = truncated[:last_sep]
+                                break
+                        content = truncated + "…"
                     entity_lines.append(f"  - {name}：{content}")
                 elif name:
                     entity_lines.append(f"  - {name}")

@@ -8,30 +8,28 @@ from .models import (
     GraphEdge,
     ExtractionResult,
     NODE_TYPE_WHITELIST,
+    NODE_TYPE_DESCRIPTIONS,
     RELATION_TYPE_WHITELIST,
+    RELATION_TYPE_DESCRIPTIONS,
 )
 from iris_memory.l2_memory import MemoryEntry
 import json
 
 logger = get_logger("l3_kg")
 
+_MIN_NODE_CONFIDENCE = 0.5
+_MIN_EDGE_CONFIDENCE = 0.4
+_MAX_CONTENT_LENGTH = 120
+
 
 class EntityExtractor:
     """实体和关系提取器
 
-    使用 LLM 从总结文本中提取实体（节点）和关系（边）。
-    支持：
-    - 动态节点类型（优先使用白名单）
-    - 动态关系类型（优先使用白名单）
-    - 置信度评估
+    使用 LLM 从总结文本中提取高度抽象的实体（节点）和关系（边）。
+    L3 定位：高度浓缩的结构化知识，场景弱相关，聚焦高层次内容和关联。
     """
 
     def __init__(self, llm_manager):
-        """初始化提取器
-
-        Args:
-            llm_manager: LLM 调用管理器
-        """
         self.llm_manager = llm_manager
         self.config = get_config()
 
@@ -50,17 +48,16 @@ class EntityExtractor:
         if context is None:
             context = {}
 
-        # 构建提取 prompt
         prompt = self._build_extraction_prompt(text)
 
         try:
-            # 调用 LLM 提取
             response = await self.llm_manager.generate(
                 prompt=prompt, module="l3_kg_extraction"
             )
 
-            # 解析提取结果
             result = self._parse_extraction_result(response, context)
+
+            result = self._filter_low_quality(result)
 
             logger.info(
                 f"实体提取完成：{len(result.nodes)} 个节点，{len(result.edges)} 条边"
@@ -74,7 +71,7 @@ class EntityExtractor:
     async def extract_from_memories(
         self, memories: List[MemoryEntry], context: dict = None
     ) -> ExtractionResult:
-        """从多条记忆中提取实体和关系
+        """从多条记忆中批量提取实体和关系
 
         将多条记忆合并后提取，用于 L3 知识图谱定时提取任务。
 
@@ -94,7 +91,7 @@ class EntityExtractor:
         combined_text = self._combine_memories(memories)
 
         if context.get("source_memory_id") is None and memories:
-            context["source_memory_id"] = memories[0].id
+            context["source_memory_ids"] = [m.id for m in memories]
 
         if context.get("group_id") is None and memories:
             context["group_id"] = memories[0].group_id
@@ -107,7 +104,7 @@ class EntityExtractor:
         if active_users and not context.get("active_users"):
             context["active_users"] = list(active_users)
 
-        logger.info(f"从 {len(memories)} 条记忆中提取实体和关系")
+        logger.info(f"从 {len(memories)} 条记忆中批量提取实体和关系")
 
         return await self.extract_from_text(combined_text, context)
 
@@ -127,16 +124,15 @@ class EntityExtractor:
             if user_id:
                 user_info = f"[用户:{user_id}] "
 
-            group_info = ""
-            if mem.group_id:
-                group_info = f"[群:{mem.group_id}] "
-
-            lines.append(f"{i}. {user_info}{group_info}{mem.content}")
+            lines.append(f"{i}. {user_info}{mem.content}")
 
         return "\n".join(lines)
 
     def _build_extraction_prompt(self, text: str) -> str:
         """构建提取 prompt
+
+        L3 定位为高度浓缩的抽象知识，与场景弱相关。
+        Prompt 核心指导：提取抽象实体和深层关联，而非具体对话内容。
 
         Args:
             text: 待提取的文本
@@ -147,32 +143,46 @@ class EntityExtractor:
         enable_whitelist = self.config.get("l3_kg.enable_type_whitelist", True)
 
         if enable_whitelist:
+            node_types_desc = "\n".join(
+                f"  - {t}: {NODE_TYPE_DESCRIPTIONS.get(t, '')}"
+                for t in sorted(NODE_TYPE_WHITELIST)
+            )
+            rel_types_desc = "\n".join(
+                f"  - {t}: {RELATION_TYPE_DESCRIPTIONS.get(t, '')}"
+                for t in sorted(RELATION_TYPE_WHITELIST)
+            )
             whitelist_hint = f"""
-## 节点类型白名单（优先使用）
-{", ".join(NODE_TYPE_WHITELIST)}
+## 可用节点类型（优先使用，如不匹配可创建新类型，PascalCase）
+{node_types_desc}
 
-## 关系类型白名单（优先使用）
-{", ".join(RELATION_TYPE_WHITELIST)}
+## 可用关系类型（优先使用，如不匹配可创建新类型，UPPER_CASE）
+{rel_types_desc}
 """
         else:
             whitelist_hint = ""
 
-        return f"""从以下文本中提取实体和关系。
-{whitelist_hint}
-## 提取规则
-1. 识别文本中的关键实体（人物、事件、概念、地点、物品、话题）
-2. 识别实体之间的关系
-3. 如果实体类型不在白名单中，可以创建新类型，但要保持命名规范（PascalCase）
-4. 如果关系类型不在白名单中，可以创建新类型（UPPER_CASE）
-5. 评估提取置信度（0.3-1.0）
+        return f"""你是一个知识抽象引擎，任务是从对话总结中提取**高度抽象的结构化知识**。
 
+## 核心原则
+你提取的是**脱离具体对话场景仍具有长期价值的知识**，而非对话内容的简单索引。
+- ✅ 提取：偏好、技能、性格特征、目标、信念、深层关联、因果逻辑
+- ❌ 不提取：临时性对话内容、寒暄、即时指令、纯情绪表达、一次性问答
+
+## 提取规则
+1. **抽象优先**：将具体事实上升为抽象知识。例如"张三说喜欢Python"→ Person(张三) -HAS_PREFERENCE→ Preference(Python编程)
+2. **关联优先**：重点提取实体间的深层关系（因果、支持、矛盾），而非浅层提及
+3. **内容浓缩**：每个节点的 content 必须是一句话的高度概括（不超过{_MAX_CONTENT_LENGTH}字），不要复制原文
+4. **关系精准**：优先使用具体关系类型（HAS_PREFERENCE, HAS_SKILL 等），RELATED_TO 仅作为最后手段
+5. **置信度诚实**：对不确定的提取给予低置信度（0.3-0.6），确定的给予高置信度（0.7-1.0）
+6. **宁缺毋滥**：如果文本中没有值得长期保留的抽象知识，返回空结果
+{whitelist_hint}
 ## 输出格式（JSON）
 {{
   "nodes": [
     {{
       "label": "Person",
       "name": "实体名称",
-      "content": "实体描述",
+      "content": "一句话高度概括（不超过{_MAX_CONTENT_LENGTH}字）",
       "confidence": 0.9
     }}
   ],
@@ -180,9 +190,9 @@ class EntityExtractor:
     {{
       "source_label": "Person",
       "source_name": "源实体名称",
-      "target_label": "Event",
+      "target_label": "Preference",
       "target_name": "目标实体名称",
-      "relation_type": "KNOWS",
+      "relation_type": "HAS_PREFERENCE",
       "confidence": 0.8
     }}
   ],
@@ -208,7 +218,6 @@ class EntityExtractor:
             解析后的 ExtractionResult 对象
         """
         try:
-            # 清理响应（去除 markdown 代码块标记）
             response = response.strip()
             if response.startswith("```json"):
                 response = response[7:]
@@ -219,7 +228,6 @@ class EntityExtractor:
 
             data = json.loads(response.strip())
 
-            # 构建节点
             nodes = []
             node_key_to_id = {}
 
@@ -230,13 +238,27 @@ class EntityExtractor:
                 if active_users:
                     properties["active_users"] = ",".join(active_users)
 
+                source_memory_ids = context.get("source_memory_ids", [])
+                if source_memory_ids:
+                    properties["source_memory_ids"] = ",".join(source_memory_ids)
+                elif context.get("source_memory_id"):
+                    properties["source_memory_ids"] = context["source_memory_id"]
+
+                content = node_data.get("content", "")
+                if len(content) > _MAX_CONTENT_LENGTH:
+                    content = content[:_MAX_CONTENT_LENGTH]
+
                 node = GraphNode(
                     id="",
                     label=node_data["label"],
                     name=node_data["name"],
-                    content=node_data["content"],
+                    content=content,
                     confidence=node_data.get("confidence", 1.0),
-                    source_memory_id=context.get("source_memory_id"),
+                    source_memory_id=(
+                        context.get("source_memory_ids", [None])[0]
+                        if context.get("source_memory_ids")
+                        else context.get("source_memory_id")
+                    ),
                     group_id=context.get("group_id"),
                     properties=properties,
                 )
@@ -251,24 +273,12 @@ class EntityExtractor:
                 target_label = edge_data.get("target_label")
                 target_name = edge_data.get("target_name")
 
-                source_id = None
-                target_id = None
-
-                if source_label and source_name:
-                    source_id = node_key_to_id.get(f"{source_label}:{source_name}")
-                if not source_id and source_name:
-                    for key, nid in node_key_to_id.items():
-                        if key.endswith(f":{source_name}"):
-                            source_id = nid
-                            break
-
-                if target_label and target_name:
-                    target_id = node_key_to_id.get(f"{target_label}:{target_name}")
-                if not target_id and target_name:
-                    for key, nid in node_key_to_id.items():
-                        if key.endswith(f":{target_name}"):
-                            target_id = nid
-                            break
+                source_id = self._resolve_node_id(
+                    source_label, source_name, node_key_to_id
+                )
+                target_id = self._resolve_node_id(
+                    target_label, target_name, node_key_to_id
+                )
 
                 if source_id and target_id:
                     edge = GraphEdge(
@@ -276,18 +286,13 @@ class EntityExtractor:
                         target_id=target_id,
                         relation_type=edge_data["relation_type"],
                         confidence=edge_data.get("confidence", 1.0),
-                        source_memory_id=context.get("source_memory_id"),
+                        source_memory_id=(
+                            context.get("source_memory_ids", [None])[0]
+                            if context.get("source_memory_ids")
+                            else context.get("source_memory_id")
+                        ),
                     )
                     edges.append(edge)
-
-            # 添加用户节点和关系
-            active_users = context.get("active_users", [])
-            if active_users:
-                user_nodes, user_edges = self._create_user_nodes_and_edges(
-                    active_users=active_users, existing_nodes=nodes, context=context
-                )
-                nodes.extend(user_nodes)
-                edges.extend(user_edges)
 
             return ExtractionResult(
                 nodes=nodes,
@@ -302,52 +307,71 @@ class EntityExtractor:
             logger.error(f"解析提取结果失败：{e}")
             return ExtractionResult()
 
-    def _create_user_nodes_and_edges(
-        self, active_users: list[str], existing_nodes: list[GraphNode], context: dict
-    ) -> tuple[list[GraphNode], list[GraphEdge]]:
-        """为活跃用户创建 Person 节点，并与同批次提取的实体建立 DISCUSSED_BY 边
+    def _resolve_node_id(
+        self,
+        label: str | None,
+        name: str | None,
+        node_key_to_id: dict[str, str],
+    ) -> str | None:
+        """解析节点 ID，优先精确匹配，回退到名称匹配
 
         Args:
-            active_users: 活跃用户 ID 列表
-            existing_nodes: 已提取的节点列表
-            context: 上下文信息
+            label: 节点类型标签
+            name: 节点名称
+            node_key_to_id: 节点键到 ID 的映射
 
         Returns:
-            (用户节点列表, 用户相关边列表)
+            节点 ID，未找到返回 None
         """
-        user_nodes = []
-        user_edges = []
+        if not name:
+            return None
 
-        non_user_nodes = [n for n in existing_nodes if n.label != "Person"]
+        if label and name:
+            exact_id = node_key_to_id.get(f"{label}:{name}")
+            if exact_id:
+                return exact_id
 
-        for user_id in active_users:
-            user_node = GraphNode(
-                id="",
-                label="Person",
-                name=user_id,
-                content=f"用户 {user_id}",
-                confidence=1.0,
-                source_memory_id=context.get("source_memory_id"),
-                group_id=context.get("group_id"),
-                properties={"is_user": "true"},
+        for key, nid in node_key_to_id.items():
+            if key.endswith(f":{name}"):
+                return nid
+
+        return None
+
+    def _filter_low_quality(self, result: ExtractionResult) -> ExtractionResult:
+        """过滤低质量提取结果
+
+        过滤规则：
+        - 置信度低于阈值的节点
+        - 置信度低于阈值的边
+        - 引用已过滤节点的边
+
+        Args:
+            result: 原始提取结果
+
+        Returns:
+            过滤后的提取结果
+        """
+        valid_nodes = [n for n in result.nodes if n.confidence >= _MIN_NODE_CONFIDENCE]
+        valid_node_ids = {n.id for n in valid_nodes}
+
+        valid_edges = [
+            e
+            for e in result.edges
+            if e.confidence >= _MIN_EDGE_CONFIDENCE
+            and e.source_id in valid_node_ids
+            and e.target_id in valid_node_ids
+        ]
+
+        filtered_nodes = len(result.nodes) - len(valid_nodes)
+        filtered_edges = len(result.edges) - len(valid_edges)
+
+        if filtered_nodes > 0 or filtered_edges > 0:
+            logger.debug(
+                f"过滤低质量提取：移除 {filtered_nodes} 个节点，{filtered_edges} 条边"
             )
-            user_node.id = user_node.generate_id()
-            user_nodes.append(user_node)
 
-            for entity_node in non_user_nodes:
-                edge = GraphEdge(
-                    source_id=entity_node.id,
-                    target_id=user_node.id,
-                    relation_type="DISCUSSED_BY",
-                    confidence=0.7,
-                    source_memory_id=context.get("source_memory_id"),
-                )
-                user_edges.append(edge)
-
-        if user_nodes:
-            logger.info(
-                f"为 {len(user_nodes)} 个活跃用户创建了 Person 节点，"
-                f"关联 {len(user_edges)} 条 DISCUSSED_BY 边"
-            )
-
-        return user_nodes, user_edges
+        return ExtractionResult(
+            nodes=valid_nodes,
+            edges=valid_edges,
+            extraction_confidence=result.extraction_confidence,
+        )

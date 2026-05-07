@@ -5,11 +5,17 @@ LLM 请求钩子处理模块
 - L1 上下文注入
 - 用户画像注入
 - 图片解析（related 模式）
-- 知识图谱检索结果注入
+- L2 记忆注入
+- L3 知识图谱注入
 
-注入策略（参考 astrbot_plugin_iris_memory）：
-所有内容统一注入到 req.system_prompt，使用标记包裹各 section，
+注入策略：
+所有内容统一注入到 req.system_prompt，作为附加信息使用标记包裹各 section，
 支持重复调用时替换而非追加。不修改 req.contexts 和 req.prompt。
+
+这样做的理由：
+- L1/L2/L3 均为辅助上下文信息，不是真实对话历史，不应模拟为 user/assistant 消息
+- AstrBot 已在 req.contexts 中维护了真实对话历史，插件不应伪造对话记录
+- 统一注入 system_prompt 作为附加信息，语义更清晰，避免与 AstrBot 对话管理冲突
 """
 
 import re
@@ -59,9 +65,9 @@ async def preprocess_llm_request(
 
     执行所有 LLM 对话前的预处理逻辑。
 
-    注入策略（参考 astrbot_plugin_iris_memory，统一注入 system_prompt）：
-    - req.system_prompt: 人格/L1（含内联图片）/画像/L2/L3（全部带标记替换）
-    - req.contexts: 当 takeover_context 启用时清空，由插件接管上下文管理
+    注入策略：
+    - req.system_prompt: L1/画像/L2/L3（全部作为附加信息，使用标记包裹替换）
+    - req.contexts: 不修改
     - req.prompt: 不修改
 
     Args:
@@ -87,66 +93,7 @@ async def preprocess_llm_request(
 
     _inject_all_to_system_prompt(req, l1_text, profile_text, l2_text, l3_text)
 
-    _takeover_context_if_enabled(req)
-
     _log_final_context(req)
-
-
-def _takeover_context_if_enabled(req: "ProviderRequest") -> None:
-    """接管 AstrBot 的上下文管理
-
-    当 takeover_context 启用时，从 req.contexts 中移除 AstrBot 自动注入的
-    对话历史（user/assistant 角色），避免与插件自身的 L1/L2/L3 上下文管理
-    产生冗余。
-
-    保留策略（兼容其他插件）：
-    - 保留 system 角色条目（如文件提取结果、其他插件注入的系统消息）
-    - 保留带 _no_save 标记的条目（人格预设对话 begin_dialogs）
-    - 保留非标准角色的条目
-    - 仅移除 user/assistant 角色且无 _no_save 标记的真实对话历史条目
-
-    参考 AstrBot 源码 astr_main_agent.py / persona_mgr.py：
-    - req.contexts = json.loads(conversation.history)  # 对话历史（无 _no_save）
-    - req.contexts[:0] = begin_dialogs                  # 人格开场对话（带 _no_save）
-    - req.contexts.append({"role": "system", ...})      # 文件提取结果
-
-    Args:
-        req: LLM 提供者请求对象
-    """
-    from iris_memory.config import get_config
-
-    config = get_config()
-    if not config.get("enhancement.takeover_context"):
-        return
-
-    if req.contexts:
-        original_count = len(req.contexts)
-        filtered = [
-            ctx
-            for ctx in req.contexts
-            if ctx.get("role") not in ("user", "assistant") or ctx.get("_no_save")
-        ]
-        removed_count = original_count - len(filtered)
-
-        if removed_count > 0:
-            req.contexts = filtered
-            logger.debug(
-                f"接管上下文管理：移除 {removed_count} 条对话历史，"
-                f"保留 {len(filtered)} 条非对话上下文"
-            )
-
-    if req.system_prompt:
-        cleaned = re.sub(
-            r"\n*-{3,}\n*\[Contexts\].*",
-            "",
-            req.system_prompt,
-            flags=re.DOTALL,
-        )
-        cleaned = re.sub(r"\n-{3,}\s*$", "", cleaned)
-        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-        if cleaned != req.system_prompt:
-            logger.debug("接管上下文管理：清理 system_prompt 中的 [Contexts] 段")
-            req.system_prompt = cleaned
 
 
 def _inject_all_to_system_prompt(
@@ -159,12 +106,13 @@ def _inject_all_to_system_prompt(
     """将所有内容注入到 req.system_prompt 中
 
     使用标记包裹各 section，支持重复调用时替换而非追加。
+    所有内容（L1/画像/L2/L3）均作为附加信息注入，不模拟对话历史。
 
-    注入顺序：人格 → L1 上下文 → 画像 → L2 记忆 → L3 知识图谱
+    注入顺序：L1 上下文 → 画像 → L2 记忆 → L3 知识图谱
 
     Args:
         req: LLM 提供者请求对象
-        l1_text: L1 对话历史文本
+        l1_text: L1 对话上下文文本
         profile_text: 用户画像文本
         l2_text: 相关记忆文本
         l3_text: 知识图谱文本
@@ -293,10 +241,10 @@ async def _collect_l1_context(
     req: "ProviderRequest",
     component_manager: "ComponentManager",
 ) -> str:
-    """收集 L1 上下文文本（不直接修改 req）
+    """收集 L1 上下文文本
 
-    将 L1 上下文格式化为纯文本返回，用于注入到 system_prompt。
-    格式参考 astrbot_plugin_iris_memory 的 ChatHistoryBuffer.format_for_llm。
+    将 L1 上下文格式化为纯文本返回，作为附加信息注入到 system_prompt。
+    不模拟为 user/assistant 对话格式，因为 L1 是辅助上下文而非真实对话历史。
 
     Args:
         event: AstrBot 消息事件对象

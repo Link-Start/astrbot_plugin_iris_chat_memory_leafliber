@@ -104,7 +104,6 @@ class TestHelperFunctions:
     def test_extract_original_prompt_multiple_sections(self):
         prompt = (
             "系统提示\n\n"
-            "<!-- iris:start:l1_context -->\n对话\n<!-- iris:end:l1_context -->\n\n"
             "<!-- iris:start:profile -->\n画像\n<!-- iris:end:profile -->\n\n"
             "<!-- iris:start:l3_kg -->\n图谱\n<!-- iris:end:l3_kg -->\n\n"
             "<!-- iris:start:l2_memory -->\n记忆\n<!-- iris:end:l2_memory -->"
@@ -122,12 +121,6 @@ class TestHelperFunctions:
         assert "<!-- iris:start:l2_memory -->" in result
         assert "<!-- iris:end:l2_memory -->" in result
         assert "记忆内容" in result
-
-    def test_wrap_prompt_section_l1_context(self):
-        result = _wrap_prompt_section("l1_context", "对话内容")
-        assert "<!-- iris:start:l1_context -->" in result
-        assert "<!-- iris:end:l1_context -->" in result
-        assert "对话内容" in result
 
 
 class TestInjectAllToSystemPrompt:
@@ -371,7 +364,6 @@ class TestPreprocessLLMRequest:
 
         assert req.prompt == "你好"
         assert "<!-- iris:start:l1_context -->" in req.system_prompt
-        assert "【近期群聊记录】" in req.system_prompt
         assert "你好" in req.system_prompt
         assert "你好！" in req.system_prompt
 
@@ -449,6 +441,7 @@ class TestPreprocessLLMRequest:
 
         assert "你是一个助手" in req.system_prompt
         assert "<!-- iris:start:l1_context -->" in req.system_prompt
+        assert "问题" in req.system_prompt
         assert req.prompt == "你好"
 
     @pytest.mark.asyncio
@@ -478,7 +471,9 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "张三: 你好" in req.system_prompt
+        assert "<!-- iris:start:l1_context -->" in req.system_prompt
+        assert "张三:" in req.system_prompt
+        assert "你好" in req.system_prompt
         assert "Bot: 你好！" in req.system_prompt
 
     @pytest.mark.asyncio
@@ -505,6 +500,7 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
+        assert "<!-- iris:start:l1_context -->" in req.system_prompt
         assert "你好" in req.system_prompt
 
     @pytest.mark.asyncio
@@ -538,6 +534,7 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
+        assert "<!-- iris:start:l1_context -->" in req.system_prompt
         assert "Bot: 你好！" in req.system_prompt
 
     @pytest.mark.asyncio
@@ -577,6 +574,7 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
+        assert "<!-- iris:start:l1_context -->" in req.system_prompt
         assert "李四: ↩️回复张三「你好啊」" in req.system_prompt
         assert "我也觉得" in req.system_prompt
 
@@ -616,6 +614,7 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
+        assert "<!-- iris:start:l1_context -->" in req.system_prompt
         assert "↩️回复某人「你好啊」" in req.system_prompt
 
     @pytest.mark.asyncio
@@ -661,6 +660,7 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
+        assert "<!-- iris:start:l1_context -->" in req.system_prompt
         assert "李四: ↩️回复张三「你好啊」" in req.system_prompt
         assert "是的" in req.system_prompt
 
@@ -700,7 +700,8 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "李四: ↩️回复了某条消息 是的" in req.system_prompt
+        assert "<!-- iris:start:l1_context -->" in req.system_prompt
+        assert "李四: ↩️回复了某条消息" in req.system_prompt
 
 
 class TestMarkerReplacement:
@@ -774,7 +775,7 @@ class TestMarkerReplacement:
         assert second_prompt.count("<!-- iris:start:l3_kg -->") == 1
 
     @pytest.mark.asyncio
-    async def test_l1_context_marker_replacement_on_second_call(self):
+    async def test_l1_context_replacement_on_second_call(self):
         event = MagicMock()
         req = MagicMock()
         req.contexts = []
@@ -801,8 +802,8 @@ class TestMarkerReplacement:
             buffer.get_context.return_value = old_messages
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
         assert "旧消息" in req.system_prompt
+        assert "<!-- iris:start:l1_context -->" in req.system_prompt
 
         with ExitStack() as stack:
             for p in _patch_collect_fns(adapter=adapter):
@@ -848,14 +849,14 @@ class TestMarkerReplacement:
         assert "旧记忆" not in req.system_prompt
 
     @pytest.mark.asyncio
-    async def test_unavailable_buffer_removes_old_l1_markers(self):
+    async def test_unavailable_buffer_removes_old_l1_section(self):
         event = MagicMock()
         req = MagicMock()
         req.contexts = []
         req.prompt = "你好"
         req.system_prompt = (
             "系统提示\n\n"
-            "<!-- iris:start:l1_context -->\n旧L1消息\n<!-- iris:end:l1_context -->"
+            "<!-- iris:start:l1_context -->\n旧L1内容\n<!-- iris:end:l1_context -->"
         )
 
         buffer = MagicMock()
@@ -869,18 +870,18 @@ class TestMarkerReplacement:
             await preprocess_llm_request(event, req, component_manager)
 
         assert "<!-- iris:start:l1_context -->" not in req.system_prompt
-        assert "旧L1消息" not in req.system_prompt
+        assert "旧L1内容" not in req.system_prompt
         assert "系统提示" in req.system_prompt
 
     @pytest.mark.asyncio
-    async def test_empty_buffer_removes_old_l1_markers(self):
+    async def test_empty_buffer_removes_old_l1_section(self):
         event = MagicMock()
         req = MagicMock()
         req.contexts = []
         req.prompt = "你好"
         req.system_prompt = (
             "系统提示\n\n"
-            "<!-- iris:start:l1_context -->\n旧L1消息\n<!-- iris:end:l1_context -->"
+            "<!-- iris:start:l1_context -->\n旧L1内容\n<!-- iris:end:l1_context -->"
         )
 
         buffer = MagicMock()
@@ -898,7 +899,7 @@ class TestMarkerReplacement:
             await preprocess_llm_request(event, req, component_manager)
 
         assert "<!-- iris:start:l1_context -->" not in req.system_prompt
-        assert "旧L1消息" not in req.system_prompt
+        assert "旧L1内容" not in req.system_prompt
         assert "系统提示" in req.system_prompt
 
     @pytest.mark.asyncio
@@ -955,7 +956,9 @@ class TestMarkerReplacement:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert req.contexts == [{"role": "user", "content": "当前消息"}]
+        assert len(req.contexts) == 1
+        assert req.contexts[0]["content"] == "当前消息"
+        assert "<!-- iris:start:l1_context -->" in req.system_prompt
 
     @pytest.mark.asyncio
     async def test_all_sections_in_system_prompt(self):

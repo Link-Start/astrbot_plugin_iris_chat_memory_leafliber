@@ -15,6 +15,7 @@ from iris_memory.l3_kg import (
 )
 from iris_memory.config import init_config
 from iris_memory.tasks.forgetting_task import ForgettingTask
+from iris_memory.utils.forgetting import should_evict_kg_node
 
 
 class TestAdapterEviction:
@@ -154,28 +155,26 @@ class TestForgettingTaskL3:
 
     @pytest.mark.asyncio
     async def test_should_evict_node_low_score(self, forgetting_task):
-        node = MagicMock()
-        node.content = "低质量内容"
-        node.confidence = 0.1
-        node.access_count = 0
-        node.last_access_time = datetime.now() - timedelta(days=60)
-        node.properties = {}
-
-        result = forgetting_task._should_evict_node(
-            node, threshold=0.3, retention_days=30, connected_count=0
+        result = should_evict_kg_node(
+            last_access_time=(datetime.now() - timedelta(days=60)).isoformat(),
+            access_count=0,
+            confidence=0.1,
+            connected_count=0,
+            source_memory_count=0,
+            threshold=0.3,
+            retention_days=30,
         )
         assert result is True
 
     @pytest.mark.asyncio
     async def test_should_evict_node_high_score(self, forgetting_task):
-        node = MagicMock()
-        node.content = "重要内容"
-        node.confidence = 0.95
-        node.access_count = 50
-        node.last_access_time = datetime.now()
-        node.properties = {}
-
-        result = forgetting_task._should_evict_node(
-            node, threshold=0.3, retention_days=30, connected_count=5
+        result = should_evict_kg_node(
+            last_access_time=datetime.now().isoformat(),
+            access_count=50,
+            confidence=0.95,
+            connected_count=5,
+            source_memory_count=3,
+            threshold=0.3,
+            retention_days=30,
         )
         assert result is False

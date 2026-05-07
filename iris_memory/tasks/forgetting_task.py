@@ -17,7 +17,12 @@ from datetime import datetime
 
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
-from iris_memory.utils.forgetting import calculate_forgetting_score, should_evict
+from iris_memory.utils.forgetting import (
+    calculate_forgetting_score,
+    should_evict,
+    calculate_kg_forgetting_score,
+    should_evict_kg_node,
+)
 
 if TYPE_CHECKING:
     from iris_memory.core import ComponentManager
@@ -97,7 +102,6 @@ class ForgettingTask:
 
             # 计算遗忘评分并筛选待淘汰记忆
             to_evict_with_score = []
-            config = get_config()
 
             for entry in entries:
                 # 检查是否应该淘汰
@@ -166,21 +170,15 @@ class ForgettingTask:
     async def _evict_l3_nodes(self) -> None:
         """L3 知识图谱节点淘汰
 
-        获取所有节点，计算遗忘评分，淘汰低分节点及关联边。
-        启用 LLM 兜底确认时，对评分极低的节点进行二次确认。
+        使用 L3 专用遗忘评分公式，结构重要性（连接度）和验证度（来源记忆数）
+        权重远高于 L2。枢纽节点和被多次验证的节点永不淘汰。
         """
-        from iris_memory.l3_kg.models import GraphNode
-
-        # 获取 L3 适配器
         l3_adapter = self._component_manager.get_component("l3_kg")
         if not l3_adapter or not l3_adapter.is_available:
             logger.debug("L3 知识图谱不可用，跳过淘汰")
             return
 
-        l3_adapter = l3_adapter  # type: L3KGAdapter
-
         try:
-            # 获取所有节点
             nodes = await l3_adapter.get_all_nodes()
 
             if not nodes:
@@ -191,45 +189,60 @@ class ForgettingTask:
 
             connection_counts = await l3_adapter.get_node_connection_counts()
 
-            to_evict_with_score = []
             config = get_config()
-
             threshold_kg = float(config.get("forgetting_threshold_kg", 0.3))
             retention_days = int(config.get("kg_retention_days", 30))
 
+            to_evict_with_score = []
+
             for node_dict in nodes:
-                node = GraphNode(
-                    id=node_dict["id"],
-                    label=node_dict["label"],
-                    name=node_dict["name"],
-                    content=node_dict["content"],
-                    confidence=node_dict["confidence"],
-                    access_count=node_dict["access_count"],
-                    last_access_time=node_dict["last_access_time"],
-                    created_time=node_dict["created_time"],
-                    source_memory_id=node_dict["source_memory_id"],
-                    group_id=node_dict["group_id"],
-                    properties=node_dict["properties"],
+                node_id = node_dict["id"]
+                confidence = node_dict.get("confidence", 1.0)
+                last_access_time = node_dict.get("last_access_time")
+                access_count = node_dict.get("access_count", 0)
+                properties = node_dict.get("properties", {})
+                connected_count = connection_counts.get(node_id, 0)
+
+                source_memory_ids_str = properties.get("source_memory_ids", "")
+                source_memory_count = len(
+                    [x for x in source_memory_ids_str.split(",") if x.strip()]
                 )
 
-                connected_count = connection_counts.get(node.id, 0)
+                last_access_str = None
+                if last_access_time:
+                    if isinstance(last_access_time, datetime):
+                        last_access_str = last_access_time.isoformat()
+                    else:
+                        last_access_str = str(last_access_time)
 
-                if self._should_evict_node(
-                    node, threshold_kg, retention_days, connected_count
+                if should_evict_kg_node(
+                    last_access_time=last_access_str,
+                    access_count=access_count,
+                    confidence=confidence,
+                    connected_count=connected_count,
+                    source_memory_count=source_memory_count,
+                    threshold=threshold_kg,
+                    retention_days=retention_days,
                 ):
-                    score = self._calculate_node_score(node, connected_count)
-                    to_evict_with_score.append((node.id, node.content, score))
+                    score = calculate_kg_forgetting_score(
+                        last_access_time=last_access_str,
+                        access_count=access_count,
+                        confidence=confidence,
+                        connected_count=connected_count,
+                        source_memory_count=source_memory_count,
+                    )
+                    to_evict_with_score.append(
+                        (node_id, node_dict.get("content", ""), score)
+                    )
 
             if not to_evict_with_score:
                 logger.debug("L3 无需淘汰的节点")
                 return
 
-            # LLM 兜底确认
             confirmed_ids = await self._llm_confirm_eviction(
                 to_evict_with_score, source="l3"
             )
 
-            # 批量删除确认淘汰的节点
             evicted_count = 0
             batch = []
             for node_id in confirmed_ids:
@@ -247,77 +260,6 @@ class ForgettingTask:
 
         except Exception as e:
             logger.error(f"L3 图谱淘汰失败：{e}", exc_info=True)
-
-    def _calculate_node_score(self, node, connected_count: int = 0) -> float:
-        """计算图谱节点的遗忘评分
-
-        Args:
-            node: GraphNode 对象
-            connected_count: 节点连接边数
-
-        Returns:
-            遗忘评分
-        """
-        from iris_memory.l2_memory.models import MemoryEntry
-
-        temp_entry = MemoryEntry(
-            id=node.id,
-            content=node.content,
-            metadata={
-                "last_access_time": node.last_access_time.isoformat()
-                if node.last_access_time
-                else None,
-                "access_count": node.access_count,
-                "confidence": node.confidence,
-                "low_confidence": node.properties.get("low_confidence", False),
-                "connected_count": connected_count,
-            },
-        )
-
-        return calculate_forgetting_score(temp_entry)
-
-    def _should_evict_node(
-        self, node, threshold: float, retention_days: int, connected_count: int = 0
-    ) -> bool:
-        """判断节点是否应该被淘汰
-
-        Args:
-            node: 图谱节点
-            threshold: 遗忘阈值
-            retention_days: 保留天数
-            connected_count: 节点连接边数
-
-        Returns:
-            是否应该淘汰
-        """
-        from iris_memory.l2_memory.models import MemoryEntry
-
-        temp_entry = MemoryEntry(
-            id=node.id,
-            content=node.content,
-            metadata={
-                "last_access_time": node.last_access_time.isoformat()
-                if node.last_access_time
-                else None,
-                "access_count": node.access_count,
-                "confidence": node.confidence,
-                "low_confidence": node.properties.get("low_confidence", False),
-                "connected_count": connected_count,
-            },
-        )
-
-        score = calculate_forgetting_score(temp_entry)
-
-        if score < threshold:
-            last_access = node.last_access_time
-            if last_access:
-                days_elapsed = (datetime.now() - last_access).days
-                if days_elapsed > retention_days:
-                    return True
-            else:
-                return True
-
-        return False
 
     # =========================================================================
     # LLM 最终兜底确认
@@ -423,15 +365,13 @@ class ForgettingTask:
     async def _mark_low_confidence_l3(self) -> None:
         """自动检测并标记 L3 知识图谱中的低置信度数据
 
-        将置信度低于阈值的节点标记为 low_confidence=True，
+        将置信度低于阈值的节点标记为 properties.low_confidence=True，
         但不删除，仅作为后续遗忘评估的参考。
         """
 
         l3_adapter = self._component_manager.get_component("l3_kg")
         if not l3_adapter or not l3_adapter.is_available:
             return
-
-        l3_adapter = l3_adapter  # type: L3KGAdapter
 
         try:
             nodes = await l3_adapter.get_all_nodes()
@@ -450,9 +390,10 @@ class ForgettingTask:
                     if not properties.get("low_confidence"):
                         try:
                             node_id = node_dict["id"]
+                            properties["low_confidence"] = True
                             l3_adapter._conn.execute(
-                                "MATCH (e:Entity {id: $id}) SET e.low_confidence = true",
-                                {"id": node_id},
+                                "MATCH (e:Entity {id: $id}) SET e.properties = $props",
+                                {"id": node_id, "props": properties},
                             )
                             marked_count += 1
                         except Exception as e:

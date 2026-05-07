@@ -185,6 +185,7 @@ class L3KGAdapter(Component):
                         e.confidence = $confidence,
                         e.access_count = $access_count,
                         e.last_access_time = $last_access_time,
+                        e.group_id = $group_id,
                         e.properties = {map_literal}
                 """
                 self._conn.execute(
@@ -195,6 +196,7 @@ class L3KGAdapter(Component):
                         "confidence": merged_confidence,
                         "access_count": existing_access_count,
                         "last_access_time": datetime.now(),
+                        "group_id": node.group_id or existing.get("group_id", ""),
                     },
                 )
                 logger.debug(f"节点合并成功：{node.id}")
@@ -1404,6 +1406,10 @@ class L3KGAdapter(Component):
                 if group_ids:
                     merged_properties["group_ids"] = ",".join(group_ids)
 
+                merged_group_id = keep_node.get("group_id", "")
+                if not merged_group_id and group_ids:
+                    merged_group_id = group_ids[0]
+
                 map_literal = _build_map_literal(merged_properties)
 
                 update_query = f"""
@@ -1411,6 +1417,7 @@ class L3KGAdapter(Component):
                     SET e.content = $content,
                         e.confidence = $confidence,
                         e.access_count = $access_count,
+                        e.group_id = $group_id,
                         e.properties = {map_literal}
                 """
                 self._conn.execute(
@@ -1420,6 +1427,7 @@ class L3KGAdapter(Component):
                         "content": merged_content,
                         "confidence": merged_confidence,
                         "access_count": merged_access_count,
+                        "group_id": merged_group_id,
                     },
                 )
 

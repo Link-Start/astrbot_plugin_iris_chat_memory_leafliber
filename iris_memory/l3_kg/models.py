@@ -5,19 +5,68 @@ from datetime import datetime
 from typing import Optional
 import hashlib
 
-# 节点类型白名单
-NODE_TYPE_WHITELIST = {"Person", "Event", "Concept", "Location", "Item", "Topic"}
+NODE_TYPE_WHITELIST = {
+    "Person",
+    "Preference",
+    "Skill",
+    "Trait",
+    "Goal",
+    "Belief",
+    "Event",
+    "Concept",
+    "Location",
+    "Item",
+    "Topic",
+    "Group",
+}
 
-# 关系类型白名单
+NODE_TYPE_DESCRIPTIONS = {
+    "Person": "人物——具有稳定身份的个体",
+    "Preference": "偏好——某人持续倾向的选择或喜好",
+    "Skill": "技能——某人掌握或正在学习的能力",
+    "Trait": "性格特征——某人稳定的性格、行为模式",
+    "Goal": "目标——某人正在追求的计划或意图",
+    "Belief": "信念——某人持有的观点、价值观或立场",
+    "Event": "事件——具有时间跨度的重大事件（非日常对话）",
+    "Concept": "概念——抽象知识或理论",
+    "Location": "地点——地理位置或场所",
+    "Item": "物品——具体物件或工具",
+    "Topic": "话题——反复出现的讨论主题",
+    "Group": "群体——具有共同特征的群体或组织",
+}
+
 RELATION_TYPE_WHITELIST = {
     "KNOWS",
-    "MENTIONED",
-    "RELATED_TO",
-    "PART_OF",
+    "HAS_PREFERENCE",
+    "HAS_SKILL",
+    "HAS_TRAIT",
+    "HAS_GOAL",
+    "HAS_BELIEF",
+    "PARTICIPATED_IN",
     "LOCATED_AT",
     "HAPPENED_AT",
-    "DISCUSSED",
-    "PARTICIPATED",  # 新增：用户与实体/事件的关系
+    "PART_OF",
+    "LEADS_TO",
+    "CONTRADICTS",
+    "SUPPORTS",
+    "RELATED_TO",
+}
+
+RELATION_TYPE_DESCRIPTIONS = {
+    "KNOWS": "认识——人与人之间的相识关系",
+    "HAS_PREFERENCE": "偏好——某人对某事物有持续倾向",
+    "HAS_SKILL": "掌握——某人拥有某项技能",
+    "HAS_TRAIT": "具有——某人具有某种性格特征",
+    "HAS_GOAL": "追求——某人正在追求某个目标",
+    "HAS_BELIEF": "相信——某人持有某种信念或观点",
+    "PARTICIPATED_IN": "参与——某人参与了某事件或活动",
+    "LOCATED_AT": "位于——某事物位于某地点",
+    "HAPPENED_AT": "发生在——某事件发生在某地点或时间",
+    "PART_OF": "属于——某事物是更大整体的一部分",
+    "LEADS_TO": "导致——某事物导致另一事物",
+    "CONTRADICTS": "矛盾——某事物与另一事物相矛盾",
+    "SUPPORTS": "支持——某事物支持或印证另一事物",
+    "RELATED_TO": "相关——无法归类的弱关联（最后手段）",
 }
 
 
