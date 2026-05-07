@@ -287,7 +287,7 @@ class ProfileStorage(Component):
             if not group_ids:
                 return []
 
-            tasks = [self.get_group_profile(group_id) for group_id in group_ids]
+            tasks = [self.get_group_profile(group_id, persona_id) for group_id in group_ids]
             profiles = await asyncio.gather(*tasks, return_exceptions=True)
 
             groups = []
@@ -326,7 +326,7 @@ class ProfileStorage(Component):
             if not user_ids:
                 return []
 
-            tasks = [self.get_user_profile(user_id, group_id) for user_id in user_ids]
+            tasks = [self.get_user_profile(user_id, group_id, persona_id) for user_id in user_ids]
             profiles = await asyncio.gather(*tasks, return_exceptions=True)
 
             users = []

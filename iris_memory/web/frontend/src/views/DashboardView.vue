@@ -67,12 +67,18 @@
             <v-card-subtitle class="text-caption">短期记忆 · 消息缓冲</v-card-subtitle>
           </v-card-item>
           <v-card-text v-if="isL1Available" class="memory-content">
-            <div class="d-flex align-baseline ga-2">
+            <div class="d-flex align-baseline ga-2 mb-2">
               <span class="text-h4 font-weight-bold">{{ l1QueueLength }}</span>
-              <span class="text-caption text-medium-emphasis">
-                / {{ l1MaxCapacity ?? '∞' }} 条消息
-              </span>
+              <span class="text-caption text-medium-emphasis">条消息</span>
             </div>
+            <v-progress-linear
+              v-if="l1MaxCapacity"
+              :model-value="Math.min((l1QueueLength / l1MaxCapacity) * 100, 100)"
+              :color="l1UsageColor"
+              height="8"
+              rounded
+            />
+            <div v-else class="text-caption text-medium-emphasis">无容量限制</div>
             <div class="text-caption text-medium-emphasis mt-1">分群设计 · 队列总长</div>
           </v-card-text>
           <v-card-text v-else class="text-center py-3 memory-content">
@@ -374,6 +380,14 @@ const getComponentDisabledReason = (componentName: string): string => {
 const l1QueueLength = computed(() => statsStore.memoryStats?.l1?.total_messages ?? 0)
 const l1MaxCapacity = computed(() => statsStore.memoryStats?.l1?.max_capacity)
 
+const l1UsageColor = computed(() => {
+  if (!l1MaxCapacity.value) return 'primary'
+  const usage = l1QueueLength.value / l1MaxCapacity.value
+  if (usage >= 0.9) return 'error'
+  if (usage >= 0.7) return 'warning'
+  return 'primary'
+})
+
 const l2TotalCount = computed(() => statsStore.memoryStats?.l2?.total_count ?? 0)
 const l2GroupCount = computed(() => statsStore.memoryStats?.l2?.group_count ?? 0)
 
@@ -384,7 +398,7 @@ const NODE_TYPE_WHITELIST = new Set(['Person', 'Event', 'Concept', 'Location', '
 const RELATION_TYPE_WHITELIST = new Set([
   'KNOWS', 'MENTIONED', 'RELATED_TO',
   'PART_OF', 'LOCATED_AT', 'HAPPENED_AT',
-  'DISCUSSED', 'PARTICIPATED'
+  'DISCUSSED', 'DISCUSSED_BY', 'PARTICIPATED'
 ])
 
 interface TypeDistributionItem {
