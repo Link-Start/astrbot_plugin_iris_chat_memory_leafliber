@@ -280,8 +280,6 @@ async def _collect_l1_context(
         logger.debug(f"群聊 {group_id} 排除当前消息后 L1 上下文为空，跳过注入")
         return ""
 
-    image_map = await _build_image_map(l1_buffer, group_id, component_manager)
-
     max_content_chars = cast(int, config.get("l1_buffer.inject_max_content_chars", 200))
 
     lines = []
@@ -343,10 +341,7 @@ async def _collect_l1_context(
 
             sender = user_name or "对方"
 
-            msg_id = msg.metadata.get("message_id") if msg.metadata else None
-            image_desc = _get_inline_image_desc(msg, msg_id, image_map)
-
-            lines.append(f"{sender}:{reply_tag} {content}{image_desc}")
+            lines.append(f"{sender}:{reply_tag} {content}")
         elif role == "assistant":
             lines.append(f"Bot: {content}")
 
@@ -874,17 +869,17 @@ async def _parse_images_if_related_mode(
     req: "ProviderRequest",
     component_manager: "ComponentManager",
 ) -> None:
-    """解析图片并注入 LLM 上下文（related 模式）
+    """解析图片并替换 L1 消息中的占位符（related 模式）
 
     仅在 related 模式下解析 L1 Buffer 范围内的图片。
     all 模式已在消息钩子中处理。
 
     流程：
     1. 获取 L1Buffer 图片队列中的待解析图片
-    2. 检查缓存，过滤已解析的图片
+    2. 检查缓存，命中则直接替换占位符
     3. 批量解析（并发控制、数量限制）
     4. 结果存入缓存
-    5. 注入 LLM 上下文
+    5. 替换 L1 消息中的 [IMG:xxx] 占位符为 [图片：描述]
 
     Args:
         event: AstrBot 消息事件对象
@@ -944,27 +939,22 @@ async def _parse_images_if_related_mode(
                 l1_buffer.mark_image_parsed(
                     group_id, img_item.image_hash, ImageParseStatus.SUCCESS
                 )
+                placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+                l1_buffer.replace_image_placeholder(
+                    group_id, placeholder, f"[图片：{cached.content}]"
+                )
                 cached_results.append((img_item, cached))
                 continue
 
         images_to_parse.append(img_item)
 
     if cached_results:
-        logger.debug(f"从缓存读取 {len(cached_results)} 条图片解析结果")
-
-    all_image_results = []
-
-    for img_item, cached in cached_results:
-        all_image_results.append(
-            {"timestamp": img_item.timestamp, "content": cached.content}
-        )
+        logger.debug(f"从缓存读取 {len(cached_results)} 条图片解析结果并替换占位符")
 
     if not images_to_parse:
-        total_cached = len(all_image_results)
+        total_cached = len(cached_results)
         if total_cached > 0:
-            logger.info(
-                f"已从缓存获取 {total_cached} 条图片解析结果，将内联到 L1 上下文中"
-            )
+            logger.info(f"已从缓存获取 {total_cached} 条图片解析结果并替换占位符")
         return
 
     if quota_manager and quota_manager.is_available:
@@ -1030,17 +1020,18 @@ async def _parse_images_if_related_mode(
             group_id, img_item.image_hash, ImageParseStatus.SUCCESS
         )
 
-        all_image_results.append(
-            {"timestamp": img_item.timestamp, "content": result.content}
+        placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+        l1_buffer.replace_image_placeholder(
+            group_id, placeholder, f"[图片：{result.content}]"
         )
 
         success_count += 1
 
-    total_injected = len(all_image_results)
-    if total_injected > 0:
+    total_replaced = success_count + len(cached_results)
+    if total_replaced > 0:
         logger.info(
             f"已解析 {success_count} 张新图片，缓存 {len(cached_results)} 张，"
-            f"共 {total_injected} 条图片解析结果将内联到 L1 上下文中"
+            f"共 {total_replaced} 条图片解析结果已替换占位符"
         )
 
 

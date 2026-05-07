@@ -7,7 +7,7 @@
 - 图片解析（all 模式）
 """
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from iris_memory.core import get_logger
 
@@ -277,6 +277,9 @@ async def _queue_images_to_l1_buffer(
     """提取图片并入队到 L1 Buffer 图片队列（内部函数）
 
     支持 pHash 感知哈希去重和无效图过滤。
+    入队时检查缓存：
+    - 已缓存：直接将图片描述追加到 L1 消息内容，图片标记为 SUCCESS
+    - 未缓存：追加占位符 [IMG:{hash_prefix}] 到 L1 消息内容，图片标记为 PENDING
 
     Args:
         event: AstrBot 消息事件对象
@@ -313,7 +316,8 @@ async def _queue_images_to_l1_buffer(
 
     use_phash = config.get("image_phash_enable")
     phash_threshold = config.get("image_phash_threshold")
-    use_filter = config.get("image_filter_enable")
+
+    cache_manager = component_manager.get_available_component("image_cache")
 
     existing_hashes: list[str] = []
     if use_phash:
@@ -322,6 +326,7 @@ async def _queue_images_to_l1_buffer(
                 if img.image_hash.startswith("ph:"):
                     existing_hashes.append(img.image_hash)
 
+    image_suffixes: list[str] = []
     queued_count = 0
     for image_info in images:
         image_hash = await compute_image_hash(url=image_info.url, use_phash=use_phash)
@@ -340,18 +345,59 @@ async def _queue_images_to_l1_buffer(
                 continue
             existing_hashes.append(image_hash)
 
-        queue_item = ImageQueueItem(
-            image_hash=image_hash,
-            image_url=image_info.url or "",
-            image_info=image_info,
-            message_id=message_id,
-            group_id=group_id,
-            user_id=user_id,
-            status=ImageParseStatus.PENDING,
-        )
+        hash_prefix = image_hash[:12]
+
+        cached_desc = None
+        if cache_manager and cache_manager.is_available:
+            cached = await cache_manager.get_cache(image_hash)
+            if cached and cached.content:
+                cached_desc = cached.content
+
+        if cached_desc:
+            image_suffixes.append(f"[图片：{cached_desc}]")
+            queue_item = ImageQueueItem(
+                image_hash=image_hash,
+                image_url=image_info.url or "",
+                image_info=image_info,
+                message_id=message_id,
+                group_id=group_id,
+                user_id=user_id,
+                status=ImageParseStatus.SUCCESS,
+            )
+        else:
+            placeholder = f"[IMG:{hash_prefix}]"
+            image_suffixes.append(placeholder)
+            queue_item = ImageQueueItem(
+                image_hash=image_hash,
+                image_url=image_info.url or "",
+                image_info=image_info,
+                message_id=message_id,
+                group_id=group_id,
+                user_id=user_id,
+                status=ImageParseStatus.PENDING,
+            )
 
         l1_buffer.add_image(group_id, queue_item)
         queued_count += 1
+
+    if image_suffixes:
+        suffix = " ".join(image_suffixes)
+        appended = l1_buffer.append_to_last_message(group_id, suffix)
+        if not appended:
+            user_name = adapter.get_user_name(event)
+            metadata: dict[str, Any] = {}
+            if user_name:
+                metadata["user_name"] = user_name
+            if message_id:
+                metadata["message_id"] = message_id
+
+            await l1_buffer.add_message(
+                group_id=group_id,
+                role="user",
+                content=suffix,
+                source=user_id,
+                metadata=metadata,
+            )
 
     if queued_count > 0:
         logger.debug(f"已入队 {queued_count} 张图片到 L1 Buffer 图片队列")
@@ -416,6 +462,10 @@ async def _parse_images_if_enabled(
             if cached:
                 l1_buffer.mark_image_parsed(
                     group_id, img_item.image_hash, ImageParseStatus.SUCCESS
+                )
+                placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+                l1_buffer.replace_image_placeholder(
+                    group_id, placeholder, f"[图片：{cached.content}]"
                 )
                 continue
 
@@ -483,6 +533,11 @@ async def _parse_images_if_enabled(
 
         l1_buffer.mark_image_parsed(
             group_id, img_item.image_hash, ImageParseStatus.SUCCESS
+        )
+
+        placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+        l1_buffer.replace_image_placeholder(
+            group_id, placeholder, f"[图片：{result.content}]"
         )
 
         success_count += 1

@@ -1065,6 +1065,86 @@ class L1Buffer(Component):
     # 图片队列管理
     # ========================================================================
 
+    def append_to_last_message(self, group_id: str, suffix: str) -> bool:
+        """追加文本到队列中最后一条消息
+
+        用于在消息入队后追加图片占位符或描述。
+
+        Args:
+            group_id: 群聊ID
+            suffix: 要追加的文本
+
+        Returns:
+            是否成功追加
+        """
+        if not self._is_available:
+            return False
+
+        queue_key = self._get_queue_key(group_id)
+        if queue_key not in self._queues:
+            return False
+
+        queue = self._queues[queue_key]
+        if not queue.messages:
+            return False
+
+        last_msg = queue.messages[-1]
+        old_tokens = last_msg.token_count
+        last_msg.content += suffix
+        last_msg.token_count = count_tokens(last_msg.content)
+
+        token_diff = last_msg.token_count - old_tokens
+        queue.total_tokens += token_diff
+
+        logger.debug(
+            f"已追加文本到最后消息：{queue_key}, 追加长度={len(suffix)}, "
+            f"token差={token_diff}"
+        )
+        return True
+
+    def replace_image_placeholder(
+        self, group_id: str, placeholder: str, description: str
+    ) -> bool:
+        """替换消息中的图片占位符
+
+        在队列中查找包含占位符的消息，将占位符替换为图片描述，
+        并更新 token 计数。
+
+        Args:
+            group_id: 群聊ID
+            placeholder: 占位符文本（如 [IMG:abc12345]）
+            description: 替换文本（如 [图片：一只猫的照片]）
+
+        Returns:
+            是否成功替换
+        """
+        if not self._is_available:
+            return False
+
+        queue_key = self._get_queue_key(group_id)
+        if queue_key not in self._queues:
+            return False
+
+        queue = self._queues[queue_key]
+        replaced = False
+
+        for msg in queue.messages:
+            if placeholder in msg.content:
+                old_tokens = msg.token_count
+                msg.content = msg.content.replace(placeholder, description)
+                msg.token_count = count_tokens(msg.content)
+
+                token_diff = msg.token_count - old_tokens
+                queue.total_tokens += token_diff
+
+                replaced = True
+                logger.debug(
+                    f"已替换图片占位符：{queue_key}, "
+                    f"{placeholder} -> {description[:30]}..."
+                )
+
+        return replaced
+
     def add_image(self, group_id: str, image_item: Any) -> None:
         """添加图片到图片队列
 
