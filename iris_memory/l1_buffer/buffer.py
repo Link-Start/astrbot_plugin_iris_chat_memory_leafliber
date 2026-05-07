@@ -1029,15 +1029,19 @@ class L1Buffer(Component):
         total_tokens = 0
         queue_count = len(self._queues)
 
+        max_queue_length = 0
         for queue in self._queues.values():
             total_messages += len(queue)
             total_tokens += queue.total_tokens
+            if len(queue) > max_queue_length:
+                max_queue_length = len(queue)
 
         return {
             "queue_count": queue_count,
             "total_messages": total_messages,
             "total_tokens": total_tokens,
             "max_capacity": config.get("l1_buffer.max_capacity", 100),
+            "max_queue_length": max_queue_length,
         }
 
     def get_all_queues_stats(self) -> List[Dict[str, Any]]:

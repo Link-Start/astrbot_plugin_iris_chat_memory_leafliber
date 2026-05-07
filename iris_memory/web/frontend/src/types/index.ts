@@ -193,6 +193,7 @@ export interface TokenStatsResponse {
 export interface L1Stats {
   total_messages?: number
   max_capacity?: number
+  max_queue_length?: number
 }
 
 // L2 统计

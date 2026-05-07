@@ -68,18 +68,18 @@
           </v-card-item>
           <v-card-text v-if="isL1Available" class="memory-content">
             <div class="d-flex align-baseline ga-2 mb-2">
-              <span class="text-h4 font-weight-bold">{{ l1QueueLength }}</span>
+              <span class="text-h4 font-weight-bold">{{ l1MaxQueueLength }}</span>
               <span class="text-caption text-medium-emphasis">条消息</span>
             </div>
             <v-progress-linear
               v-if="l1MaxCapacity"
-              :model-value="Math.min((l1QueueLength / l1MaxCapacity) * 100, 100)"
+              :model-value="Math.min((l1MaxQueueLength / l1MaxCapacity) * 100, 100)"
               :color="l1UsageColor"
               height="8"
               rounded
             />
             <div v-else class="text-caption text-medium-emphasis">无容量限制</div>
-            <div class="text-caption text-medium-emphasis mt-1">分群设计 · 队列总长</div>
+            <div class="text-caption text-medium-emphasis mt-1">最长队列 · 共 {{ l1QueueLength }} 条</div>
           </v-card-text>
           <v-card-text v-else class="text-center py-3 memory-content">
             <v-icon icon="mdi-block-helper" color="error" size="large" />
@@ -379,10 +379,11 @@ const getComponentDisabledReason = (componentName: string): string => {
 
 const l1QueueLength = computed(() => statsStore.memoryStats?.l1?.total_messages ?? 0)
 const l1MaxCapacity = computed(() => statsStore.memoryStats?.l1?.max_capacity)
+const l1MaxQueueLength = computed(() => statsStore.memoryStats?.l1?.max_queue_length ?? 0)
 
 const l1UsageColor = computed(() => {
   if (!l1MaxCapacity.value) return 'primary'
-  const usage = l1QueueLength.value / l1MaxCapacity.value
+  const usage = l1MaxQueueLength.value / l1MaxCapacity.value
   if (usage >= 0.9) return 'error'
   if (usage >= 0.7) return 'warning'
   return 'primary'
