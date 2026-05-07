@@ -31,6 +31,7 @@ from iris_memory.core import (
     handle_user_message,
     preprocess_llm_request,
     handle_llm_response,
+    handle_agent_done,
     set_component_manager,
 )
 from iris_memory.tools import (
@@ -177,3 +178,8 @@ class IrisChatMemoryPlugin(Star):
     async def on_llm_response(self, event: AstrMessageEvent, resp) -> None:
         if self.component_manager:
             await handle_llm_response(event, resp, self.component_manager)
+
+    @filter.on_agent_done()
+    async def on_agent_done(self, event: AstrMessageEvent, run_context, resp) -> None:
+        if self.component_manager:
+            await handle_agent_done(event, resp, self.context, self.component_manager)

@@ -309,6 +309,20 @@
     }
   },
 
+  "context_control": {
+    "type": "object",
+    "description": "上下文控制",
+    "hint": "控制 AstrBot 内置对话历史的管理策略",
+    "items": {
+      "enable_conversation_cleanup": {
+        "type": "bool",
+        "default": true,
+        "description": "启用对话历史自动清理",
+        "hint": "每次 Agent 运行完成后自动删除 AstrBot 内置对话历史，确保上下文完全由本插件的记忆系统控制。关闭后 AstrBot 将保留内置对话历史"
+      }
+    }
+  },
+
   "web": {
     "type": "object",
     "description": "Web 服务器",

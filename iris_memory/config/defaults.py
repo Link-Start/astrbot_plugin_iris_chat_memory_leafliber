@@ -102,6 +102,13 @@ class ScheduledTasksConfig:
 
 
 @dataclass
+class ContextControlConfig:
+    """上下文控制配置"""
+
+    enable_conversation_cleanup: bool = True
+
+
+@dataclass
 class WebConfig:
     """Web 服务器配置"""
 
@@ -235,6 +242,7 @@ class Defaults:
     enhancement: EnhancementConfig = field(default_factory=EnhancementConfig)
     isolation_config: IsolationConfig = field(default_factory=IsolationConfig)
     scheduled_tasks: ScheduledTasksConfig = field(default_factory=ScheduledTasksConfig)
+    context_control: ContextControlConfig = field(default_factory=ContextControlConfig)
     web: WebConfig = field(default_factory=WebConfig)
     hidden: HiddenConfig = field(default_factory=HiddenConfig)
 
