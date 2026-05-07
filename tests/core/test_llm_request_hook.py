@@ -8,9 +8,7 @@ from datetime import datetime
 from iris_memory.l1_buffer.models import ContextMessage
 from iris_memory.core.llm_request_hook import (
     preprocess_llm_request,
-    _extract_original_prompt,
-    _wrap_prompt_section,
-    _inject_all_to_system_prompt,
+    _inject_to_extra_user_content_parts,
     _build_image_map,
     _get_inline_image_desc,
 )
@@ -79,123 +77,86 @@ def _patch_collect_fns(
     return patches
 
 
-class TestHelperFunctions:
-    """测试标记辅助函数"""
-
-    def test_extract_original_prompt_empty(self):
-        assert _extract_original_prompt("") == ""
-        assert _extract_original_prompt(None) == ""
-
-    def test_extract_original_prompt_no_markers(self):
-        assert _extract_original_prompt("你好世界") == "你好世界"
-
-    def test_extract_original_prompt_with_markers(self):
-        prompt = (
-            "原始提示词\n\n"
-            "<!-- iris:start:profile -->\n画像内容\n<!-- iris:end:profile -->\n\n"
-            "<!-- iris:start:l2_memory -->\n记忆内容\n<!-- iris:end:l2_memory -->"
-        )
-        assert _extract_original_prompt(prompt) == "原始提示词"
-
-    def test_extract_original_prompt_only_markers(self):
-        prompt = "<!-- iris:start:profile -->\n画像内容\n<!-- iris:end:profile -->"
-        assert _extract_original_prompt(prompt) == ""
-
-    def test_extract_original_prompt_multiple_sections(self):
-        prompt = (
-            "系统提示\n\n"
-            "<!-- iris:start:profile -->\n画像\n<!-- iris:end:profile -->\n\n"
-            "<!-- iris:start:l3_kg -->\n图谱\n<!-- iris:end:l3_kg -->\n\n"
-            "<!-- iris:start:l2_memory -->\n记忆\n<!-- iris:end:l2_memory -->"
-        )
-        assert _extract_original_prompt(prompt) == "系统提示"
-
-    def test_wrap_prompt_section(self):
-        result = _wrap_prompt_section("profile", "画像内容")
-        assert result == (
-            "<!-- iris:start:profile -->\n画像内容\n<!-- iris:end:profile -->"
-        )
-
-    def test_wrap_prompt_section_l2_memory(self):
-        result = _wrap_prompt_section("l2_memory", "记忆内容")
-        assert "<!-- iris:start:l2_memory -->" in result
-        assert "<!-- iris:end:l2_memory -->" in result
-        assert "记忆内容" in result
+def _get_extra_parts_text(req):
+    parts = getattr(req, "extra_user_content_parts", [])
+    texts = []
+    for part in parts:
+        text = getattr(part, "text", None) or str(part)
+        texts.append(text)
+    return "\n".join(texts)
 
 
-class TestInjectAllToSystemPrompt:
-    """测试所有内容注入到 system_prompt"""
+class TestInjectToExtraUserContentParts:
+    """测试所有内容注入到 extra_user_content_parts"""
 
-    def test_inject_all_to_empty_system_prompt(self):
+    def test_inject_all_sections(self):
         req = MagicMock()
-        req.system_prompt = ""
-        _inject_all_to_system_prompt(req, "对话", "画像", "记忆", "图谱")
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
-        assert "对话" in req.system_prompt
-        assert "<!-- iris:start:profile -->" in req.system_prompt
-        assert "画像" in req.system_prompt
-        assert "<!-- iris:start:l3_kg -->" in req.system_prompt
-        assert "图谱" in req.system_prompt
-        assert "<!-- iris:start:l2_memory -->" in req.system_prompt
-        assert "记忆" in req.system_prompt
+        req.extra_user_content_parts = []
+        _inject_to_extra_user_content_parts(req, "对话", "画像", "记忆", "图谱")
+        assert len(req.extra_user_content_parts) == 1
+        text = req.extra_user_content_parts[0].text
+        assert "<iris:l1_context>" in text
+        assert "对话" in text
+        assert "<iris:profile>" in text
+        assert "画像" in text
+        assert "<iris:l3_kg>" in text
+        assert "图谱" in text
+        assert "<iris:l2_memory>" in text
+        assert "记忆" in text
 
-    def test_inject_all_preserves_original(self):
+    def test_inject_only_l1(self):
         req = MagicMock()
-        req.system_prompt = "你是一个助手"
-        _inject_all_to_system_prompt(req, "对话", "画像", "", "")
-        assert "你是一个助手" in req.system_prompt
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
-        assert "<!-- iris:start:profile -->" in req.system_prompt
+        req.extra_user_content_parts = []
+        _inject_to_extra_user_content_parts(req, "对话内容", "", "", "")
+        assert len(req.extra_user_content_parts) == 1
+        text = req.extra_user_content_parts[0].text
+        assert "<iris:l1_context>" in text
+        assert "对话内容" in text
+        assert "<iris:profile>" not in text
+        assert "<iris:l2_memory>" not in text
+        assert "<iris:l3_kg>" not in text
 
-    def test_inject_all_replaces_existing(self):
+    def test_inject_empty_does_not_append(self):
         req = MagicMock()
-        req.system_prompt = (
-            "你是一个助手\n\n"
-            "<!-- iris:start:l1_context -->\n旧对话\n<!-- iris:end:l1_context -->\n\n"
-            "<!-- iris:start:profile -->\n旧画像\n<!-- iris:end:profile -->"
-        )
-        _inject_all_to_system_prompt(req, "新对话", "新画像", "", "")
-        assert "旧对话" not in req.system_prompt
-        assert "新对话" in req.system_prompt
-        assert "旧画像" not in req.system_prompt
-        assert "新画像" in req.system_prompt
-        assert "你是一个助手" in req.system_prompt
-        assert req.system_prompt.count("<!-- iris:start:l1_context -->") == 1
-        assert req.system_prompt.count("<!-- iris:start:profile -->") == 1
+        req.extra_user_content_parts = []
+        _inject_to_extra_user_content_parts(req, "", "", "", "")
+        assert len(req.extra_user_content_parts) == 0
 
-    def test_inject_all_empty_removes_markers(self):
+    def test_inject_section_order(self):
         req = MagicMock()
-        req.system_prompt = (
-            "你是一个助手\n\n"
-            "<!-- iris:start:l1_context -->\n旧对话\n<!-- iris:end:l1_context -->\n\n"
-            "<!-- iris:start:profile -->\n旧画像\n<!-- iris:end:profile -->"
-        )
-        _inject_all_to_system_prompt(req, "", "", "", "")
-        assert "<!-- iris:start:l1_context -->" not in req.system_prompt
-        assert "旧对话" not in req.system_prompt
-        assert "<!-- iris:start:profile -->" not in req.system_prompt
-        assert "旧画像" not in req.system_prompt
-        assert "你是一个助手" in req.system_prompt
-
-    def test_inject_all_only_l1(self):
-        req = MagicMock()
-        req.system_prompt = "系统提示"
-        _inject_all_to_system_prompt(req, "对话内容", "", "", "")
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
-        assert "对话内容" in req.system_prompt
-        assert "<!-- iris:start:profile -->" not in req.system_prompt
-        assert "<!-- iris:start:l2_memory -->" not in req.system_prompt
-        assert "<!-- iris:start:l3_kg -->" not in req.system_prompt
-
-    def test_inject_all_section_order(self):
-        req = MagicMock()
-        req.system_prompt = "系统提示"
-        _inject_all_to_system_prompt(req, "对话", "画像", "记忆", "图谱")
-        l1_idx = req.system_prompt.index("l1_context")
-        profile_idx = req.system_prompt.index("profile")
-        l2_idx = req.system_prompt.index("l2_memory")
-        l3_idx = req.system_prompt.index("l3_kg")
+        req.extra_user_content_parts = []
+        _inject_to_extra_user_content_parts(req, "对话", "画像", "记忆", "图谱")
+        text = req.extra_user_content_parts[0].text
+        l1_idx = text.index("l1_context")
+        profile_idx = text.index("profile")
+        l2_idx = text.index("l2_memory")
+        l3_idx = text.index("l3_kg")
         assert l1_idx < profile_idx < l2_idx < l3_idx
+
+    def test_inject_does_not_modify_system_prompt(self):
+        req = MagicMock()
+        req.extra_user_content_parts = []
+        req.system_prompt = "你是一个助手"
+        _inject_to_extra_user_content_parts(req, "对话", "画像", "", "")
+        assert req.system_prompt == "你是一个助手"
+
+    def test_inject_calls_mark_as_temp_when_available(self):
+        req = MagicMock()
+        req.extra_user_content_parts = []
+
+        from astrbot.core.agent.message import TextPart
+
+        with patch.object(TextPart, "mark_as_temp", create=True) as mock_mark:
+            _inject_to_extra_user_content_parts(req, "对话", "画像", "", "")
+            if hasattr(TextPart, "mark_as_temp"):
+                mock_mark.assert_called_once()
+
+    def test_inject_graceful_without_mark_as_temp(self):
+        req = MagicMock()
+        req.extra_user_content_parts = []
+        _inject_to_extra_user_content_parts(req, "对话", "", "", "")
+        assert len(req.extra_user_content_parts) == 1
+        assert req.extra_user_content_parts[0].text == "<iris:l1_context>\n对话\n</iris:l1_context>"
 
 
 class TestBuildImageMap:
@@ -342,6 +303,7 @@ class TestPreprocessLLMRequest:
         req.contexts = []
         req.prompt = "你好"
         req.system_prompt = ""
+        req.extra_user_content_parts = []
 
         buffer = MagicMock()
         buffer.is_available = True
@@ -363,9 +325,10 @@ class TestPreprocessLLMRequest:
             await preprocess_llm_request(event, req, component_manager)
 
         assert req.prompt == "你好"
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
-        assert "你好" in req.system_prompt
-        assert "你好！" in req.system_prompt
+        text = _get_extra_parts_text(req)
+        assert "<iris:l1_context>" in text
+        assert "你好" in text
+        assert "你好！" in text
 
     @pytest.mark.asyncio
     async def test_preprocess_with_unavailable_buffer(self):
@@ -374,6 +337,7 @@ class TestPreprocessLLMRequest:
         req.contexts = []
         req.prompt = "你好"
         req.system_prompt = ""
+        req.extra_user_content_parts = []
 
         buffer = MagicMock()
         buffer.is_available = False
@@ -388,7 +352,8 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "<!-- iris:start:l1_context -->" not in req.system_prompt
+        text = _get_extra_parts_text(req)
+        assert "<iris:l1_context>" not in text
         assert req.prompt == "你好"
 
     @pytest.mark.asyncio
@@ -398,6 +363,7 @@ class TestPreprocessLLMRequest:
         req.contexts = []
         req.prompt = "你好"
         req.system_prompt = ""
+        req.extra_user_content_parts = []
 
         buffer = MagicMock()
         buffer.is_available = True
@@ -413,15 +379,17 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "<!-- iris:start:l1_context -->" not in req.system_prompt
+        text = _get_extra_parts_text(req)
+        assert "<iris:l1_context>" not in text
 
     @pytest.mark.asyncio
-    async def test_preprocess_preserves_existing_system_prompt(self):
+    async def test_preprocess_preserves_system_prompt(self):
         event = MagicMock()
         req = MagicMock()
         req.contexts = []
         req.prompt = "你好"
         req.system_prompt = "你是一个助手"
+        req.extra_user_content_parts = []
 
         buffer = MagicMock()
         buffer.is_available = True
@@ -439,9 +407,10 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "你是一个助手" in req.system_prompt
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
-        assert "问题" in req.system_prompt
+        assert req.system_prompt == "你是一个助手"
+        text = _get_extra_parts_text(req)
+        assert "<iris:l1_context>" in text
+        assert "问题" in text
         assert req.prompt == "你好"
 
     @pytest.mark.asyncio
@@ -451,6 +420,7 @@ class TestPreprocessLLMRequest:
         req.contexts = []
         req.prompt = "你好"
         req.system_prompt = ""
+        req.extra_user_content_parts = []
 
         buffer = MagicMock()
         buffer.is_available = True
@@ -471,10 +441,11 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
-        assert "张三:" in req.system_prompt
-        assert "你好" in req.system_prompt
-        assert "Bot: 你好！" in req.system_prompt
+        text = _get_extra_parts_text(req)
+        assert "<iris:l1_context>" in text
+        assert "张三:" in text
+        assert "你好" in text
+        assert "Bot: 你好！" in text
 
     @pytest.mark.asyncio
     async def test_preprocess_without_user_name(self):
@@ -483,6 +454,7 @@ class TestPreprocessLLMRequest:
         req.contexts = []
         req.prompt = "你好"
         req.system_prompt = ""
+        req.extra_user_content_parts = []
 
         buffer = MagicMock()
         buffer.is_available = True
@@ -500,8 +472,9 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
-        assert "你好" in req.system_prompt
+        text = _get_extra_parts_text(req)
+        assert "<iris:l1_context>" in text
+        assert "你好" in text
 
     @pytest.mark.asyncio
     async def test_preprocess_assistant_message_format(self):
@@ -510,6 +483,7 @@ class TestPreprocessLLMRequest:
         req.contexts = []
         req.prompt = "你好"
         req.system_prompt = ""
+        req.extra_user_content_parts = []
 
         buffer = MagicMock()
         buffer.is_available = True
@@ -534,8 +508,9 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
-        assert "Bot: 你好！" in req.system_prompt
+        text = _get_extra_parts_text(req)
+        assert "<iris:l1_context>" in text
+        assert "Bot: 你好！" in text
 
     @pytest.mark.asyncio
     async def test_preprocess_with_reply_info(self):
@@ -544,6 +519,7 @@ class TestPreprocessLLMRequest:
         req.contexts = []
         req.prompt = "你好"
         req.system_prompt = ""
+        req.extra_user_content_parts = []
 
         buffer = MagicMock()
         buffer.is_available = True
@@ -574,9 +550,10 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
-        assert "李四: ↩️回复张三「你好啊」" in req.system_prompt
-        assert "我也觉得" in req.system_prompt
+        text = _get_extra_parts_text(req)
+        assert "<iris:l1_context>" in text
+        assert "李四: ↩️回复张三「你好啊」" in text
+        assert "我也觉得" in text
 
     @pytest.mark.asyncio
     async def test_preprocess_with_reply_no_user_name(self):
@@ -585,6 +562,7 @@ class TestPreprocessLLMRequest:
         req.contexts = []
         req.prompt = "你好"
         req.system_prompt = ""
+        req.extra_user_content_parts = []
 
         buffer = MagicMock()
         buffer.is_available = True
@@ -614,8 +592,9 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
-        assert "↩️回复某人「你好啊」" in req.system_prompt
+        text = _get_extra_parts_text(req)
+        assert "<iris:l1_context>" in text
+        assert "↩️回复某人「你好啊」" in text
 
     @pytest.mark.asyncio
     async def test_preprocess_with_reply_no_content(self):
@@ -625,6 +604,7 @@ class TestPreprocessLLMRequest:
         req.contexts = []
         req.prompt = "你好"
         req.system_prompt = ""
+        req.extra_user_content_parts = []
 
         buffer = MagicMock()
         buffer.is_available = True
@@ -660,9 +640,10 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
-        assert "李四: ↩️回复张三「你好啊」" in req.system_prompt
-        assert "是的" in req.system_prompt
+        text = _get_extra_parts_text(req)
+        assert "<iris:l1_context>" in text
+        assert "李四: ↩️回复张三「你好啊」" in text
+        assert "是的" in text
 
     @pytest.mark.asyncio
     async def test_preprocess_with_reply_no_content_no_match(self):
@@ -672,6 +653,7 @@ class TestPreprocessLLMRequest:
         req.contexts = []
         req.prompt = "你好"
         req.system_prompt = ""
+        req.extra_user_content_parts = []
 
         buffer = MagicMock()
         buffer.is_available = True
@@ -700,207 +682,13 @@ class TestPreprocessLLMRequest:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
-        assert "李四: ↩️回复了某条消息" in req.system_prompt
+        text = _get_extra_parts_text(req)
+        assert "<iris:l1_context>" in text
+        assert "李四: ↩️回复了某条消息" in text
 
 
-class TestMarkerReplacement:
-    """测试标记替换逻辑——防止重复注入"""
-
-    @pytest.mark.asyncio
-    async def test_system_prompt_marker_replacement_on_second_call(self):
-        event = MagicMock()
-        req = MagicMock()
-        req.contexts = []
-        req.prompt = "你好"
-        req.system_prompt = "原始提示词"
-
-        buffer = MagicMock()
-        buffer.is_available = True
-        buffer.get_context.return_value = []
-
-        profile_storage = MagicMock()
-        profile_storage.is_available = False
-
-        def get_component(name):
-            if name == "l1_buffer":
-                return buffer
-            if name == "profile":
-                return profile_storage
-            return None
-
-        component_manager = MagicMock()
-        component_manager.get_component = get_component
-
-        adapter = MagicMock()
-        adapter.get_group_id.return_value = "group123"
-
-        with ExitStack() as stack:
-            for p in _patch_collect_fns(
-                profile_text="旧画像",
-                l2_text="旧记忆",
-                l3_text="旧图谱",
-                adapter=adapter,
-            ):
-                stack.enter_context(p)
-            await preprocess_llm_request(event, req, component_manager)
-
-        first_prompt = req.system_prompt
-        assert "<!-- iris:start:profile -->" in first_prompt
-        assert "旧画像" in first_prompt
-        assert "<!-- iris:start:l2_memory -->" in first_prompt
-        assert "旧记忆" in first_prompt
-        assert "<!-- iris:start:l3_kg -->" in first_prompt
-        assert "旧图谱" in first_prompt
-
-        with ExitStack() as stack:
-            for p in _patch_collect_fns(
-                profile_text="新画像",
-                l2_text="新记忆",
-                l3_text="新图谱",
-                adapter=adapter,
-            ):
-                stack.enter_context(p)
-            await preprocess_llm_request(event, req, component_manager)
-
-        second_prompt = req.system_prompt
-        assert "旧画像" not in second_prompt
-        assert "新画像" in second_prompt
-        assert "旧记忆" not in second_prompt
-        assert "新记忆" in second_prompt
-        assert "旧图谱" not in second_prompt
-        assert "新图谱" in second_prompt
-        assert second_prompt.count("<!-- iris:start:profile -->") == 1
-        assert second_prompt.count("<!-- iris:start:l2_memory -->") == 1
-        assert second_prompt.count("<!-- iris:start:l3_kg -->") == 1
-
-    @pytest.mark.asyncio
-    async def test_l1_context_replacement_on_second_call(self):
-        event = MagicMock()
-        req = MagicMock()
-        req.contexts = []
-        req.prompt = "你好"
-        req.system_prompt = ""
-
-        buffer = MagicMock()
-        buffer.is_available = True
-
-        old_messages = [_make_msg("user", "旧消息", token_count=2)]
-        new_messages = [
-            _make_msg("user", "新消息1", token_count=2),
-            _make_msg("assistant", "新消息2", token_count=3),
-        ]
-
-        component_manager = _make_component_manager(buffer)
-
-        adapter = MagicMock()
-        adapter.get_group_id.return_value = "group123"
-
-        with ExitStack() as stack:
-            for p in _patch_collect_fns(adapter=adapter):
-                stack.enter_context(p)
-            buffer.get_context.return_value = old_messages
-            await preprocess_llm_request(event, req, component_manager)
-
-        assert "旧消息" in req.system_prompt
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
-
-        with ExitStack() as stack:
-            for p in _patch_collect_fns(adapter=adapter):
-                stack.enter_context(p)
-            buffer.get_context.return_value = new_messages
-            await preprocess_llm_request(event, req, component_manager)
-
-        assert "旧消息" not in req.system_prompt
-        assert "新消息1" in req.system_prompt
-        assert "Bot: 新消息2" in req.system_prompt
-        assert req.system_prompt.count("<!-- iris:start:l1_context -->") == 1
-
-    @pytest.mark.asyncio
-    async def test_system_prompt_marker_replacement_with_empty_section(self):
-        event = MagicMock()
-        req = MagicMock()
-        req.contexts = []
-        req.prompt = "你好"
-        req.system_prompt = (
-            "原始提示词\n\n"
-            "<!-- iris:start:profile -->\n旧画像\n<!-- iris:end:profile -->\n\n"
-            "<!-- iris:start:l2_memory -->\n旧记忆\n<!-- iris:end:l2_memory -->"
-        )
-
-        buffer = MagicMock()
-        buffer.is_available = True
-        buffer.get_context.return_value = []
-
-        component_manager = _make_component_manager(buffer)
-
-        adapter = MagicMock()
-        adapter.get_group_id.return_value = "group123"
-
-        with ExitStack() as stack:
-            for p in _patch_collect_fns(l2_text="新记忆", adapter=adapter):
-                stack.enter_context(p)
-            await preprocess_llm_request(event, req, component_manager)
-
-        assert "<!-- iris:start:profile -->" not in req.system_prompt
-        assert "旧画像" not in req.system_prompt
-        assert "<!-- iris:start:l2_memory -->" in req.system_prompt
-        assert "新记忆" in req.system_prompt
-        assert "旧记忆" not in req.system_prompt
-
-    @pytest.mark.asyncio
-    async def test_unavailable_buffer_removes_old_l1_section(self):
-        event = MagicMock()
-        req = MagicMock()
-        req.contexts = []
-        req.prompt = "你好"
-        req.system_prompt = (
-            "系统提示\n\n"
-            "<!-- iris:start:l1_context -->\n旧L1内容\n<!-- iris:end:l1_context -->"
-        )
-
-        buffer = MagicMock()
-        buffer.is_available = False
-
-        component_manager = _make_component_manager(buffer)
-
-        with ExitStack() as stack:
-            for p in _patch_collect_fns():
-                stack.enter_context(p)
-            await preprocess_llm_request(event, req, component_manager)
-
-        assert "<!-- iris:start:l1_context -->" not in req.system_prompt
-        assert "旧L1内容" not in req.system_prompt
-        assert "系统提示" in req.system_prompt
-
-    @pytest.mark.asyncio
-    async def test_empty_buffer_removes_old_l1_section(self):
-        event = MagicMock()
-        req = MagicMock()
-        req.contexts = []
-        req.prompt = "你好"
-        req.system_prompt = (
-            "系统提示\n\n"
-            "<!-- iris:start:l1_context -->\n旧L1内容\n<!-- iris:end:l1_context -->"
-        )
-
-        buffer = MagicMock()
-        buffer.is_available = True
-        buffer.get_context.return_value = []
-
-        component_manager = _make_component_manager(buffer)
-
-        adapter = MagicMock()
-        adapter.get_group_id.return_value = "group123"
-
-        with ExitStack() as stack:
-            for p in _patch_collect_fns(adapter=adapter):
-                stack.enter_context(p)
-            await preprocess_llm_request(event, req, component_manager)
-
-        assert "<!-- iris:start:l1_context -->" not in req.system_prompt
-        assert "旧L1内容" not in req.system_prompt
-        assert "系统提示" in req.system_prompt
+class TestExtraUserContentPartsInjection:
+    """测试 extra_user_content_parts 注入逻辑"""
 
     @pytest.mark.asyncio
     async def test_prompt_not_modified(self):
@@ -909,6 +697,7 @@ class TestMarkerReplacement:
         req.contexts = []
         req.prompt = "用户当前消息"
         req.system_prompt = "系统提示"
+        req.extra_user_content_parts = []
 
         buffer = MagicMock()
         buffer.is_available = True
@@ -927,10 +716,11 @@ class TestMarkerReplacement:
             await preprocess_llm_request(event, req, component_manager)
 
         assert req.prompt == "用户当前消息"
-        assert "<!-- iris:start:profile -->" in req.system_prompt
-        assert "<!-- iris:start:l3_kg -->" in req.system_prompt
-        assert "<!-- iris:start:l2_memory -->" in req.system_prompt
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
+        text = _get_extra_parts_text(req)
+        assert "<iris:profile>" in text
+        assert "<iris:l3_kg>" in text
+        assert "<iris:l2_memory>" in text
+        assert "<iris:l1_context>" in text
 
     @pytest.mark.asyncio
     async def test_contexts_not_modified(self):
@@ -939,6 +729,7 @@ class TestMarkerReplacement:
         req.contexts = [{"role": "user", "content": "当前消息"}]
         req.prompt = "你好"
         req.system_prompt = "系统提示"
+        req.extra_user_content_parts = []
 
         buffer = MagicMock()
         buffer.is_available = True
@@ -958,15 +749,17 @@ class TestMarkerReplacement:
 
         assert len(req.contexts) == 1
         assert req.contexts[0]["content"] == "当前消息"
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
+        text = _get_extra_parts_text(req)
+        assert "<iris:l1_context>" in text
 
     @pytest.mark.asyncio
-    async def test_all_sections_in_system_prompt(self):
+    async def test_system_prompt_not_modified(self):
         event = MagicMock()
         req = MagicMock()
         req.contexts = []
         req.prompt = "你好"
         req.system_prompt = "系统提示"
+        req.extra_user_content_parts = []
 
         buffer = MagicMock()
         buffer.is_available = True
@@ -984,8 +777,41 @@ class TestMarkerReplacement:
                 stack.enter_context(p)
             await preprocess_llm_request(event, req, component_manager)
 
-        assert "系统提示" in req.system_prompt
-        assert "<!-- iris:start:l1_context -->" in req.system_prompt
-        assert "<!-- iris:start:profile -->" in req.system_prompt
-        assert "<!-- iris:start:l3_kg -->" in req.system_prompt
-        assert "<!-- iris:start:l2_memory -->" in req.system_prompt
+        assert req.system_prompt == "系统提示"
+        text = _get_extra_parts_text(req)
+        assert "<iris:l1_context>" in text
+        assert "<iris:profile>" in text
+        assert "<iris:l3_kg>" in text
+        assert "<iris:l2_memory>" in text
+
+    @pytest.mark.asyncio
+    async def test_all_sections_in_extra_user_content_parts(self):
+        event = MagicMock()
+        req = MagicMock()
+        req.contexts = []
+        req.prompt = "你好"
+        req.system_prompt = "系统提示"
+        req.extra_user_content_parts = []
+
+        buffer = MagicMock()
+        buffer.is_available = True
+        buffer.get_context.return_value = [_make_msg("user", "历史", token_count=1)]
+
+        component_manager = _make_component_manager(buffer)
+
+        adapter = MagicMock()
+        adapter.get_group_id.return_value = "group123"
+
+        with ExitStack() as stack:
+            for p in _patch_collect_fns(
+                profile_text="画像", l2_text="记忆", l3_text="图谱", adapter=adapter
+            ):
+                stack.enter_context(p)
+            await preprocess_llm_request(event, req, component_manager)
+
+        assert len(req.extra_user_content_parts) == 1
+        text = req.extra_user_content_parts[0].text
+        assert "<iris:l1_context>" in text
+        assert "<iris:profile>" in text
+        assert "<iris:l3_kg>" in text
+        assert "<iris:l2_memory>" in text

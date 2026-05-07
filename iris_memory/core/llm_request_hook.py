@@ -9,16 +9,21 @@ LLM 请求钩子处理模块
 - L3 知识图谱注入
 
 注入策略：
-所有内容统一注入到 req.system_prompt，作为附加信息使用标记包裹各 section，
-支持重复调用时替换而非追加。不修改 req.contexts 和 req.prompt。
+所有动态内容（L1/画像/L2/L3）统一通过 req.extra_user_content_parts 注入，
+作为额外的用户消息内容块放在本轮用户输入之后。不修改 req.system_prompt、
+req.contexts 和 req.prompt。
 
 这样做的理由：
-- L1/L2/L3 均为辅助上下文信息，不是真实对话历史，不应模拟为 user/assistant 消息
-- AstrBot 已在 req.contexts 中维护了真实对话历史，插件不应伪造对话记录
-- 统一注入 system_prompt 作为附加信息，语义更清晰，避免与 AstrBot 对话管理冲突
+- L1/L2/L3/画像均为每轮变化的动态上下文，不属于稳定角色设定
+- 注入 system_prompt 会使系统提示词每轮变化，破坏模型服务端的提示词缓存，
+  显著增加请求成本和首 token 延迟
+- extra_user_content_parts 适合承载"本轮相关记忆片段"等动态上下文
+- 不修改 req.contexts 和 req.prompt，避免与 AstrBot 对话管理冲突
+
+所有注入的 TextPart 均调用 mark_as_temp() 标记为临时内容（需 AstrBot >= 4.24.0），
+使其不持久化到会话历史中。若当前 AstrBot 版本不支持 mark_as_temp()，则自动跳过。
 """
 
-import re
 from typing import TYPE_CHECKING, List, Optional, cast
 
 from iris_memory.core import get_logger
@@ -34,27 +39,6 @@ if TYPE_CHECKING:
 
 logger = get_logger("llm_request_hook")
 
-_PROMPT_SECTION_START = "<!-- iris:start:{section} -->"
-_PROMPT_SECTION_END = "<!-- iris:end:{section} -->"
-_PROMPT_SECTION_PATTERN = re.compile(
-    r"\n*<!-- iris:start:\w+ -->.*?<!-- iris:end:\w+ -->\n*",
-    re.DOTALL,
-)
-
-
-def _extract_original_prompt(prompt: str) -> str:
-    if not prompt:
-        return ""
-    cleaned = _PROMPT_SECTION_PATTERN.sub("", prompt)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-    return cleaned
-
-
-def _wrap_prompt_section(section: str, content: str) -> str:
-    start = _PROMPT_SECTION_START.format(section=section)
-    end = _PROMPT_SECTION_END.format(section=section)
-    return f"{start}\n{content}\n{end}"
-
 
 async def preprocess_llm_request(
     event: "AstrMessageEvent",
@@ -66,7 +50,8 @@ async def preprocess_llm_request(
     执行所有 LLM 对话前的预处理逻辑。
 
     注入策略：
-    - req.system_prompt: L1/画像/L2/L3（全部作为附加信息，使用标记包裹替换）
+    - req.extra_user_content_parts: L1/画像/L2/L3（全部作为动态上下文内容块）
+    - req.system_prompt: 不修改
     - req.contexts: 不修改
     - req.prompt: 不修改
 
@@ -91,22 +76,23 @@ async def preprocess_llm_request(
         event, component_manager, l2_results, user_message
     )
 
-    _inject_all_to_system_prompt(req, l1_text, profile_text, l2_text, l3_text)
+    _inject_to_extra_user_content_parts(req, l1_text, profile_text, l2_text, l3_text)
 
     _log_final_context(req)
 
 
-def _inject_all_to_system_prompt(
+def _inject_to_extra_user_content_parts(
     req: "ProviderRequest",
     l1_text: str,
     profile_text: str,
     l2_text: str,
     l3_text: str,
 ) -> None:
-    """将所有内容注入到 req.system_prompt 中
+    """将所有动态内容注入到 req.extra_user_content_parts
 
-    使用标记包裹各 section，支持重复调用时替换而非追加。
-    所有内容（L1/画像/L2/L3）均作为附加信息注入，不模拟对话历史。
+    所有内容（L1/画像/L2/L3）均为每轮变化的动态上下文，通过
+    extra_user_content_parts 注入，避免修改 system_prompt 导致
+    提示词缓存失效。
 
     注入顺序：L1 上下文 → 画像 → L2 记忆 → L3 知识图谱
 
@@ -117,8 +103,6 @@ def _inject_all_to_system_prompt(
         l2_text: 相关记忆文本
         l3_text: 知识图谱文本
     """
-    original = _extract_original_prompt(req.system_prompt or "")
-
     sections = [
         ("l1_context", l1_text),
         ("profile", profile_text),
@@ -126,18 +110,24 @@ def _inject_all_to_system_prompt(
         ("l3_kg", l3_text),
     ]
 
-    prompt_parts = []
-    if original:
-        prompt_parts.append(original)
-
+    parts = []
     for section_name, content in sections:
         if content:
-            prompt_parts.append(_wrap_prompt_section(section_name, content))
+            parts.append(f"<iris:{section_name}>\n{content}\n</iris:{section_name}>")
 
-    if prompt_parts:
-        req.system_prompt = "\n\n".join(prompt_parts)
-    else:
-        req.system_prompt = original
+    if not parts:
+        return
+
+    combined = "\n\n".join(parts)
+
+    from astrbot.core.agent.message import TextPart as _TextPart
+
+    text_part = _TextPart(text=combined)
+
+    if hasattr(text_part, "mark_as_temp"):
+        text_part.mark_as_temp()
+
+    req.extra_user_content_parts.append(text_part)
 
 
 async def _build_image_map(
@@ -243,7 +233,7 @@ async def _collect_l1_context(
 ) -> str:
     """收集 L1 上下文文本
 
-    将 L1 上下文格式化为纯文本返回，作为附加信息注入到 system_prompt。
+    将 L1 上下文格式化为纯文本返回，作为动态上下文注入到 extra_user_content_parts。
     不模拟为 user/assistant 对话格式，因为 L1 是辅助上下文而非真实对话历史。
 
     Args:
@@ -1076,6 +1066,18 @@ def _log_final_context(req: "ProviderRequest") -> None:
         )
     else:
         log_parts.append("\n[System Prompt]\n(无)")
+
+    if req.extra_user_content_parts:
+        log_parts.append(
+            f"\n[Extra User Content Parts] (共 {len(req.extra_user_content_parts)} 个)"
+        )
+        for i, part in enumerate(req.extra_user_content_parts, 1):
+            text = getattr(part, "text", None) or str(part)
+            if len(text) > 500:
+                text = text[:500] + "..."
+            log_parts.append(f"  [{i}] {text}")
+    else:
+        log_parts.append("\n[Extra User Content Parts]\n(无)")
 
     if req.contexts:
         log_parts.append(f"\n[Contexts] (共 {len(req.contexts)} 条)")
