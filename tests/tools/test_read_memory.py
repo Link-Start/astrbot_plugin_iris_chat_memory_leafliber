@@ -60,14 +60,14 @@ async def test_search_memory_success(tool, mock_context, monkeypatch):
 
     result = await tool.call(mock_context, query="用户偏好")
 
-    assert result.result is not None
-    assert "找到" in result.result or "记忆" in result.result
+    assert result is not None
+    assert "找到" in result or "记忆" in result
 
 
 @pytest.mark.asyncio
 async def test_search_memory_empty_query(tool, mock_context):
     result = await tool.call(mock_context, query="")
-    assert "不能为空" in result.result
+    assert "不能为空" in result
 
 
 @pytest.mark.asyncio
@@ -96,4 +96,4 @@ async def test_search_memory_no_results(tool, mock_context, monkeypatch):
     )
 
     result = await tool.call(mock_context, query="不存在的记忆")
-    assert "未找到" in result.result
+    assert "未找到" in result

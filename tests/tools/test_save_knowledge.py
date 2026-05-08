@@ -59,8 +59,8 @@ async def test_save_knowledge_basic(
 
     result = await tool.call(mock_context, nodes=nodes, edges=[])
 
-    assert "成功保存" in result.result
-    assert "1 个节点" in result.result
+    assert "成功保存" in result
+    assert "1 个节点" in result
 
 
 @pytest.mark.asyncio
@@ -99,9 +99,9 @@ async def test_save_knowledge_with_edges(
 
     result = await tool.call(mock_context, nodes=nodes, edges=edges)
 
-    assert "成功保存" in result.result
-    assert "2 个节点" in result.result
-    assert "1 条边" in result.result
+    assert "成功保存" in result
+    assert "2 个节点" in result
+    assert "1 条边" in result
 
 
 @pytest.mark.asyncio
@@ -116,7 +116,7 @@ async def test_save_knowledge_empty_nodes(
 
     result = await tool.call(mock_context, nodes=[], edges=[])
 
-    assert "未提供任何节点" in result.result
+    assert "未提供任何节点" in result
 
 
 @pytest.mark.asyncio
@@ -137,4 +137,4 @@ async def test_save_knowledge_adapter_unavailable(tool, mock_context, monkeypatc
         edges=[],
     )
 
-    assert "知识图谱不可用" in result.result
+    assert "知识图谱不可用" in result

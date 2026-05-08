@@ -72,7 +72,7 @@ async def test_get_user_profile(tool, mock_context, monkeypatch):
 
     result = await tool.call(mock_context, target_type="user", target_id="user_123")
 
-    assert result.result is not None
+    assert result is not None
 
 
 @pytest.mark.asyncio
@@ -87,4 +87,4 @@ async def test_get_user_profile_no_id(tool, mock_context, monkeypatch):
 
     result = await tool.call(mock_context, target_type="user")
 
-    assert "无法获取用户ID" in result.result
+    assert "无法获取用户ID" in result

@@ -2,7 +2,7 @@
 
 from pydantic import Field
 from pydantic.dataclasses import dataclass
-from astrbot.core.agent.tool import FunctionTool, ToolExecResult
+from astrbot.core.agent.tool import FunctionTool
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
 from iris_memory.core import get_logger, get_component_manager
@@ -47,7 +47,7 @@ class GetProfileTool(FunctionTool[AstrAgentContext]):
         self,
         context: ContextWrapper[AstrAgentContext],
         **kwargs,
-    ) -> ToolExecResult:
+    ) -> str:
         try:
             target_type = kwargs.get("target_type", "user").strip().lower()
             target_id = kwargs.get("target_id", "").strip()
@@ -64,9 +64,9 @@ class GetProfileTool(FunctionTool[AstrAgentContext]):
 
         except Exception as e:
             logger.error(f"获取画像失败: {e}", exc_info=True)
-            return ToolExecResult(result=f"获取画像失败: {str(e)}")
+            return f"获取画像失败: {str(e)}"
 
-    async def _get_user_profile(self, adapter, event, user_id: str) -> ToolExecResult:
+    async def _get_user_profile(self, adapter, event, user_id: str) -> str:
         if not user_id:
             user_id = adapter.get_user_id(event)
             group_id = adapter.get_group_id(event)
@@ -74,13 +74,13 @@ class GetProfileTool(FunctionTool[AstrAgentContext]):
             group_id = "default"
 
         if not user_id:
-            return ToolExecResult(result="无法获取用户ID，请手动指定target_id参数。")
+            return "无法获取用户ID，请手动指定target_id参数。"
 
         manager = get_component_manager()
         profile_storage = manager.get_component("profile")
 
         if not profile_storage or not profile_storage.is_available:
-            return ToolExecResult(result="画像系统未启用或不可用。")
+            return "画像系统未启用或不可用。"
 
         config = get_config()
         effective_group_id = (
@@ -94,27 +94,27 @@ class GetProfileTool(FunctionTool[AstrAgentContext]):
 
         result = self._format_user_profile(profile)
         logger.info(f"获取用户画像: {user_id} (群聊: {effective_group_id})")
-        return ToolExecResult(result=result)
+        return result
 
-    async def _get_group_profile(self, adapter, event, group_id: str) -> ToolExecResult:
+    async def _get_group_profile(self, adapter, event, group_id: str) -> str:
         if not group_id:
             group_id = adapter.get_group_id(event)
 
         if not group_id:
-            return ToolExecResult(result="无法获取群聊ID，请手动指定target_id参数。")
+            return "无法获取群聊ID，请手动指定target_id参数。"
 
         manager = get_component_manager()
         profile_storage = manager.get_component("profile")
 
         if not profile_storage or not profile_storage.is_available:
-            return ToolExecResult(result="画像系统未启用或不可用。")
+            return "画像系统未启用或不可用。"
 
         group_manager = GroupProfileManager(profile_storage)
         profile = await group_manager.get_or_create(group_id)
 
         result = self._format_group_profile(profile)
         logger.info(f"获取群聊画像: {group_id}")
-        return ToolExecResult(result=result)
+        return result
 
     def _format_user_profile(self, profile: UserProfile) -> str:
         lines = [

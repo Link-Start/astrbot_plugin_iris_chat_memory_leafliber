@@ -30,7 +30,7 @@ async def test_tool_initialization(tool):
 @pytest.mark.asyncio
 async def test_correct_memory_missing_params(tool, mock_context):
     result = await tool.call(mock_context, memory_id="mem_123")
-    assert "参数不完整" in result.result
+    assert "参数不完整" in result
 
 
 @pytest.mark.asyncio
@@ -58,4 +58,4 @@ async def test_correct_memory_l2_unavailable(tool, mock_context, monkeypatch):
         mock_context, memory_id="mem_123", correction="修正内容", reason="修正原因"
     )
 
-    assert "不可用" in result.result
+    assert "不可用" in result

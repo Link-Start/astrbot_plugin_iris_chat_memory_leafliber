@@ -2,7 +2,7 @@
 
 from pydantic import Field
 from pydantic.dataclasses import dataclass
-from astrbot.core.agent.tool import FunctionTool, ToolExecResult
+from astrbot.core.agent.tool import FunctionTool
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
 from iris_memory.core import get_logger, get_component_manager
@@ -79,7 +79,7 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
 
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
-    ) -> ToolExecResult:
+    ) -> str:
         """执行保存知识操作
 
         Args:
@@ -89,7 +89,7 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
                 - edges: 边列表
 
         Returns:
-            ToolExecResult: 包含操作结果的执行结果
+            str: 包含操作结果的执行结果
         """
         try:
             # 获取参数
@@ -118,10 +118,10 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
             kg_adapter = component_manager.get_component("l3_kg")
 
             if not kg_adapter or not kg_adapter._is_available:
-                return ToolExecResult(result="知识图谱不可用")
+                return "知识图谱不可用"
 
             if not nodes:
-                return ToolExecResult(result="未提供任何节点")
+                return "未提供任何节点"
 
             # 构建 GraphNode 对象
             graph_nodes = []
@@ -165,10 +165,8 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
                     added_edges += 1
 
             logger.info(f"手动保存知识：{added_nodes} 个节点，{added_edges} 条边")
-            return ToolExecResult(
-                result=f"成功保存 {added_nodes} 个节点和 {added_edges} 条边到知识图谱"
-            )
+            return f"成功保存 {added_nodes} 个节点和 {added_edges} 条边到知识图谱"
 
         except Exception as e:
             logger.error(f"保存知识失败：{e}")
-            return ToolExecResult(result=f"保存失败：{str(e)}")
+            return f"保存失败：{str(e)}"

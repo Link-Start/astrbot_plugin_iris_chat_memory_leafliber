@@ -3,7 +3,7 @@
 from typing import List
 from pydantic import Field
 from pydantic.dataclasses import dataclass
-from astrbot.core.agent.tool import FunctionTool, ToolExecResult
+from astrbot.core.agent.tool import FunctionTool
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
 from iris_memory.core import get_logger, get_component_manager
@@ -51,14 +51,14 @@ class SearchMemoryTool(FunctionTool[AstrAgentContext]):
         self,
         context: ContextWrapper[AstrAgentContext],
         **kwargs,
-    ) -> ToolExecResult:
+    ) -> str:
         try:
             query = kwargs.get("query", "").strip()
             top_k = min(kwargs.get("top_k", 5), 20)
             with_graph = kwargs.get("with_graph_context", False)
 
             if not query:
-                return ToolExecResult(result="查询内容不能为空")
+                return "查询内容不能为空"
 
             from iris_memory.utils import sanitize_input
 
@@ -81,7 +81,7 @@ class SearchMemoryTool(FunctionTool[AstrAgentContext]):
             l2_adapter = manager.get_component("l2_memory")
 
             if not l2_adapter or not l2_adapter._is_available:
-                return ToolExecResult(result="L2记忆库当前不可用")
+                return "L2记忆库当前不可用"
 
             results: List[MemorySearchResult] = await l2_adapter.retrieve(
                 query=query,
@@ -90,7 +90,7 @@ class SearchMemoryTool(FunctionTool[AstrAgentContext]):
             )
 
             if not results:
-                return ToolExecResult(result=f"未找到与「{query}」相关的记忆")
+                return f"未找到与「{query}」相关的记忆"
 
             output_lines = [f"找到 {len(results)} 条相关记忆：\n"]
 
@@ -115,11 +115,11 @@ class SearchMemoryTool(FunctionTool[AstrAgentContext]):
                 f"with_graph={with_graph}"
             )
 
-            return ToolExecResult(result="\n".join(output_lines))
+            return "\n".join(output_lines)
 
         except Exception as e:
             logger.error(f"检索记忆失败：{e}", exc_info=True)
-            return ToolExecResult(result=f"检索记忆失败：{str(e)}")
+            return f"检索记忆失败：{str(e)}"
 
     async def _get_graph_context(
         self, manager, results: List[MemorySearchResult], group_id

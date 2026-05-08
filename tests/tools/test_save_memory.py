@@ -56,14 +56,14 @@ async def test_save_memory_success(tool, mock_context, monkeypatch):
 
     result = await tool.call(mock_context, content="测试记忆内容", confidence=0.9)
 
-    assert result.result is not None
-    assert "成功" in result.result or "已保存" in result.result
+    assert result is not None
+    assert "成功" in result or "已保存" in result
 
 
 @pytest.mark.asyncio
 async def test_save_memory_empty_content(tool, mock_context):
     result = await tool.call(mock_context, content="")
-    assert "不能为空" in result.result
+    assert "不能为空" in result
 
 
 @pytest.mark.asyncio
@@ -92,4 +92,4 @@ async def test_save_memory_l2_unavailable(tool, mock_context, monkeypatch):
     )
 
     result = await tool.call(mock_context, content="测试内容")
-    assert "不可用" in result.result
+    assert "不可用" in result

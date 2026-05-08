@@ -3,7 +3,7 @@
 from datetime import datetime
 from pydantic import Field
 from pydantic.dataclasses import dataclass
-from astrbot.core.agent.tool import FunctionTool, ToolExecResult
+from astrbot.core.agent.tool import FunctionTool
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
 from iris_memory.core import get_logger, get_component_manager
@@ -46,16 +46,14 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
         self,
         context: ContextWrapper[AstrAgentContext],
         **kwargs,
-    ) -> ToolExecResult:
+    ) -> str:
         try:
             memory_id = kwargs.get("memory_id", "").strip()
             correction = kwargs.get("correction", "").strip()
             reason = kwargs.get("reason", "").strip()
 
             if not all([memory_id, correction, reason]):
-                return ToolExecResult(
-                    result="参数不完整：需要提供 memory_id、correction 和 reason"
-                )
+                return "参数不完整：需要提供 memory_id、correction 和 reason"
 
             from iris_memory.utils import sanitize_input
 
@@ -73,20 +71,20 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
             l3_adapter = manager.get_component("l3_kg")
 
             if not l2_adapter or not l2_adapter._is_available:
-                return ToolExecResult(result="L2记忆库当前不可用")
+                return "L2记忆库当前不可用"
 
             try:
                 results = await l2_adapter.retrieve(query=memory_id, top_k=1)
 
                 if not results:
-                    return ToolExecResult(result=f"未找到ID为 {memory_id} 的记忆")
+                    return f"未找到ID为 {memory_id} 的记忆"
 
                 original_memory = results[0].entry
                 original_content = original_memory.content
 
             except Exception as e:
                 logger.error(f"检索原始记忆失败：{e}")
-                return ToolExecResult(result=f"无法检索原始记忆：{str(e)}")
+                return f"无法检索原始记忆：{str(e)}"
 
             try:
                 await l2_adapter.delete_entries([memory_id])
@@ -113,7 +111,7 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
 
             except Exception as e:
                 logger.error(f"更新L2记忆失败：{e}", exc_info=True)
-                return ToolExecResult(result=f"更新L2记忆失败：{str(e)}")
+                return f"更新L2记忆失败：{str(e)}"
 
             kg_message = ""
 
@@ -165,8 +163,8 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
                 f"L3知识图谱: {kg_message}",
             ]
 
-            return ToolExecResult(result="\n".join(result_lines))
+            return "\n".join(result_lines)
 
         except Exception as e:
             logger.error(f"修正记忆失败：{e}", exc_info=True)
-            return ToolExecResult(result=f"修正记忆失败：{str(e)}")
+            return f"修正记忆失败：{str(e)}"

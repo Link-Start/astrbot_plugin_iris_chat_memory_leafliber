@@ -2,7 +2,7 @@
 
 from pydantic import Field
 from pydantic.dataclasses import dataclass
-from astrbot.core.agent.tool import FunctionTool, ToolExecResult
+from astrbot.core.agent.tool import FunctionTool
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
 from iris_memory.core import get_logger, get_component_manager
@@ -49,14 +49,14 @@ class SearchKnowledgeGraphTool(FunctionTool[AstrAgentContext]):
         self,
         context: ContextWrapper[AstrAgentContext],
         **kwargs,
-    ) -> ToolExecResult:
+    ) -> str:
         try:
             query = kwargs.get("query", "").strip()
             label = kwargs.get("label", "").strip()
             expand_depth = min(kwargs.get("expand_depth", 1), 2)
 
             if not query:
-                return ToolExecResult(result="搜索关键词不能为空")
+                return "搜索关键词不能为空"
 
             from iris_memory.utils import sanitize_input
 
@@ -78,14 +78,12 @@ class SearchKnowledgeGraphTool(FunctionTool[AstrAgentContext]):
             l3_adapter = manager.get_component("l3_kg")
 
             if not l3_adapter or not l3_adapter._is_available:
-                return ToolExecResult(result="知识图谱当前不可用")
+                return "知识图谱当前不可用"
 
             matched_nodes = await self._search_nodes(l3_adapter, query, label, group_id)
 
             if not matched_nodes:
-                return ToolExecResult(
-                    result=f"未在知识图谱中找到与「{query}」相关的实体"
-                )
+                return f"未在知识图谱中找到与「{query}」相关的实体"
 
             expanded_nodes = []
             expanded_edges = []
@@ -115,11 +113,11 @@ class SearchKnowledgeGraphTool(FunctionTool[AstrAgentContext]):
                 f"expanded_nodes={len(expanded_nodes)}, expanded_edges={len(expanded_edges)}"
             )
 
-            return ToolExecResult(result=result_text)
+            return result_text
 
         except Exception as e:
             logger.error(f"搜索知识图谱失败：{e}", exc_info=True)
-            return ToolExecResult(result=f"搜索知识图谱失败：{str(e)}")
+            return f"搜索知识图谱失败：{str(e)}"
 
     async def _search_nodes(
         self, l3_adapter, query: str, label: str, group_id

@@ -63,7 +63,7 @@ async def test_get_group_profile(tool, mock_context, monkeypatch):
 
     result = await tool.call(mock_context, target_type="group", target_id="group_123")
 
-    assert result.result is not None
+    assert result is not None
 
 
 @pytest.mark.asyncio
@@ -77,4 +77,4 @@ async def test_get_group_profile_no_id(tool, mock_context, monkeypatch):
 
     result = await tool.call(mock_context, target_type="group")
 
-    assert "无法获取群聊ID" in result.result
+    assert "无法获取群聊ID" in result

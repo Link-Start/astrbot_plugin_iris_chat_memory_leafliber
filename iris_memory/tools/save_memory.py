@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from pydantic import Field
 from pydantic.dataclasses import dataclass
-from astrbot.core.agent.tool import FunctionTool, ToolExecResult
+from astrbot.core.agent.tool import FunctionTool
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
 from iris_memory.core import get_logger, get_component_manager
@@ -49,7 +49,7 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
 
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
-    ) -> ToolExecResult:
+    ) -> str:
         """执行保存记忆操作
 
         Args:
@@ -60,7 +60,7 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
                 - tags: 标签列表（可选）
 
         Returns:
-            ToolExecResult: 包含操作结果的执行结果
+            str: 包含操作结果的执行结果
         """
         try:
             # 获取参数
@@ -69,7 +69,7 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
             tags = kwargs.get("tags", [])
 
             if not content:
-                return ToolExecResult(result="记忆内容不能为空")
+                return "记忆内容不能为空"
 
             from iris_memory.utils import sanitize_input
 
@@ -98,7 +98,7 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
             l2_adapter = manager.get_component("l2_memory")
 
             if not l2_adapter or not l2_adapter._is_available:
-                return ToolExecResult(result="L2记忆库当前不可用")
+                return "L2记忆库当前不可用"
 
             # 创建记忆条目
             memory_id = f"mem_{uuid.uuid4().hex[:12]}"
@@ -128,8 +128,8 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
                 f"content={content[:50]}..., confidence={confidence}"
             )
 
-            return ToolExecResult(
-                result=f"✓ 已保存记忆到长期记忆库\n"
+            return (
+                f"✓ 已保存记忆到长期记忆库\n"
                 f"ID: {memory_id}\n"
                 f"内容: {content[:100]}{'...' if len(content) > 100 else ''}\n"
                 f"置信度: {confidence:.2f}"
@@ -137,4 +137,4 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
 
         except Exception as e:
             logger.error(f"保存记忆失败：{e}", exc_info=True)
-            return ToolExecResult(result=f"保存记忆失败：{str(e)}")
+            return f"保存记忆失败：{str(e)}"
