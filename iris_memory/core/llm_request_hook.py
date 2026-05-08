@@ -313,6 +313,10 @@ async def _collect_l1_context(
         role = msg.role
 
         if max_content_chars > 0 and len(content) > max_content_chars:
+            logger.debug(
+                f"L1 上下文消息内容截断：群聊 {group_id}，"
+                f"消息 #{idx} 原始 {len(msg.content)} 字符 → {max_content_chars} 字符"
+            )
             content = content[:max_content_chars] + "..."
 
         if role == "user":
@@ -334,6 +338,10 @@ async def _collect_l1_context(
             if reply_content:
                 ref_sender = reply_user_name or "某人"
                 if len(reply_content) > 80:
+                    logger.debug(
+                        f"L1 回复内容截断：群聊 {group_id}，"
+                        f"消息 #{idx} 回复原始 {len(reply_content)} 字符 → 80 字符"
+                    )
                     reply_content = reply_content[:80] + "..."
                 reply_tag = f" ↩️回复{ref_sender}「{reply_content}」"
             elif msg.metadata and msg.metadata.get("reply_message_id"):
@@ -565,9 +573,14 @@ async def _collect_l2_memory(
                 memories=results, max_tokens=max_tokens
             )
 
-            logger.debug(
-                f"L2 检索到 {len(results)} 条记忆，裁剪后 {len(trimmed_results)} 条"
-            )
+            if len(trimmed_results) < len(results):
+                logger.debug(
+                    f"L2 记忆注入截断：群聊 {group_id}，"
+                    f"原始 {len(results)} 条 → 保留 {len(trimmed_results)} 条 "
+                    f"（token 预算 {max_tokens}，实际 {actual_tokens}）"
+                )
+            else:
+                logger.debug(f"L2 检索到 {len(results)} 条记忆，无需裁剪")
 
             memory_text = _format_l2_memories_for_injection(trimmed_results)
 

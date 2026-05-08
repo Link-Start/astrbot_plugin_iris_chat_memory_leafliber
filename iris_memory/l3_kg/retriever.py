@@ -124,6 +124,9 @@ class GraphRetriever:
             return [], []
 
         if len(matched_node_ids) > 20:
+            logger.debug(
+                f"L3 关键词检索节点截断：原始 {len(matched_node_ids)} 个 → 保留 20 个"
+            )
             matched_node_ids = set(list(matched_node_ids)[:20])
 
         return await self.retrieve_with_expansion(
@@ -224,6 +227,10 @@ class GraphRetriever:
                 content = node.get("content", "")
                 if name and content:
                     if len(content) > max_content_length:
+                        logger.debug(
+                            f"L3 图谱节点内容截断：节点 '{name}' ({node_type})，"
+                            f"原始 {len(content)} 字符 → {max_content_length} 字符"
+                        )
                         truncated = content[:max_content_length]
                         for sep in ("。", "；", "，", " "):
                             last_sep = truncated.rfind(sep)
@@ -243,6 +250,10 @@ class GraphRetriever:
 
             if section_tokens > token_budget:
                 remaining = max(1, token_budget // 30)
+                logger.debug(
+                    f"L3 图谱实体截断：类型 {node_type}，"
+                    f"原始 {len(entity_lines)} 条 → 保留 {remaining} 条（token 预算不足）"
+                )
                 section = f"{type_label}：\n" + "\n".join(entity_lines[:remaining])
                 section_tokens = _estimate_tokens(section)
 
@@ -273,6 +284,9 @@ class GraphRetriever:
 
                 if rel_tokens > token_budget:
                     remaining = max(1, token_budget // 20)
+                    logger.debug(
+                        f"L3 图谱关系截断：原始 {len(edge_lines)} 条 → 保留 {remaining} 条（token 预算不足）"
+                    )
                     rel_section = "关系：\n" + "\n".join(edge_lines[:remaining])
 
                 if _estimate_tokens(rel_section) <= token_budget:

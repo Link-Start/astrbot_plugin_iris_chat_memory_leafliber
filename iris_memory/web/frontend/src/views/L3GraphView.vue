@@ -113,7 +113,7 @@
                     </v-card-title>
                     <v-card-text class="pa-3 pt-0">
                       <div class="text-caption mb-1">
-                        <span class="text-medium-emphasis">类型：</span>{{ selectedNode.label }}
+                        <span class="text-medium-emphasis">类型：</span>{{ getNodeLabel(selectedNode.label) }}
                       </div>
                       <div class="text-caption mb-1">
                         <span class="text-medium-emphasis">ID：</span>{{ selectedNode.id }}
@@ -142,7 +142,7 @@
                   <v-card color="surface" variant="elevated" class="popup-card">
                     <v-card-title class="d-flex align-center text-subtitle-1 pa-3">
                       <v-icon icon="mdi-arrow-right-bold" color="secondary" class="mr-2" size="small" />
-                      {{ selectedEdge.relation }}
+                      {{ getRelationLabel(selectedEdge.relation) }}
                       <v-spacer />
                       <v-btn
                         icon="mdi-close"
@@ -270,7 +270,7 @@
                     prepend-icon="mdi-arrow-right-bold"
                     @click="expandFromSearchEdge(edge)"
                   >
-                    <v-list-item-title>{{ edge.relation }}</v-list-item-title>
+                    <v-list-item-title>{{ getRelationLabel(edge.relation) }}</v-list-item-title>
                     <v-list-item-subtitle>
                       {{ edge.source.name }} → {{ edge.target.name }}
                     </v-list-item-subtitle>
@@ -365,7 +365,7 @@
                   :color="getTypeColor(type)"
                 >
                   <v-icon :icon="getNodeIcon(type)" start size="small" />
-                  {{ type }}: {{ count }}
+                  {{ getNodeLabel(type) }}: {{ count }}
                 </v-chip>
               </v-chip-group>
 
@@ -377,7 +377,7 @@
                   size="small"
                   variant="outlined"
                 >
-                  {{ type }}: {{ count }}
+                  {{ getRelationLabel(type) }}: {{ count }}
                 </v-chip>
               </v-chip-group>
             </v-card-text>
@@ -479,7 +479,7 @@
                         <td>
                           <v-chip size="small" :color="getTypeColor(node.label)" variant="tonal">
                             <v-icon :icon="getNodeIcon(node.label)" start size="x-small" />
-                            {{ node.label }}
+                            {{ getNodeLabel(node.label) }}
                           </v-chip>
                         </td>
                         <td>
@@ -561,7 +561,7 @@
                         </td>
                         <td>
                           <v-chip size="small" variant="outlined">
-                            {{ edge.relation }}
+                            {{ getRelationLabel(edge.relation) }}
                           </v-chip>
                         </td>
                         <td>
@@ -744,7 +744,7 @@ const handleDeleteSelectedNodes = () => {
 }
 
 const handleDeleteSingleEdge = (edge: L3EdgeDetail) => {
-  l3DeleteMessage.value = `确定要删除关系「${edge.source.name} → ${edge.relation} → ${edge.target.name}」吗？此操作不可撤销。`
+  l3DeleteMessage.value = `确定要删除关系「${edge.source.name} → ${getRelationLabel(edge.relation)} → ${edge.target.name}」吗？此操作不可撤销。`
   l3DeleteAction.value = async () => {
     await memoryStore.deleteL3Edge(edge.source.id, edge.target.id, edge.relation)
   }
@@ -834,11 +834,17 @@ const expandFromSearchEdge = (edge: { source: { id: string }, target: { id: stri
 const getNodeIcon = (label: string): string => {
   const icons: Record<string, string> = {
     Person: 'mdi-account',
+    Preference: 'mdi-heart',
+    Skill: 'mdi-tools',
+    Trait: 'mdi-emoticon',
+    Goal: 'mdi-flag',
+    Belief: 'mdi-lightbulb-on',
     Event: 'mdi-calendar',
-    Location: 'mdi-map-marker',
-    Organization: 'mdi-office-building',
     Concept: 'mdi-lightbulb',
+    Location: 'mdi-map-marker',
+    Item: 'mdi-package-variant',
     Topic: 'mdi-tag',
+    Group: 'mdi-account-group',
     Entity: 'mdi-circle'
   }
   return icons[label] || 'mdi-tag'
@@ -847,15 +853,56 @@ const getNodeIcon = (label: string): string => {
 const getTypeColor = (label: string): string => {
   const colors: Record<string, string> = {
     Person: 'primary',
+    Preference: 'pink',
+    Skill: 'teal',
+    Trait: 'purple',
+    Goal: 'orange',
+    Belief: 'indigo',
     Event: 'secondary',
-    Location: 'success',
-    Organization: 'warning',
     Concept: 'info',
+    Location: 'success',
+    Item: 'warning',
     Topic: 'accent',
+    Group: 'cyan',
     Entity: 'default'
   }
   return colors[label] || 'default'
 }
+
+const NODE_TYPE_LABELS: Record<string, string> = {
+  Person: '人物',
+  Preference: '偏好',
+  Skill: '技能',
+  Trait: '性格特征',
+  Goal: '目标',
+  Belief: '信念',
+  Event: '事件',
+  Concept: '概念',
+  Location: '地点',
+  Item: '物品',
+  Topic: '话题',
+  Group: '群体'
+}
+
+const RELATION_TYPE_LABELS: Record<string, string> = {
+  KNOWS: '认识',
+  HAS_PREFERENCE: '偏好',
+  HAS_SKILL: '掌握',
+  HAS_TRAIT: '具有',
+  HAS_GOAL: '追求',
+  HAS_BELIEF: '相信',
+  PARTICIPATED_IN: '参与',
+  LOCATED_AT: '位于',
+  HAPPENED_AT: '发生在',
+  PART_OF: '属于',
+  LEADS_TO: '导致',
+  CONTRADICTS: '矛盾',
+  SUPPORTS: '支持',
+  RELATED_TO: '相关'
+}
+
+const getNodeLabel = (label: string): string => NODE_TYPE_LABELS[label] || label
+const getRelationLabel = (relation: string): string => RELATION_TYPE_LABELS[relation] || relation
 
 const zoomIn = () => {
   currentZoom.value = Math.min(currentZoom.value * 1.2, 3)
@@ -988,7 +1035,7 @@ const renderGraph = () => {
     labelText.setAttribute('fill', 'currentColor')
     labelText.setAttribute('font-size', '10')
     labelText.setAttribute('font-weight', '500')
-    labelText.textContent = edge.relation
+    labelText.textContent = getRelationLabel(edge.relation)
     labelText.style.pointerEvents = 'none'
 
     edgesLayer.appendChild(labelText)

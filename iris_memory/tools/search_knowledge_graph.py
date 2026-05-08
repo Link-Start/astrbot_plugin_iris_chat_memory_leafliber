@@ -164,6 +164,8 @@ class SearchKnowledgeGraphTool(FunctionTool[AstrAgentContext]):
                     continue
                 nodes.append(node)
 
+            if len(nodes) > 15:
+                logger.debug(f"KG Tool 搜索节点截断：原始 {len(nodes)} 个 → 保留 15 个")
             return nodes[:15]
 
         except Exception as e:
@@ -186,6 +188,10 @@ class SearchKnowledgeGraphTool(FunctionTool[AstrAgentContext]):
             label = node.get("label", "")
             confidence = node.get("confidence", 0)
             if len(content) > 150:
+                logger.debug(
+                    f"KG Tool 匹配实体内容截断：节点 '{name}'，"
+                    f"原始 {len(content)} 字符 → 150 字符"
+                )
                 content = content[:150] + "..."
             lines.append(
                 f"{idx}. [{label}] {name}"
@@ -202,11 +208,19 @@ class SearchKnowledgeGraphTool(FunctionTool[AstrAgentContext]):
             if additional_nodes:
                 lines.append("")
                 lines.append(f"**关联实体**（{len(additional_nodes)} 个）：")
+                if len(additional_nodes) > 10:
+                    logger.debug(
+                        f"KG Tool 关联实体截断：原始 {len(additional_nodes)} 个 → 保留 10 个"
+                    )
                 for idx, node in enumerate(additional_nodes[:10], 1):
                     name = node.get("name", "未知")
                     content = node.get("content", "")
                     label = node.get("label", "")
                     if len(content) > 100:
+                        logger.debug(
+                            f"KG Tool 关联实体内容截断：节点 '{name}'，"
+                            f"原始 {len(content)} 字符 → 100 字符"
+                        )
                         content = content[:100] + "..."
                     lines.append(
                         f"{idx}. [{label}] {name}{f'：{content}' if content else ''}"
@@ -215,6 +229,10 @@ class SearchKnowledgeGraphTool(FunctionTool[AstrAgentContext]):
         if expanded_edges:
             lines.append("")
             lines.append(f"**关联关系**（{len(expanded_edges)} 条）：")
+            if len(expanded_edges) > 15:
+                logger.debug(
+                    f"KG Tool 关联关系截断：原始 {len(expanded_edges)} 条 → 保留 15 条"
+                )
             for idx, edge in enumerate(expanded_edges[:15], 1):
                 source = edge.get("source_name", edge.get("_src", "未知"))
                 target = edge.get("target_name", edge.get("_dst", "未知"))

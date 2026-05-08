@@ -214,7 +214,7 @@
               >
                 <v-tooltip v-if="item.isCustom && item.customDetails" location="bottom">
                   <template #activator="{ props }">
-                    <span v-bind="props" class="custom-label">{{ item.type }}</span>
+                    <span v-bind="props" class="custom-label">{{ item.label }}</span>
                   </template>
                   <div class="custom-tooltip">
                     <div
@@ -222,12 +222,12 @@
                       :key="detail.type"
                       class="d-flex justify-space-between ga-4"
                     >
-                      <span>{{ detail.type }}</span>
+                      <span>{{ detail.label }}</span>
                       <span class="font-weight-bold">{{ detail.count }}</span>
                     </div>
                   </div>
                 </v-tooltip>
-                <template v-else>{{ item.type }}</template>
+                <template v-else>{{ item.label }}</template>
               </span>
               <v-progress-linear
                 :model-value="(item.count / kgNodeCount) * 100"
@@ -260,7 +260,7 @@
               >
                 <v-tooltip v-if="item.isCustom && item.customDetails" location="bottom">
                   <template #activator="{ props }">
-                    <span v-bind="props" class="custom-label">{{ item.type }}</span>
+                    <span v-bind="props" class="custom-label">{{ item.label }}</span>
                   </template>
                   <div class="custom-tooltip">
                     <div
@@ -268,12 +268,12 @@
                       :key="detail.type"
                       class="d-flex justify-space-between ga-4"
                     >
-                      <span>{{ detail.type }}</span>
+                      <span>{{ detail.label }}</span>
                       <span class="font-weight-bold">{{ detail.count }}</span>
                     </div>
                   </div>
                 </v-tooltip>
-                <template v-else>{{ item.type }}</template>
+                <template v-else>{{ item.label }}</template>
               </span>
               <v-progress-linear
                 :model-value="(item.count / kgEdgeCount) * 100"
@@ -395,18 +395,55 @@ const l2GroupCount = computed(() => statsStore.memoryStats?.l2?.group_count ?? 0
 const kgNodeCount = computed(() => kgStats.value?.node_count ?? 0)
 const kgEdgeCount = computed(() => kgStats.value?.edge_count ?? 0)
 
-const NODE_TYPE_WHITELIST = new Set(['Person', 'Event', 'Concept', 'Location', 'Item', 'Topic'])
-const RELATION_TYPE_WHITELIST = new Set([
-  'KNOWS', 'MENTIONED', 'RELATED_TO',
-  'PART_OF', 'LOCATED_AT', 'HAPPENED_AT',
-  'DISCUSSED', 'DISCUSSED_BY', 'PARTICIPATED'
+const NODE_TYPE_WHITELIST = new Set([
+  'Person', 'Preference', 'Skill', 'Trait', 'Goal', 'Belief',
+  'Event', 'Concept', 'Location', 'Item', 'Topic', 'Group'
 ])
+
+const RELATION_TYPE_WHITELIST = new Set([
+  'KNOWS', 'HAS_PREFERENCE', 'HAS_SKILL', 'HAS_TRAIT', 'HAS_GOAL', 'HAS_BELIEF',
+  'PARTICIPATED_IN', 'LOCATED_AT', 'HAPPENED_AT', 'PART_OF',
+  'LEADS_TO', 'CONTRADICTS', 'SUPPORTS', 'RELATED_TO'
+])
+
+const NODE_TYPE_LABELS: Record<string, string> = {
+  Person: '人物',
+  Preference: '偏好',
+  Skill: '技能',
+  Trait: '性格特征',
+  Goal: '目标',
+  Belief: '信念',
+  Event: '事件',
+  Concept: '概念',
+  Location: '地点',
+  Item: '物品',
+  Topic: '话题',
+  Group: '群体'
+}
+
+const RELATION_TYPE_LABELS: Record<string, string> = {
+  KNOWS: '认识',
+  HAS_PREFERENCE: '偏好',
+  HAS_SKILL: '掌握',
+  HAS_TRAIT: '具有',
+  HAS_GOAL: '追求',
+  HAS_BELIEF: '相信',
+  PARTICIPATED_IN: '参与',
+  LOCATED_AT: '位于',
+  HAPPENED_AT: '发生在',
+  PART_OF: '属于',
+  LEADS_TO: '导致',
+  CONTRADICTS: '矛盾',
+  SUPPORTS: '支持',
+  RELATED_TO: '相关'
+}
 
 interface TypeDistributionItem {
   type: string
+  label: string
   count: number
   isCustom: boolean
-  customDetails?: { type: string; count: number }[]
+  customDetails?: { type: string; label: string; count: number }[]
 }
 
 const processedNodeTypes = computed<TypeDistributionItem[]>(() => {
@@ -414,18 +451,18 @@ const processedNodeTypes = computed<TypeDistributionItem[]>(() => {
   if (!raw) return []
   const items: TypeDistributionItem[] = []
   let customTotal = 0
-  const customDetails: { type: string; count: number }[] = []
+  const customDetails: { type: string; label: string; count: number }[] = []
   for (const [type, count] of Object.entries(raw)) {
     if (NODE_TYPE_WHITELIST.has(type)) {
-      items.push({ type, count, isCustom: false })
+      items.push({ type, label: NODE_TYPE_LABELS[type] || type, count, isCustom: false })
     } else {
       customTotal += count
-      customDetails.push({ type, count })
+      customDetails.push({ type, label: type, count })
     }
   }
   if (customTotal > 0) {
     customDetails.sort((a, b) => b.count - a.count)
-    items.push({ type: '自定义', count: customTotal, isCustom: true, customDetails })
+    items.push({ type: '自定义', label: '自定义', count: customTotal, isCustom: true, customDetails })
   }
   return items
 })
@@ -435,18 +472,18 @@ const processedRelationTypes = computed<TypeDistributionItem[]>(() => {
   if (!raw) return []
   const items: TypeDistributionItem[] = []
   let customTotal = 0
-  const customDetails: { type: string; count: number }[] = []
+  const customDetails: { type: string; label: string; count: number }[] = []
   for (const [type, count] of Object.entries(raw)) {
     if (RELATION_TYPE_WHITELIST.has(type)) {
-      items.push({ type, count, isCustom: false })
+      items.push({ type, label: RELATION_TYPE_LABELS[type] || type, count, isCustom: false })
     } else {
       customTotal += count
-      customDetails.push({ type, count })
+      customDetails.push({ type, label: type, count })
     }
   }
   if (customTotal > 0) {
     customDetails.sort((a, b) => b.count - a.count)
-    items.push({ type: '自定义', count: customTotal, isCustom: true, customDetails })
+    items.push({ type: '自定义', label: '自定义', count: customTotal, isCustom: true, customDetails })
   }
   return items
 })

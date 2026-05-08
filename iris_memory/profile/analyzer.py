@@ -115,6 +115,10 @@ class ProfileAnalyzer:
         except RuntimeError:
             max_messages = 50
         limited_messages = messages[:max_messages]
+        if len(messages) > max_messages:
+            logger.debug(
+                f"群聊画像分析消息截断：原始 {len(messages)} 条 → 保留 {max_messages} 条"
+            )
 
         if tier == UpdateTier.LONG:
             return self._build_group_long_prompt(limited_messages, current_profile)
@@ -209,6 +213,10 @@ class ProfileAnalyzer:
         except RuntimeError:
             max_messages = 30
         limited_messages = messages[:max_messages]
+        if len(messages) > max_messages:
+            logger.debug(
+                f"用户画像分析消息截断：原始 {len(messages)} 条 → 保留 {max_messages} 条"
+            )
 
         if tier == UpdateTier.LONG:
             return self._build_user_long_prompt(limited_messages, current_profile)

@@ -210,7 +210,11 @@ class GraphEnhancer:
             keywords.update(query_keywords)
 
         # 2. 从记忆内容中提取实体名（通常是名词短语）
-        for memory in memories[:5]:  # 只取前5条记忆
+        if len(memories) > 5:
+            logger.debug(
+                f"图增强关键词提取截断：原始 {len(memories)} 条记忆 → 仅取前 5 条"
+            )
+        for memory in memories[:5]:
             content = memory.entry.content
             # 提取引号中的内容（通常是人名、地点等实体）
             quoted = re.findall(r'[""「」『』]([^""「」『』]+)[""「」『』]', content)
@@ -401,6 +405,9 @@ class GraphEnhancer:
 
             # 限制最大节点数
             if len(matched_ids) > 20:
+                logger.debug(
+                    f"图增强关键词搜索节点截断：原始 {len(matched_ids)} 个 → 保留 20 个"
+                )
                 matched_ids = set(list(matched_ids)[:20])
 
             return matched_ids

@@ -99,6 +99,10 @@ class MemoryReranker:
 
             # 如果指定了 top_k，只返回前 K 条
             if top_k is not None:
+                if len(result) > top_k:
+                    logger.debug(
+                        f"重排序结果截断：原始 {len(result)} 条 → 保留 top_k={top_k} 条"
+                    )
                 result = result[:top_k]
 
             logger.info(f"重排序完成：{len(memories)} -> {len(result)} 条记忆")
@@ -127,6 +131,10 @@ class MemoryReranker:
             content = memory.entry.content
             # 限制每条记忆的长度，避免 Prompt 过长
             if len(content) > 200:
+                logger.debug(
+                    f"重排序 Prompt 记忆内容截断：第 {i} 条，"
+                    f"原始 {len(content)} 字符 → 200 字符"
+                )
                 content = content[:200] + "..."
             memory_lines.append(f"{i}. {content}")
 

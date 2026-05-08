@@ -246,6 +246,10 @@ class EntityExtractor:
 
                 content = node_data.get("content", "")
                 if len(content) > _MAX_CONTENT_LENGTH:
+                    logger.debug(
+                        f"KG 实体提取内容截断：节点 '{node_data.get('name', '?')}'，"
+                        f"原始 {len(content)} 字符 → {_MAX_CONTENT_LENGTH} 字符"
+                    )
                     content = content[:_MAX_CONTENT_LENGTH]
 
                 node = GraphNode(
