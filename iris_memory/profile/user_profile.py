@@ -178,22 +178,24 @@ class UserProfileManager:
                 profile.set_field_meta("emotional_baseline", meta)
                 updated = True
 
-        if occupation is not None and tier in (UpdateTier.MID, UpdateTier.LONG):
+        if occupation is not None and tier == UpdateTier.LONG:
             meta = profile.get_field_meta("occupation")
-            long_term_confidence = (
-                confidence if tier == UpdateTier.LONG else confidence * 0.7
-            )
             if should_overwrite_field(
-                profile.occupation, occupation, meta.confidence, long_term_confidence
+                profile.occupation, occupation, meta.confidence, confidence
             ):
                 profile.occupation = occupation
-                meta.record_update(long_term_confidence, source="llm")
+                meta.record_update(confidence, source="llm")
                 profile.set_field_meta("occupation", meta)
                 updated = True
 
         if custom_fields:
             for key, value in custom_fields.items():
                 if key not in profile.custom_fields or not profile.custom_fields[key]:
+                    profile.custom_fields[key] = value
+                    updated = True
+                elif should_overwrite_field(
+                    profile.custom_fields[key], value, 0.5, confidence
+                ):
                     profile.custom_fields[key] = value
                     updated = True
                 elif should_overwrite_field(
@@ -228,6 +230,7 @@ class UserProfileManager:
         important_dates: Optional[List[Dict[str, str]]] = None,
         personality_tags: Optional[List[str]] = None,
         interests: Optional[List[str]] = None,
+        language_style: Optional[str] = None,
         communication_style: Optional[str] = None,
         emotional_baseline: Optional[str] = None,
         custom_fields: Optional[dict] = None,
@@ -276,22 +279,43 @@ class UserProfileManager:
                 updated = True
 
         if important_events is not None:
+            events_changed = False
             for event in important_events:
                 if event and event not in profile.important_events:
                     profile.important_events.append(event)
+                    events_changed = True
                     updated = True
+            if events_changed:
+                profile.important_events = profile.important_events[-10:]
+                meta = profile.get_field_meta("important_events")
+                meta.record_update(confidence, source="llm")
+                profile.set_field_meta("important_events", meta)
 
         if taboo_topics is not None:
+            taboo_changed = False
             for topic in taboo_topics:
                 if topic and topic not in profile.taboo_topics:
                     profile.taboo_topics.append(topic)
+                    taboo_changed = True
                     updated = True
+            if taboo_changed:
+                profile.taboo_topics = profile.taboo_topics[-10:]
+                meta = profile.get_field_meta("taboo_topics")
+                meta.record_update(confidence, source="llm")
+                profile.set_field_meta("taboo_topics", meta)
 
         if important_dates is not None:
+            dates_changed = False
             for date_entry in important_dates:
                 if date_entry and date_entry not in profile.important_dates:
                     profile.important_dates.append(date_entry)
+                    dates_changed = True
                     updated = True
+            if dates_changed:
+                profile.important_dates = profile.important_dates[-10:]
+                meta = profile.get_field_meta("important_dates")
+                meta.record_update(confidence, source="llm")
+                profile.set_field_meta("important_dates", meta)
 
         if personality_tags is not None:
             meta = profile.get_field_meta("personality_tags")
@@ -309,6 +333,19 @@ class UserProfileManager:
                 profile.interests = merged
                 meta.record_update(confidence, source="llm")
                 profile.set_field_meta("interests", meta)
+                updated = True
+
+        if language_style is not None:
+            meta = profile.get_field_meta("language_style")
+            if should_overwrite_field(
+                profile.language_style,
+                language_style,
+                meta.confidence,
+                confidence,
+            ):
+                profile.language_style = language_style
+                meta.record_update(confidence, source="llm")
+                profile.set_field_meta("language_style", meta)
                 updated = True
 
         if communication_style is not None:

@@ -14,6 +14,7 @@ from .models import (
     GroupProfile,
     UpdateTier,
     merge_list_field,
+    should_overwrite_field,
     ProfileConfig,
 )
 
@@ -169,11 +170,14 @@ class GroupProfileManager:
                 updated = True
 
         if blacklist_topics is not None:
+            blacklist_changed = False
             for topic in blacklist_topics:
                 if topic and topic not in profile.blacklist_topics:
                     profile.blacklist_topics.append(topic)
+                    blacklist_changed = True
                     updated = True
-            if updated:
+            if blacklist_changed:
+                profile.blacklist_topics = profile.blacklist_topics[-10:]
                 meta = profile.get_field_meta("blacklist_topics")
                 meta.record_update(confidence, source="llm")
                 profile.set_field_meta("blacklist_topics", meta)
@@ -199,6 +203,11 @@ class GroupProfileManager:
         if custom_fields:
             for key, value in custom_fields.items():
                 if key not in profile.custom_fields or not profile.custom_fields[key]:
+                    profile.custom_fields[key] = value
+                    updated = True
+                elif should_overwrite_field(
+                    profile.custom_fields[key], value, 0.5, confidence
+                ):
                     profile.custom_fields[key] = value
                     updated = True
 

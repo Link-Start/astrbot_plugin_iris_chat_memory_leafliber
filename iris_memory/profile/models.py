@@ -153,6 +153,9 @@ class ProfileMetadataMixin:
     提供字段元数据和更新追踪器的通用操作方法。
     """
 
+    field_meta: Dict[str, Dict]
+    update_tracker: Dict
+
     def get_update_tracker(self) -> ProfileUpdateTracker:
         """获取更新追踪器（从dict恢复）"""
         if not self.update_tracker:

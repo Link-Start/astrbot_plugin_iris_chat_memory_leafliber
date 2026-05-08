@@ -171,8 +171,8 @@ class ProfileAnalyzer:
 {{
     "long_term_tags": ["核心特征标签1", "标签2"],
     "blacklist_topics": ["禁忌话题1", "话题2"],
-    "interests": ["兴趣点（如有变化）"],
-    "atmosphere_tags": ["氛围标签（如有变化）"],
+    "interests": ["兴趣点（如有变化，返回完整替换列表）"],
+    "atmosphere_tags": ["氛围标签（如有变化，返回完整替换列表）"],
     "custom_fields": {{
         "自定义字段名": "字段值"
     }}
@@ -181,7 +181,7 @@ class ProfileAnalyzer:
 注意：
 1. 长期标签描述群聊的核心身份特征（如"技术交流群"、"游戏群"），最多3个
 2. 禁忌话题是群内明确不宜讨论的内容，必须非常确定才填写
-3. 只有确实发现显著变化时才更新 interests 和 atmosphere_tags
+3. 标注"如有变化"的字段：如果与当前画像相比无显著变化，返回空数组；如有变化，返回完整的替换列表（而非增量）
 4. 宁可少标不要多标，长期特征必须高度可靠
 5. 不确定或无法判断的字段返回空数组
 
@@ -273,8 +273,9 @@ class ProfileAnalyzer:
     "important_events": ["重要事件1", "事件2"],
     "taboo_topics": ["禁忌话题1"],
     "important_dates": [{{"date": "日期", "description": "描述"}}],
-    "personality_tags": ["性格标签（如有变化）"],
-    "interests": ["兴趣（如有变化）"],
+    "personality_tags": ["性格标签（如有变化，返回完整替换列表）"],
+    "interests": ["兴趣（如有变化，返回完整替换列表）"],
+    "language_style": "语言风格（如有变化）",
     "communication_style": "沟通偏好（如有变化）",
     "emotional_baseline": "情感基线（如有变化）",
     "custom_fields": {{
@@ -287,10 +288,11 @@ class ProfileAnalyzer:
 2. occupation 仅在对话中有明确线索时填写（如提到"今天加班写代码"）
 3. bot_relationship 仅在用户有明确称呼习惯时填写（如"小助手"、"老师"）
 4. important_events 只记录真正重要的事件（如工作变动、人生里程碑），最多5个
-5. 只有确实发现显著变化时才更新 personality_tags 和 interests
-6. communication_style 从以下选择：简洁/详细/随意/正式
-7. emotional_baseline 从以下选择：稳定/敏感/乐观/低落/焦虑
-8. 不确定或无法判断的字段返回空数组或空字符串
+5. 标注"如有变化"的字段：如果与当前画像相比无显著变化，返回空数组或空字符串；如有变化，返回完整的替换值（而非增量）
+6. language_style 描述用户的表达习惯（如"简洁"、"幽默"、"正式"）
+7. communication_style 从以下选择：简洁/详细/随意/正式
+8. emotional_baseline 从以下选择：稳定/敏感/乐观/低落/焦虑
+9. 不确定或无法判断的字段返回空数组或空字符串
 
 仅返回JSON，不要其他内容。"""
 

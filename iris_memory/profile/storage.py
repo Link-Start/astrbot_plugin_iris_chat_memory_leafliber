@@ -40,6 +40,8 @@ USER_PROFILE_WRITABLE_FIELDS: Set[str] = {
     "interests",
     "occupation",
     "language_style",
+    "communication_style",
+    "emotional_baseline",
     "bot_relationship",
     "important_dates",
     "taboo_topics",
@@ -211,12 +213,34 @@ class ProfileStorage(Component):
         """
         try:
             config = get_config()
-            if config.get("isolation_config.enable_persona_isolation"):
+            if not config.get("isolation_config.enable_persona_isolation"):
                 return "default"
+            logger.warning(
+                "人格隔离已启用，但当前无法获取 persona_id，使用 default。"
+                "人格隔离功能需要通过调用方传入 persona_id。"
+            )
         except RuntimeError:
             pass
 
         return "default"
+
+    def _get_effective_group_id(self) -> str:
+        """获取用于用户索引查询的 effective group_id
+
+        当 enable_group_isolation=False 时，用户画像统一存储在 group_id="default" 下，
+        因此查询 user_index 也需要用 "default"。
+
+        Returns:
+            "default" 如果未启用群聊隔离，否则返回空字符串（由调用方使用原始 group_id）
+        """
+        try:
+            config = get_config()
+            if not config.get("isolation_config.enable_group_isolation"):
+                return "default"
+        except RuntimeError:
+            pass
+
+        return ""
 
     async def update_group_profile(self, group_id: str, updates: dict) -> bool:
         """更新群聊画像
@@ -290,14 +314,17 @@ class ProfileStorage(Component):
             tasks = [self.get_group_profile(group_id, persona_id) for group_id in group_ids]
             profiles = await asyncio.gather(*tasks, return_exceptions=True)
 
+            effective_group_id = self._get_effective_group_id()
+
             groups = []
             for group_id, profile in zip(group_ids, profiles):
                 if isinstance(profile, Exception):
                     logger.warning(f"获取群聊画像失败: {group_id}, 错误: {profile}")
                     continue
-                if profile:
+                if profile and isinstance(profile, GroupProfile):
                     member_count = 0
-                    user_index_key = f"user_index:{persona_id}:{group_id}"
+                    lookup_group_id = effective_group_id if effective_group_id else group_id
+                    user_index_key = f"user_index:{persona_id}:{lookup_group_id}"
                     user_ids = await self._storage.get_kv_data(user_index_key, [])
                     if user_ids:
                         member_count = len(user_ids)
@@ -334,7 +361,7 @@ class ProfileStorage(Component):
                 if isinstance(profile, Exception):
                     logger.warning(f"获取用户画像失败: {user_id}, 错误: {profile}")
                     continue
-                if profile:
+                if profile and isinstance(profile, UserProfile):
                     users.append(
                         {
                             "user_id": user_id,

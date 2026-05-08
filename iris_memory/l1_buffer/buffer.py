@@ -817,6 +817,9 @@ class L1Buffer(Component):
                     important_dates=result.get("important_dates"),  # type: ignore[arg-type]
                     personality_tags=_as_str_list(result.get("personality_tags")),
                     interests=_as_str_list(result.get("interests")),
+                    language_style=_as_str(result.get("language_style")),
+                    communication_style=_as_str(result.get("communication_style")),
+                    emotional_baseline=_as_str(result.get("emotional_baseline")),
                     custom_fields=_as_str_dict(result.get("custom_fields")),
                     confidence=0.8,
                 )
