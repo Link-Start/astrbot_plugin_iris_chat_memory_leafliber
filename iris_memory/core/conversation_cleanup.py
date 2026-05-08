@@ -49,7 +49,7 @@ async def handle_agent_done(
     if not config.get("context_control.enable_conversation_cleanup"):
         return
 
-    conv_mgr = getattr(context, "conversationManager", None)
+    conv_mgr = getattr(context, "conversation_manager", None)
     if conv_mgr is None:
         logger.debug("对话管理器不可用，跳过对话清理")
         return
@@ -65,7 +65,7 @@ async def handle_agent_done(
             logger.debug("当前无活跃对话，跳过对话清理")
             return
 
-        await conv_mgr.delete_conversation(umo, None)
+        await conv_mgr.delete_conversation(umo, curr_cid)
         logger.debug(f"已清理会话 {umo} 的内置对话历史 (cid={curr_cid})")
     except Exception as e:
         logger.warning(f"清理内置对话历史失败: {e}")
