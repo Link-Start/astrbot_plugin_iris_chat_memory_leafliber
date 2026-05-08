@@ -105,6 +105,5 @@ class TestImageParser:
         """测试构建解析提示词"""
         prompt = parser._build_parse_prompt()
 
-        assert "请详细描述这张图片的内容" in prompt
-        assert "主要物体和场景" in prompt
-        assert "不超过200字" in prompt
+        assert "简要描述图片内容" in prompt
+        assert "不超过80字" in prompt

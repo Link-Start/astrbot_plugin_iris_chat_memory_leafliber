@@ -201,7 +201,7 @@ def _get_inline_image_desc(
         image_map: 图片映射表
 
     Returns:
-        行内图片描述，如 " [图片：一只猫的照片]"，无匹配时返回空字符串
+        行内图片描述，如 " [图:一只猫的照片]"，无匹配时返回空字符串
     """
     if not image_map:
         return ""
@@ -220,10 +220,10 @@ def _get_inline_image_desc(
         return ""
 
     if len(descs) == 1:
-        return f" [图片：{descs[0]}]"
+        return f" [图:{descs[0]}]"
 
     parts = "；".join(descs)
-    return f" [图片：{parts}]"
+    return f" [图:{parts}]"
 
 
 async def _collect_l1_context(
@@ -287,14 +287,14 @@ async def _collect_l1_context(
         lines.append("【近期群聊记录】")
         lines.append(
             "以下是群里最近的对话，帮助你了解当前话题。"
-            "其中 [图片] 标记为对话中发送的图片的辅助描述，"
+            "其中 [图] 标记为对话中发送的图片的辅助描述，"
             "仅用于辅助理解对话内容："
         )
     else:
         lines.append("【近期对话记录】")
         lines.append(
             "以下是你们最近的对话。"
-            "其中 [图片] 标记为对话中发送的图片的辅助描述，"
+            "其中 [图] 标记为对话中发送的图片的辅助描述，"
             "仅用于辅助理解对话内容："
         )
 
@@ -308,7 +308,7 @@ async def _collect_l1_context(
                 )
                 msg_id_map[str(mid)] = (msg.content, uname)
 
-    for msg in messages:
+    for idx, msg in enumerate(messages, 1):
         content = msg.content
         role = msg.role
 
@@ -341,9 +341,9 @@ async def _collect_l1_context(
 
             sender = user_name or "对方"
 
-            lines.append(f"{sender}:{reply_tag} {content}")
+            lines.append(f"{idx}. {sender}:{reply_tag} {content}")
         elif role == "assistant":
-            lines.append(f"Bot: {content}")
+            lines.append(f"{idx}. Bot: {content}")
 
     try:
         req._l1_context_count = len(messages)
@@ -879,7 +879,7 @@ async def _parse_images_if_related_mode(
     2. 检查缓存，命中则直接替换占位符
     3. 批量解析（并发控制、数量限制）
     4. 结果存入缓存
-    5. 替换 L1 消息中的 [IMG:xxx] 占位符为 [图片：描述]
+    5. 替换 L1 消息中的 [IMG:xxx] 占位符为 [图:描述]
 
     Args:
         event: AstrBot 消息事件对象
@@ -941,7 +941,7 @@ async def _parse_images_if_related_mode(
                 )
                 placeholder = f"[IMG:{img_item.image_hash[:12]}]"
                 l1_buffer.replace_image_placeholder(
-                    group_id, placeholder, f"[图片：{cached.content}]"
+                    group_id, placeholder, f"[图:{cached.content}]"
                 )
                 cached_results.append((img_item, cached))
                 continue
@@ -1022,7 +1022,7 @@ async def _parse_images_if_related_mode(
 
         placeholder = f"[IMG:{img_item.image_hash[:12]}]"
         l1_buffer.replace_image_placeholder(
-            group_id, placeholder, f"[图片：{result.content}]"
+            group_id, placeholder, f"[图:{result.content}]"
         )
 
         success_count += 1

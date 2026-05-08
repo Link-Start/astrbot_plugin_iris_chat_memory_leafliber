@@ -262,7 +262,7 @@ class TestGetInlineImageDesc:
         msg = _make_msg("user", "看看这个")
         image_map = {"msg123": ["一只猫的照片"]}
         result = _get_inline_image_desc(msg, "msg123", image_map)
-        assert result == " [图片：一只猫的照片]"
+        assert result == " [图:一只猫的照片]"
 
     def test_match_by_timestamp_window(self):
         from datetime import datetime
@@ -278,13 +278,13 @@ class TestGetInlineImageDesc:
         )
         image_map = {"user1:10:30": ["风景照"]}
         result = _get_inline_image_desc(msg, None, image_map)
-        assert result == " [图片：风景照]"
+        assert result == " [图:风景照]"
 
     def test_multiple_images_joined(self):
         msg = _make_msg("user", "看看这些")
         image_map = {"msg123": ["图片1", "图片2"]}
         result = _get_inline_image_desc(msg, "msg123", image_map)
-        assert result == " [图片：图片1；图片2]"
+        assert result == " [图:图片1；图片2]"
 
     def test_no_match(self):
         msg = _make_msg("user", "看看这个")

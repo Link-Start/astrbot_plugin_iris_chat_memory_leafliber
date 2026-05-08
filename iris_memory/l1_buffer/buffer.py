@@ -1102,6 +1102,50 @@ class L1Buffer(Component):
         )
         return True
 
+    def prepend_to_last_message(
+        self, group_id: str, prefix: str, same_source: str = ""
+    ) -> bool:
+        """前置文本到队列中最后一条消息
+
+        用于将图片描述放在消息内容最前面，保持发送者意图。
+
+        Args:
+            group_id: 群聊ID
+            prefix: 要前置的文本
+            same_source: 若非空，仅当最后一条消息的 source 匹配时才前置
+
+        Returns:
+            是否成功前置
+        """
+        if not self._is_available:
+            return False
+
+        queue_key = self._get_queue_key(group_id)
+        if queue_key not in self._queues:
+            return False
+
+        queue = self._queues[queue_key]
+        if not queue.messages:
+            return False
+
+        last_msg = queue.messages[-1]
+
+        if same_source and last_msg.source != same_source:
+            return False
+
+        old_tokens = last_msg.token_count
+        last_msg.content = prefix + last_msg.content
+        last_msg.token_count = count_tokens(last_msg.content)
+
+        token_diff = last_msg.token_count - old_tokens
+        queue.total_tokens += token_diff
+
+        logger.debug(
+            f"已前置文本到最后消息：{queue_key}, 前置长度={len(prefix)}, "
+            f"token差={token_diff}"
+        )
+        return True
+
     def replace_image_placeholder(
         self, group_id: str, placeholder: str, description: str
     ) -> bool:
@@ -1113,7 +1157,7 @@ class L1Buffer(Component):
         Args:
             group_id: 群聊ID
             placeholder: 占位符文本（如 [IMG:abc12345]）
-            description: 替换文本（如 [图片：一只猫的照片]）
+            description: 替换文本（如 [图:一只猫的照片]）
 
         Returns:
             是否成功替换

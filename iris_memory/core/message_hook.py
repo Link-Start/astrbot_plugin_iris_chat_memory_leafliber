@@ -278,8 +278,8 @@ async def _queue_images_to_l1_buffer(
 
     支持 pHash 感知哈希去重和无效图过滤。
     入队时检查缓存：
-    - 已缓存：直接将图片描述追加到 L1 消息内容，图片标记为 SUCCESS
-    - 未缓存：追加占位符 [IMG:{hash_prefix}] 到 L1 消息内容，图片标记为 PENDING
+    - 已缓存：直接将图片描述前置到 L1 消息内容，图片标记为 SUCCESS
+    - 未缓存：前置占位符 [IMG:{hash_prefix}] 到 L1 消息内容，图片标记为 PENDING
 
     Args:
         event: AstrBot 消息事件对象
@@ -354,7 +354,7 @@ async def _queue_images_to_l1_buffer(
                 cached_desc = cached.content
 
         if cached_desc:
-            image_suffixes.append(f"[图片：{cached_desc}]")
+            image_suffixes.append(f"[图:{cached_desc}]")
             queue_item = ImageQueueItem(
                 image_hash=image_hash,
                 image_url=image_info.url or "",
@@ -381,9 +381,11 @@ async def _queue_images_to_l1_buffer(
         queued_count += 1
 
     if image_suffixes:
-        suffix = " ".join(image_suffixes)
-        appended = l1_buffer.append_to_last_message(group_id, suffix)
-        if not appended:
+        prefix = "".join(image_suffixes)
+        prepended = l1_buffer.prepend_to_last_message(
+            group_id, prefix, same_source=user_id
+        )
+        if not prepended:
             user_name = adapter.get_user_name(event)
             metadata: dict[str, Any] = {}
             if user_name:
@@ -394,7 +396,7 @@ async def _queue_images_to_l1_buffer(
             await l1_buffer.add_message(
                 group_id=group_id,
                 role="user",
-                content=suffix,
+                content=prefix,
                 source=user_id,
                 metadata=metadata,
             )
@@ -465,7 +467,7 @@ async def _parse_images_if_enabled(
                 )
                 placeholder = f"[IMG:{img_item.image_hash[:12]}]"
                 l1_buffer.replace_image_placeholder(
-                    group_id, placeholder, f"[图片：{cached.content}]"
+                    group_id, placeholder, f"[图:{cached.content}]"
                 )
                 continue
 
@@ -537,7 +539,7 @@ async def _parse_images_if_enabled(
 
         placeholder = f"[IMG:{img_item.image_hash[:12]}]"
         l1_buffer.replace_image_placeholder(
-            group_id, placeholder, f"[图片：{result.content}]"
+            group_id, placeholder, f"[图:{result.content}]"
         )
 
         success_count += 1

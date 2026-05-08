@@ -110,7 +110,29 @@
                     </v-list-item-title>
 
                     <v-list-item-subtitle class="text-wrap mt-1">
-                      {{ msg.content }}
+                      <span v-for="(segment, si) in renderContent(msg.content)" :key="si">
+                        <v-chip
+                          v-if="segment.type === 'image'"
+                          size="x-small"
+                          variant="tonal"
+                          color="info"
+                          class="mr-1"
+                        >
+                          <v-icon icon="mdi-image" start size="x-small" />
+                          {{ segment.text }}
+                        </v-chip>
+                        <v-chip
+                          v-else-if="segment.type === 'pending'"
+                          size="x-small"
+                          variant="tonal"
+                          color="warning"
+                          class="mr-1"
+                        >
+                          <v-icon icon="mdi-image-outline" start size="x-small" />
+                          解析中
+                        </v-chip>
+                        <span v-else>{{ segment.text }}</span>
+                      </span>
                     </v-list-item-subtitle>
 
                     <template #append>
@@ -253,6 +275,36 @@ const getSenderName = (msg: { role: string; user_name?: string; user_id?: string
   if (msg.user_name) return msg.user_name
   if (msg.user_id) return msg.user_id
   return '用户'
+}
+
+interface ContentSegment {
+  type: 'text' | 'image' | 'pending'
+  text: string
+}
+
+const renderContent = (content: string): ContentSegment[] => {
+  if (!content) return []
+  const segments: ContentSegment[] = []
+  const imgDescRe = /\[图:([^\]]*)\]/g
+  const imgPendingRe = /\[IMG:[^\]]*\]/g
+  const combinedRe = /(\[图:([^\]]*)\]|\[IMG:[^\]]*\])/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = combinedRe.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: 'text', text: content.slice(lastIndex, match.index) })
+    }
+    if (match[2] !== undefined) {
+      segments.push({ type: 'image', text: match[2] })
+    } else {
+      segments.push({ type: 'pending', text: '' })
+    }
+    lastIndex = combinedRe.lastIndex
+  }
+  if (lastIndex < content.length) {
+    segments.push({ type: 'text', text: content.slice(lastIndex) })
+  }
+  return segments
 }
 
 const formatTime = (timestamp?: string): string => {
