@@ -29,10 +29,27 @@
           <v-row>
             <v-col cols="12">
               <v-card color="surface" variant="flat">
-                <v-card-title class="d-flex align-center">
+                <v-card-title class="d-flex align-center flex-wrap ga-2">
                   <v-icon icon="mdi-clock-outline" color="secondary" class="mr-2" />
                   最新记忆
                   <v-spacer />
+                  <v-select
+                    v-model="selectedSortBy"
+                    :items="sortByOptions"
+                    label="排序字段"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    style="max-width: 150px"
+                    @update:model-value="handleSortChange"
+                  />
+                  <v-btn
+                    :icon="memoryStore.l2LatestSortOrder === 'desc' ? 'mdi-arrow-down' : 'mdi-arrow-up'"
+                    variant="outlined"
+                    density="compact"
+                    size="small"
+                    @click="toggleSortOrder"
+                  />
                   <v-select
                     v-model="selectedLimit"
                     :items="limitOptions"
@@ -98,13 +115,35 @@
                           </v-chip>
                           <div class="flex-grow-1">
                             <div class="text-body-1 text-wrap">{{ result.content }}</div>
-                            <div class="d-flex align-center mt-2 text-caption text-medium-emphasis">
-                              <v-icon icon="mdi-clock-outline" size="small" class="mr-1" />
-                              {{ formatTime(result.timestamp) }}
-                              <template v-if="result.metadata?.group_id">
-                                <v-icon icon="mdi-account-group" size="small" class="ml-3 mr-1" />
-                                {{ result.metadata.group_id }}
-                              </template>
+                            <div class="d-flex flex-wrap align-center mt-2 text-caption text-medium-emphasis ga-3">
+                              <span class="d-flex align-center">
+                                <v-icon icon="mdi-clock-outline" size="small" class="mr-1" />
+                                {{ formatTime(result.timestamp) }}
+                              </span>
+                              <span v-if="result.group_id" class="d-flex align-center">
+                                <v-icon icon="mdi-account-group" size="small" class="mr-1" />
+                                {{ result.group_id }}
+                              </span>
+                              <span class="d-flex align-center">
+                                <v-icon icon="mdi-eye-outline" size="small" class="mr-1" />
+                                {{ result.access_count ?? 0 }} 次访问
+                              </span>
+                              <span v-if="result.last_access_time" class="d-flex align-center">
+                                <v-icon icon="mdi-clock-check-outline" size="small" class="mr-1" />
+                                最近访问 {{ formatTime(result.last_access_time) }}
+                              </span>
+                              <span class="d-flex align-center">
+                                <v-icon icon="mdi-star-outline" size="small" class="mr-1" />
+                                置信度 {{ ((result.confidence ?? 0.5) * 100).toFixed(0) }}%
+                              </span>
+                              <v-chip
+                                v-if="result.source"
+                                size="x-small"
+                                variant="tonal"
+                                :color="getSourceColor(result.source)"
+                              >
+                                {{ getSourceLabel(result.source) }}
+                              </v-chip>
                             </div>
                           </div>
                           <div class="d-flex ml-2">
@@ -255,13 +294,35 @@
                           </v-chip>
                           <div class="flex-grow-1">
                             <div class="text-body-1 text-wrap">{{ result.content }}</div>
-                            <div class="d-flex align-center mt-2 text-caption text-medium-emphasis">
-                              <v-icon icon="mdi-clock-outline" size="small" class="mr-1" />
-                              {{ formatTime(result.timestamp) }}
-                              <template v-if="result.metadata?.group_id">
-                                <v-icon icon="mdi-account-group" size="small" class="ml-3 mr-1" />
-                                {{ result.metadata.group_id }}
-                              </template>
+                            <div class="d-flex flex-wrap align-center mt-2 text-caption text-medium-emphasis ga-3">
+                              <span class="d-flex align-center">
+                                <v-icon icon="mdi-clock-outline" size="small" class="mr-1" />
+                                {{ formatTime(result.timestamp) }}
+                              </span>
+                              <span v-if="result.group_id" class="d-flex align-center">
+                                <v-icon icon="mdi-account-group" size="small" class="mr-1" />
+                                {{ result.group_id }}
+                              </span>
+                              <span class="d-flex align-center">
+                                <v-icon icon="mdi-eye-outline" size="small" class="mr-1" />
+                                {{ result.access_count ?? 0 }} 次访问
+                              </span>
+                              <span v-if="result.last_access_time" class="d-flex align-center">
+                                <v-icon icon="mdi-clock-check-outline" size="small" class="mr-1" />
+                                最近访问 {{ formatTime(result.last_access_time) }}
+                              </span>
+                              <span class="d-flex align-center">
+                                <v-icon icon="mdi-star-outline" size="small" class="mr-1" />
+                                置信度 {{ ((result.confidence ?? 0.5) * 100).toFixed(0) }}%
+                              </span>
+                              <v-chip
+                                v-if="result.source"
+                                size="x-small"
+                                variant="tonal"
+                                :color="getSourceColor(result.source)"
+                              >
+                                {{ getSourceLabel(result.source) }}
+                              </v-chip>
                             </div>
                           </div>
                           <div class="d-flex ml-2">
@@ -371,7 +432,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useMemoryStore } from '@/stores'
 import { useComponentState } from '@/composables/useComponentState'
 import ComponentDisabled from '@/components/ComponentDisabled.vue'
-import type { L2Memory } from '@/types'
+import type { L2Memory, L2SortField, L2SortOrder } from '@/types'
 
 const memoryStore = useMemoryStore()
 const { status, error, errorType, refreshState } = useComponentState('l2_memory')
@@ -380,6 +441,7 @@ const activeTab = ref('latest')
 const searchQuery = ref('')
 const groupIdFilter = ref('')
 const selectedLimit = ref(20)
+const selectedSortBy = ref<L2SortField>('timestamp')
 
 const selectedLatestIds = ref<string[]>([])
 const selectedSearchIds = ref<string[]>([])
@@ -402,9 +464,27 @@ const limitOptions = [
   { title: '100 条', value: 100 }
 ]
 
+const sortByOptions = [
+  { title: '创建时间', value: 'timestamp' },
+  { title: '访问次数', value: 'access_count' },
+  { title: '置信度', value: 'confidence' },
+  { title: '最近访问', value: 'last_access_time' }
+]
+
 const handleLimitChange = (value: number) => {
   memoryStore.setL2LatestLimit(value)
   memoryStore.fetchLatestL2Memories(value)
+}
+
+const handleSortChange = (value: L2SortField) => {
+  memoryStore.setL2LatestSort(value, memoryStore.l2LatestSortOrder)
+  memoryStore.fetchLatestL2Memories()
+}
+
+const toggleSortOrder = () => {
+  const newOrder: L2SortOrder = memoryStore.l2LatestSortOrder === 'desc' ? 'asc' : 'desc'
+  memoryStore.setL2LatestSort(memoryStore.l2LatestSortBy, newOrder)
+  memoryStore.fetchLatestL2Memories()
 }
 
 const handleSearch = () => {
@@ -421,6 +501,18 @@ const getScoreColor = (score: number): string => {
   if (score >= 0.7) return 'info'
   if (score >= 0.5) return 'warning'
   return 'error'
+}
+
+const getSourceColor = (source: string): string => {
+  if (source === 'summary') return 'info'
+  if (source === 'tool') return 'success'
+  return 'secondary'
+}
+
+const getSourceLabel = (source: string): string => {
+  if (source === 'summary') return '总结'
+  if (source === 'tool') return '工具'
+  return source
 }
 
 const formatTime = (timestamp?: string): string => {
@@ -536,8 +628,13 @@ watch(activeTab, (newTab) => {
   }
 })
 
+watch(() => memoryStore.l2LatestSortBy, (val) => {
+  selectedSortBy.value = val
+})
+
 onMounted(() => {
   window.addEventListener('iris:refresh', handleRefresh)
+  selectedSortBy.value = memoryStore.l2LatestSortBy
   if (activeTab.value === 'latest') {
     memoryStore.fetchLatestL2Memories()
   }

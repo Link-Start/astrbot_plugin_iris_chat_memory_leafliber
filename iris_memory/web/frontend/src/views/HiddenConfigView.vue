@@ -281,6 +281,7 @@ const onValueChange = (item: HiddenConfigItem, newValue: unknown) => {
 
 const getGroupIcon = (name: string): string => {
   const icons: Record<string, string> = {
+    'L1 缓冲': 'mdi-lightning-bolt',
     'Token 预算': 'mdi-counter',
     '遗忘算法': 'mdi-delete-clock',
     '调试配置': 'mdi-bug',

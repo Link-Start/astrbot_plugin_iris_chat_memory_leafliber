@@ -92,7 +92,7 @@ class TestL1Buffer:
             mock_get_config.return_value.get = Mock(
                 side_effect=lambda key, default=None: {
                     "l1_buffer.enable": True,
-                    "l1_buffer.max_single_message_tokens": 10,
+                    "l1_max_single_message_tokens": 10,
                 }.get(key, default)
             )
 

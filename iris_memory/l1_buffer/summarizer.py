@@ -65,7 +65,7 @@ class Summarizer:
             return True
 
         config = get_config()
-        max_tokens = cast(int, config.get("l1_buffer.max_queue_tokens", 4000))
+        max_tokens = cast(int, config.get("l1_max_queue_tokens", 4000))
         if queue.total_tokens >= max_tokens:
             logger.debug(
                 f"队列 Token 数 {queue.total_tokens} >= {max_tokens}，触发总结"
@@ -130,6 +130,9 @@ class Summarizer:
         将消息列表转换为总结提示词。context_messages 提供完整对话上下文，
         target_messages 是实际需要总结的 L1-2 段消息。
 
+        采用保守提取策略：宁缺毋滥，不确定的信息降低置信度，
+        防止 L2 记忆爆炸增长。
+
         Args:
             context_messages: 全量上下文消息（L1-1+L1-2+L1-3）
             target_messages: 待总结的目标消息（L1-2）
@@ -140,7 +143,7 @@ class Summarizer:
         context_formatted = self._format_messages(context_messages)
         target_formatted = self._format_messages(target_messages)
 
-        prompt = f"""请分析以下对话，提取记忆信息。
+        prompt = f"""请分析以下对话，保守地提取记忆信息。
 
 ## 完整对话上下文（供理解参考）
 {context_formatted}
@@ -148,18 +151,34 @@ class Summarizer:
 ## 需要总结的对话片段（仅提取此部分的记忆）
 {target_formatted}
 
-## 提取标准（必须同时满足）
-1. **信息价值**：包含用户偏好、重要事实、计划安排、观点态度、技能经验等可复用信息
-2. **独立完整**：脱离上下文也能理解其含义
-3. **非即时性**：不是仅在当前对话中有意义
+## 核心原则：宁缺毋滥
+- 只提取你**确信**有长期价值的信息
+- 拿不准的信息不要提取，或降低置信度
+- 一次对话通常只有 1-5 条值得记住的信息
+- 如果确实没有值得记住的信息，返回空数组
 
-### 排除以下内容
+## 提取标准（必须同时满足全部条件）
+1. **信息价值**：包含用户偏好、重要事实、明确计划、鲜明观点、技能经验等可复用信息
+2. **独立完整**：脱离上下文也能理解其含义，不需要知道"他在说什么"就能看懂
+3. **非即时性**：不是仅在当前对话中有意义，未来对话仍可能有用
+4. **确定性**：信息来源明确、表述清晰，不是模糊暗示或猜测
+
+### 必须排除（即使看起来有点信息量）
 - 寒暄客套（你好、谢谢、不客气、再见等）
 - 简短回复（好的、嗯、哦、知道了、明白等）
 - 纯粹的问题（不含信息的问题本身不记录）
 - 即时性指令（如"请帮我查一下"、"翻译这段话"等一次性请求）
 - 情绪表达（哈哈、无语、生气等纯情绪词）
 - 确认性回复（收到、已读、好的收到等）
+- 模糊提及（"好像说过"、"大概是"等不确定表述中的信息）
+- 推测性内容（从对话中推断但用户未明确表达的信息）
+- 闲聊中的零散细节（除非用户明确强调或反复提及）
+
+## 置信度分级
+对每条记忆评估置信度：
+- **high**：用户明确陈述的事实、偏好、计划（如"我是程序员"、"我下周去北京"）
+- **medium**：从对话中可合理推断但用户未直接确认的信息（如用户讨论了多个编程问题→可能对编程感兴趣）
+- **low**：模糊、不确定或可能随时间变化的信息（如"最近在忙"、"好像喜欢"）
 
 ## 输出格式
 
@@ -168,16 +187,19 @@ class Summarizer:
 ```json
 {{
   "memories": [
-    "- 张三正在学习Python，觉得装饰器概念较难理解",
-    "- 李四下周三要去北京出差，周日返回"
+    {{"content": "张三是Python程序员，正在学习装饰器", "confidence": "high"}},
+    {{"content": "李四下周三要去北京出差", "confidence": "high"}},
+    {{"content": "李四可能对摄影有兴趣", "confidence": "medium"}}
   ]
 }}
 ```
 
 ## 注意事项
-1. 如果没有有效记忆，memories 数组为空
+1. 如果没有有效记忆，memories 数组为空——这完全正常
 2. 仅输出 JSON，不要添加任何其他内容
 3. 只提取"需要总结的对话片段"中的记忆，上下文仅供参考理解
+4. confidence 只能是 "high"、"medium"、"low" 三选一
+5. 大多数情况下 low 置信度的记忆不值得记录，请谨慎评估
 
 请分析并输出 JSON："""
 
@@ -209,18 +231,20 @@ class Summarizer:
 def parse_summary_response(response: str) -> dict:
     """解析总结响应
 
-    从 LLM 响应中提取 JSON 内容。
+    从 LLM 响应中提取 JSON 内容。支持两种格式：
+    - 新格式：memories 为对象数组，每项包含 content 和 confidence
+    - 旧格式：memories 为字符串数组（兼容）
 
     Args:
         response: LLM 响应文本
 
     Returns:
         解析后的字典，包含：
-        - memories: 记忆列表
+        - memories: 记忆列表（统一为对象列表，每项含 content 和 confidence）
         - group_profile: 群聊画像
         - user_profiles: 用户画像字典
     """
-    result = {"memories": [], "group_profile": {}, "user_profiles": {}}
+    result: dict = {"memories": [], "group_profile": {}, "user_profiles": {}}
 
     if not response:
         return result
@@ -229,35 +253,66 @@ def parse_summary_response(response: str) -> dict:
         try:
             parsed = json.loads(response.strip())
         except json.JSONDecodeError:
-            json_match = re.search(r"\{[\s\S]*?\}", response)
+            json_match = re.search(r"\{[\s\S]*\}", response)
             if not json_match:
                 raise
             parsed = json.loads(json_match.group())
 
-            if "memories" in parsed:
-                result["memories"] = parsed["memories"]
+        if "memories" in parsed:
+            raw_memories = parsed["memories"]
+            normalized: list[dict] = []
 
-            if "group_profile" in parsed:
-                result["group_profile"] = parsed["group_profile"]
+            for item in raw_memories:
+                if isinstance(item, dict):
+                    content = item.get("content", "")
+                    confidence = item.get("confidence", "medium")
+                    if confidence not in ("high", "medium", "low"):
+                        confidence = "medium"
+                    if content:
+                        normalized.append({"content": content, "confidence": confidence})
+                elif isinstance(item, str):
+                    content = item.lstrip("- ").strip()
+                    if content:
+                        normalized.append({"content": content, "confidence": "medium"})
 
-            if "user_profiles" in parsed:
-                result["user_profiles"] = parsed["user_profiles"]
+            result["memories"] = normalized
 
-            return result
-    except json.JSONDecodeError as e:
+        if "group_profile" in parsed:
+            result["group_profile"] = parsed["group_profile"]
+
+        if "user_profiles" in parsed:
+            result["user_profiles"] = parsed["user_profiles"]
+
+        return result
+    except (json.JSONDecodeError, ValueError) as e:
         logger.warning(f"JSON 解析失败: {e}")
 
     lines = response.strip().split("\n")
-    memories = []
+    memories: list[dict] = []
     for line in lines:
         line = line.strip()
         if line.startswith("- "):
-            memories.append(line)
+            content = line[2:].strip()
+            if content:
+                memories.append({"content": content, "confidence": "medium"})
 
     if memories:
         result["memories"] = memories
 
     return result
+
+
+def confidence_to_float(confidence: str) -> float:
+    """将置信度字符串转换为浮点数
+
+    Args:
+        confidence: 置信度级别（high/medium/low）
+
+    Returns:
+        置信度浮点数
+    """
+    mapping = {"high": 0.85, "medium": 0.6, "low": 0.35}
+    return mapping.get(confidence, 0.5)
 
 
 def format_memories_for_l2(memories: list[str]) -> str:

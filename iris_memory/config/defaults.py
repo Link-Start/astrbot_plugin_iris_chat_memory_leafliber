@@ -14,16 +14,11 @@ from typing import Literal, Optional, Dict
 
 @dataclass
 class L1BufferConfig:
-    """L1 消息上下文缓冲配置"""
+    """L1 消息上下文缓冲配置（用户可见选项）"""
 
     enable: bool = True
     summary_provider: str = ""
     inject_queue_length: int = 50
-    inject_max_content_chars: int = 200
-    segment_1_length: int = 10
-    segment_3_length: int = 10
-    max_queue_tokens: int = 4000
-    max_single_message_tokens: int = 500
 
 
 @dataclass
@@ -129,6 +124,14 @@ class HiddenConfig:
 
     # Token 预算控制
     token_budget_max_tokens: int = 2000
+
+    # L1 缓冲内部参数
+    l1_segment_1_length: int = 10  # L1-1 最新段消息数
+    l1_segment_3_length: int = 10  # L1-3 缓冲段消息数
+    l1_max_queue_tokens: int = 4000  # 队列最大 Token 数，超限触发总结
+    l1_max_single_message_tokens: int = 500  # 单条消息最大 Token 数，超限丢弃
+    l1_inject_max_content_chars: int = 200  # 注入时单条消息最大字符数，0 不截断
+    l1_max_memories_per_summary: int = 10  # 每次总结写入 L2 的最大记忆条数
 
     # 遗忘权重算法参数
     forgetting_lambda: float = 0.1  # 近因性衰减系数

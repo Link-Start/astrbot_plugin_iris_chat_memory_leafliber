@@ -48,8 +48,8 @@ _GET_CONFIG_PATCH = "iris_memory.config.get_config"
 def _default_config():
     cfg = MagicMock()
     cfg.get.side_effect = lambda key, default=None: {
-        "l1_buffer.inject_queue_length": 30,
-        "l1_buffer.inject_max_content_chars": 200,
+        "l1_buffer.inject_queue_length": 50,
+        "l1_inject_max_content_chars": 200,
     }.get(key, default)
     return cfg
 

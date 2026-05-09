@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { L1Message, L2Memory, KGGraph, KGNode, L1QueueItem, L3NodeDetail, L3EdgeDetail } from '@/types'
+import type { L1Message, L2Memory, KGGraph, KGNode, L1QueueItem, L3NodeDetail, L3EdgeDetail, L2SortField, L2SortOrder } from '@/types'
 import type { L3SearchNodeResult, L3SearchEdgeResult } from '@/api/memory'
 import * as memoryApi from '@/api/memory'
 
@@ -19,6 +19,8 @@ export const useMemoryStore = defineStore('memory', () => {
   const l2LatestResults = ref<L2Memory[]>([])
   const l2LatestLoading = ref(false)
   const l2LatestLimit = ref(20)
+  const l2LatestSortBy = ref<L2SortField>('timestamp')
+  const l2LatestSortOrder = ref<L2SortOrder>('desc')
 
   const l3Graph = ref<KGGraph>({ nodes: [], edges: [] })
   const l3StartNode = ref<KGNode | null>(null)
@@ -147,7 +149,12 @@ export const useMemoryStore = defineStore('memory', () => {
       l2LatestLimit.value = limit
     }
     try {
-      const response = await memoryApi.getLatestL2Memories(l2LatestLimit.value, groupId)
+      const response = await memoryApi.getLatestL2Memories(
+        l2LatestLimit.value,
+        groupId,
+        l2LatestSortBy.value,
+        l2LatestSortOrder.value
+      )
       l2LatestResults.value = response.results
     } catch (error) {
       console.error('获取最新L2记忆失败:', error)
@@ -159,6 +166,11 @@ export const useMemoryStore = defineStore('memory', () => {
 
   const setL2LatestLimit = (limit: number) => {
     l2LatestLimit.value = limit
+  }
+
+  const setL2LatestSort = (sortBy: L2SortField, sortOrder: L2SortOrder) => {
+    l2LatestSortBy.value = sortBy
+    l2LatestSortOrder.value = sortOrder
   }
 
   const deleteL2Entries = async (ids: string[]) => {
@@ -260,6 +272,8 @@ export const useMemoryStore = defineStore('memory', () => {
     l2LatestResults,
     l2LatestLoading,
     l2LatestLimit,
+    l2LatestSortBy,
+    l2LatestSortOrder,
     l3Graph,
     l3StartNode,
     l3Loading,
@@ -285,6 +299,7 @@ export const useMemoryStore = defineStore('memory', () => {
     clearL2Results,
     fetchLatestL2Memories,
     setL2LatestLimit,
+    setL2LatestSort,
     deleteL2Entries,
     updateL2Entry,
     searchL3,

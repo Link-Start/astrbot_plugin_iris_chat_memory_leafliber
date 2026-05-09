@@ -23,6 +23,12 @@ hidden_config_bp = Blueprint("hidden_config", __name__)
 
 _HIDDEN_CONFIG_DESCRIPTIONS: Dict[str, str] = {
     "token_budget_max_tokens": "Token 预算上限",
+    "l1_segment_1_length": "L1-1 最新段消息数（始终注入上下文）",
+    "l1_segment_3_length": "L1-3 缓冲段消息数（辅助总结理解）",
+    "l1_max_queue_tokens": "队列最大 Token 数，超限触发总结",
+    "l1_max_single_message_tokens": "单条消息最大 Token 数，超限丢弃",
+    "l1_inject_max_content_chars": "注入时单条消息最大字符数，0 不截断",
+    "l1_max_memories_per_summary": "每次总结写入 L2 的最大记忆条数",
     "forgetting_lambda": "近因性衰减系数",
     "forgetting_threshold": "遗忘阈值",
     "forgetting_immediate_eviction_threshold": "极端低分直接淘汰阈值",
@@ -93,6 +99,14 @@ _HIDDEN_CONFIG_DESCRIPTIONS: Dict[str, str] = {
 }
 
 _HIDDEN_CONFIG_GROUPS: Dict[str, list] = {
+    "L1 缓冲": [
+        "l1_segment_1_length",
+        "l1_segment_3_length",
+        "l1_max_queue_tokens",
+        "l1_max_single_message_tokens",
+        "l1_inject_max_content_chars",
+        "l1_max_memories_per_summary",
+    ],
     "Token 预算": [
         "token_budget_max_tokens",
     ],

@@ -206,9 +206,9 @@ class TestMessageToSummaryFlow:
             def config_side_effect(key, default=None):
                 config_map = {
                     "l1_buffer.enable": True,
-                    "l1_buffer.max_single_message_tokens": 100,
+                    "l1_max_single_message_tokens": 100,
                     "l1_buffer.inject_queue_length": 10,
-                    "l1_buffer.max_queue_tokens": 2000,
+                    "l1_max_queue_tokens": 2000,
                 }
                 return config_map.get(key, default)
 

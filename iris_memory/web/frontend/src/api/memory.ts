@@ -6,7 +6,9 @@ import type {
   KGNode,
   L1QueueItem,
   L3NodeDetail,
-  L3EdgeDetail
+  L3EdgeDetail,
+  L2SortField,
+  L2SortOrder
 } from '@/types'
 import apiClient from './request'
 
@@ -79,8 +81,13 @@ export const getL2Stats = async (): Promise<{ total_count: number; group_count: 
   return response.stats || { total_count: 0, group_count: 0 }
 }
 
-export const getLatestL2Memories = async (limit: number = 20, groupId?: string): Promise<L2SearchResponse> => {
-  const params: Record<string, unknown> = { limit }
+export const getLatestL2Memories = async (
+  limit: number = 20,
+  groupId?: string,
+  sortBy: L2SortField = 'timestamp',
+  sortOrder: L2SortOrder = 'desc'
+): Promise<L2SearchResponse> => {
+  const params: Record<string, unknown> = { limit, sort_by: sortBy, sort_order: sortOrder }
   if (groupId) {
     params.group_id = groupId
   }

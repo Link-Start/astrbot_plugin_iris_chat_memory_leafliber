@@ -69,6 +69,11 @@ async def search_l2_memory():
                 "score": r.score,
                 "metadata": r.entry.metadata,
                 "timestamp": r.entry.metadata.get("timestamp"),
+                "access_count": r.entry.metadata.get("access_count", 0),
+                "last_access_time": r.entry.metadata.get("last_access_time"),
+                "confidence": r.entry.metadata.get("confidence", 0.5),
+                "source": r.entry.metadata.get("source"),
+                "group_id": r.entry.metadata.get("group_id"),
             }
             for r in results
         ]
@@ -91,16 +96,24 @@ async def get_latest_l2_memories():
     Query Params:
         limit: 返回数量（默认 20，可选值：10, 20, 50, 100）
         group_id: 群聊ID（可选）
+        sort_by: 排序字段（默认 timestamp，可选值：timestamp, access_count, confidence, last_access_time）
+        sort_order: 排序方向（默认 desc，可选值：desc, asc）
 
     Response:
         {
             "success": true,
             "results": [
                 {
+                    "id": "mem_xxx",
                     "content": "记忆内容",
                     "score": 1.0,
                     "metadata": {},
-                    "timestamp": "2026-03-29T12:00:00"
+                    "timestamp": "2026-03-29T12:00:00",
+                    "access_count": 3,
+                    "last_access_time": "2026-04-01T10:00:00",
+                    "confidence": 0.85,
+                    "source": "summary",
+                    "group_id": "group_123"
                 }
             ]
         }
@@ -108,10 +121,19 @@ async def get_latest_l2_memories():
     try:
         limit = request.args.get("limit", default=20, type=int)
         group_id = request.args.get("group_id")
+        sort_by = request.args.get("sort_by", default="timestamp")
+        sort_order = request.args.get("sort_order", default="desc")
 
         valid_limits = [10, 20, 50, 100]
         if limit not in valid_limits:
             limit = 20
+
+        valid_sort_fields = ["timestamp", "access_count", "confidence", "last_access_time"]
+        if sort_by not in valid_sort_fields:
+            sort_by = "timestamp"
+
+        if sort_order not in ("asc", "desc"):
+            sort_order = "desc"
 
         manager = get_component_manager()
         l2_adapter = manager.get_component("l2_memory")
@@ -119,20 +141,38 @@ async def get_latest_l2_memories():
         if not l2_adapter or not l2_adapter.is_available:
             return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
 
-        results = await l2_adapter.get_latest_memories(limit=limit, group_id=group_id)
+        results = await l2_adapter.get_latest_memories(limit=limit * 3, group_id=group_id)
 
-        formatted_results = [
-            {
+        raw_entries = []
+        for r in results:
+            meta = r.entry.metadata
+            raw_entries.append({
                 "id": r.entry.id,
                 "content": r.entry.content,
                 "score": r.score,
-                "metadata": r.entry.metadata,
-                "timestamp": r.entry.metadata.get("timestamp"),
-            }
-            for r in results
-        ]
+                "metadata": meta,
+                "timestamp": meta.get("timestamp"),
+                "access_count": meta.get("access_count", 0),
+                "last_access_time": meta.get("last_access_time"),
+                "confidence": meta.get("confidence", 0.5),
+                "source": meta.get("source"),
+                "group_id": meta.get("group_id"),
+            })
 
-        logger.info(f"获取最新L2记忆成功：limit={limit}, 结果数={len(results)}")
+        def sort_key(entry):
+            val = entry.get(sort_by)
+            if val is None:
+                if sort_by in ("access_count", "confidence"):
+                    val = 0
+                else:
+                    val = ""
+            return val
+
+        raw_entries.sort(key=sort_key, reverse=(sort_order == "desc"))
+
+        formatted_results = raw_entries[:limit]
+
+        logger.info(f"获取最新L2记忆成功：limit={limit}, sort_by={sort_by}, sort_order={sort_order}, 结果数={len(formatted_results)}")
 
         return jsonify({"success": True, "results": formatted_results})
 

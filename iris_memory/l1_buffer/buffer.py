@@ -146,13 +146,13 @@ class L1Buffer(Component):
             self._queues[queue_key] = SegmentedMessageQueue(
                 group_id=queue_key,
                 segment_1_length=cast(
-                    int, config.get("l1_buffer.segment_1_length", 10)
+                    int, config.get("l1_segment_1_length", 10)
                 ),
                 segment_3_length=cast(
-                    int, config.get("l1_buffer.segment_3_length", 5)
+                    int, config.get("l1_segment_3_length", 10)
                 ),
                 total_length=cast(
-                    int, config.get("l1_buffer.inject_queue_length", 30)
+                    int, config.get("l1_buffer.inject_queue_length", 50)
                 ),
             )
             logger.debug(f"创建新队列：{queue_key}")
@@ -180,7 +180,7 @@ class L1Buffer(Component):
         token_count = count_tokens(content)
 
         max_single_tokens = cast(
-            int, config.get("l1_buffer.max_single_message_tokens", 2000)
+            int, config.get("l1_max_single_message_tokens", 500)
         )
         if token_count > max_single_tokens:
             logger.warning(
@@ -232,7 +232,7 @@ class L1Buffer(Component):
         queue = self._queues[queue_key]
 
         if max_length is None:
-            max_length = cast(int, config.get("l1_buffer.inject_queue_length", 30))
+            max_length = cast(int, config.get("l1_buffer.inject_queue_length", 50))
 
         messages = queue.inject_messages
 
@@ -639,7 +639,7 @@ class L1Buffer(Component):
 
         try:
             from iris_memory.l2_memory import MemoryRetriever
-            from .summarizer import parse_summary_response
+            from .summarizer import parse_summary_response, confidence_to_float
 
             retriever = MemoryRetriever(self._component_manager)
 
@@ -652,24 +652,53 @@ class L1Buffer(Component):
             summary_items = parsed.get("memories", [])
 
             if not summary_items:
-                summary_items = self._parse_summary_items(summary)
+                fallback_items = self._parse_summary_items(summary)
+                if fallback_items:
+                    summary_items = [
+                        {"content": item, "confidence": "medium"}
+                        for item in fallback_items
+                    ]
 
             if not summary_items:
-                logger.warning(f"总结解析后无有效条目，原内容：{summary[:100]}...")
+                logger.debug(f"总结解析后无有效条目，原内容：{summary[:100]}...")
                 return None
 
-            memory_ids = []
-            for item in summary_items:
-                if item.startswith("- "):
-                    item = item[2:]
+            filtered_items = [
+                item for item in summary_items if item.get("confidence") != "low"
+            ]
+            if len(filtered_items) < len(summary_items):
+                logger.info(
+                    f"过滤低置信度记忆：{len(summary_items)} -> {len(filtered_items)} 条"
+                )
 
-                user_id = self._extract_user_from_item(item, name_to_id)
+            max_per_summary = cast(
+                int, config.get("l1_max_memories_per_summary", 10)
+            )
+            if len(filtered_items) > max_per_summary:
+                priority_order = {"high": 0, "medium": 1, "low": 2}
+                filtered_items.sort(
+                    key=lambda x: priority_order.get(x.get("confidence", "medium"), 1)
+                )
+                filtered_items = filtered_items[:max_per_summary]
+                logger.info(f"限制记忆数量：截取前 {max_per_summary} 条（按置信度优先）")
+
+            memory_ids = []
+            for item in filtered_items:
+                content = item.get("content", "")
+                if not content:
+                    continue
+
+                confidence_str = item.get("confidence", "medium")
+                confidence_value = confidence_to_float(confidence_str)
+
+                user_id = self._extract_user_from_item(content, name_to_id)
 
                 metadata = {
                     "group_id": group_id,
                     "source": "l1_summary",
                     "timestamp": datetime.now().isoformat(),
-                    "confidence": 0.8,
+                    "confidence": confidence_value,
+                    "confidence_level": confidence_str,
                     "kg_processed": False,
                 }
 
@@ -679,15 +708,28 @@ class L1Buffer(Component):
                 if active_users:
                     metadata["active_users"] = ",".join(active_users)
 
-                memory_id = await retriever.add_from_summary(item, metadata)
+                memory_id = await retriever.add_from_summary(content, metadata)
                 if memory_id:
                     memory_ids.append(memory_id)
 
             if memory_ids:
-                logger.info(f"已将 {len(memory_ids)} 条记忆写入 L2 记忆库")
+                high_count = sum(
+                    1
+                    for item in filtered_items[: len(memory_ids)]
+                    if item.get("confidence") == "high"
+                )
+                medium_count = sum(
+                    1
+                    for item in filtered_items[: len(memory_ids)]
+                    if item.get("confidence") == "medium"
+                )
+                logger.info(
+                    f"已将 {len(memory_ids)} 条记忆写入 L2 记忆库 "
+                    f"(high={high_count}, medium={medium_count})"
+                )
                 return memory_ids[0]
             else:
-                logger.warning("写入 L2 记忆库失败")
+                logger.debug("写入 L2 记忆库：无新记忆（可能全部去重）")
                 return None
 
         except Exception as e:
@@ -777,14 +819,8 @@ class L1Buffer(Component):
             "queue_count": queue_count,
             "total_messages": total_messages,
             "total_tokens": total_tokens,
-            "segment_1_length": cast(
-                int, config.get("l1_buffer.segment_1_length", 10)
-            ),
-            "segment_3_length": cast(
-                int, config.get("l1_buffer.segment_3_length", 5)
-            ),
-            "total_length": cast(
-                int, config.get("l1_buffer.inject_queue_length", 30)
+            "max_capacity": cast(
+                int, config.get("l1_buffer.inject_queue_length", 50)
             ),
             "max_queue_length": max_queue_length,
         }

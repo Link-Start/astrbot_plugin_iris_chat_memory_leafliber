@@ -6,7 +6,7 @@ Iris Chat Memory - L1 消息上下文缓冲模块
 
 from .models import ContextMessage, MessageQueue, SegmentedMessageQueue
 from .buffer import L1Buffer
-from .summarizer import Summarizer
+from .summarizer import Summarizer, parse_summary_response, confidence_to_float
 
 __all__ = [
     "ContextMessage",
@@ -14,4 +14,6 @@ __all__ = [
     "SegmentedMessageQueue",
     "L1Buffer",
     "Summarizer",
+    "parse_summary_response",
+    "confidence_to_float",
 ]

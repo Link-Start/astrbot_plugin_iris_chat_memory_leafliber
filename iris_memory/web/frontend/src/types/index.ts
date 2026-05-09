@@ -51,12 +51,21 @@ export interface L1QueueItem {
 }
 
 // L2 记忆条目
+export type L2SortField = 'timestamp' | 'access_count' | 'confidence' | 'last_access_time'
+
+export type L2SortOrder = 'asc' | 'desc'
+
 export interface L2Memory {
   id: string
   content: string
   score: number
   metadata: Record<string, unknown>
   timestamp?: string
+  access_count?: number
+  last_access_time?: string
+  confidence?: number
+  source?: string
+  group_id?: string
 }
 
 // L3 图谱节点
@@ -191,7 +200,9 @@ export interface TokenStatsResponse {
 
 // L1 统计
 export interface L1Stats {
+  queue_count?: number
   total_messages?: number
+  total_tokens?: number
   max_capacity?: number
   max_queue_length?: number
 }

@@ -1,10 +1,15 @@
 """总结器测试"""
 
+import json
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime
 
 from iris_memory.l1_buffer import Summarizer, SegmentedMessageQueue, ContextMessage
+from iris_memory.l1_buffer.summarizer import (
+    parse_summary_response,
+    confidence_to_float,
+)
 
 
 @pytest.fixture
@@ -67,7 +72,7 @@ class TestSummarizer:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.max_queue_tokens": 10000,
+                    "l1_max_queue_tokens": 10000,
                 }.get(key)
             )
             mock_get_config.return_value = mock_config
@@ -81,7 +86,7 @@ class TestSummarizer:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.max_queue_tokens": 40,
+                    "l1_max_queue_tokens": 40,
                 }.get(key)
             )
             mock_get_config.return_value = mock_config
@@ -112,7 +117,7 @@ class TestSummarizer:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.max_queue_tokens": 10000,
+                    "l1_max_queue_tokens": 10000,
                 }.get(key)
             )
             mock_get_config.return_value = mock_config
@@ -169,10 +174,11 @@ class TestSummarizer:
 
         assert "[张三]: 你好" in prompt
         assert "[助手]: 你好！" in prompt
-        assert "提取记忆信息" in prompt
+        assert "保守" in prompt
         assert "memories" in prompt
         assert "完整对话上下文" in prompt
         assert "需要总结的对话片段" in prompt
+        assert "confidence" in prompt
 
     def test_build_summary_prompt_format(self, mock_llm_manager):
         summarizer = Summarizer(llm_manager=mock_llm_manager)
@@ -200,7 +206,12 @@ class TestSummarizer:
         assert "信息价值" in prompt
         assert "独立完整" in prompt
         assert "非即时性" in prompt
+        assert "确定性" in prompt
         assert "JSON" in prompt
+        assert "宁缺毋滥" in prompt
+        assert "high" in prompt
+        assert "medium" in prompt
+        assert "low" in prompt
 
     def test_build_summary_prompt_with_user_names(self, mock_llm_manager):
         summarizer = Summarizer(llm_manager=mock_llm_manager)
@@ -282,7 +293,7 @@ class TestSummarizer:
         assert "新消息" in prompt
 
     def test_format_messages(self, mock_llm_manager):
-        summarizer = Summarizer(llm_manager=mock_llm_manager)
+        _ = Summarizer(llm_manager=mock_llm_manager)
 
         messages = [
             ContextMessage(
@@ -383,3 +394,136 @@ class TestSegmentedQueueSummarization:
         assert len(queue.segment_3) == 2
         assert list(queue.segment_3) == old_seg2[-2:]
         assert list(queue.segment_1) == old_seg1
+
+
+class TestParseSummaryResponse:
+    def test_parse_new_format_with_confidence(self):
+        response = json.dumps(
+            {
+                "memories": [
+                    {"content": "张三是程序员", "confidence": "high"},
+                    {"content": "李四可能喜欢摄影", "confidence": "medium"},
+                    {"content": "王五好像在忙", "confidence": "low"},
+                ]
+            }
+        )
+
+        result = parse_summary_response(response)
+
+        assert len(result["memories"]) == 3
+        assert result["memories"][0] == {
+            "content": "张三是程序员",
+            "confidence": "high",
+        }
+        assert result["memories"][1] == {
+            "content": "李四可能喜欢摄影",
+            "confidence": "medium",
+        }
+        assert result["memories"][2] == {
+            "content": "王五好像在忙",
+            "confidence": "low",
+        }
+
+    def test_parse_old_format_string_array(self):
+        response = json.dumps(
+            {
+                "memories": [
+                    "- 张三是程序员",
+                    "李四喜欢摄影",
+                ]
+            }
+        )
+
+        result = parse_summary_response(response)
+
+        assert len(result["memories"]) == 2
+        assert result["memories"][0] == {
+            "content": "张三是程序员",
+            "confidence": "medium",
+        }
+        assert result["memories"][1] == {
+            "content": "李四喜欢摄影",
+            "confidence": "medium",
+        }
+
+    def test_parse_empty_memories(self):
+        response = json.dumps({"memories": []})
+
+        result = parse_summary_response(response)
+
+        assert result["memories"] == []
+
+    def test_parse_empty_response(self):
+        result = parse_summary_response("")
+
+        assert result["memories"] == []
+
+    def test_parse_fallback_dash_format(self):
+        response = "- 张三是程序员\n- 李四喜欢摄影"
+
+        result = parse_summary_response(response)
+
+        assert len(result["memories"]) == 2
+        assert result["memories"][0]["content"] == "张三是程序员"
+        assert result["memories"][0]["confidence"] == "medium"
+
+    def test_parse_invalid_confidence_normalized(self):
+        response = json.dumps(
+            {
+                "memories": [
+                    {"content": "测试", "confidence": "invalid_value"},
+                ]
+            }
+        )
+
+        result = parse_summary_response(response)
+
+        assert result["memories"][0]["confidence"] == "medium"
+
+    def test_parse_dict_without_content_skipped(self):
+        response = json.dumps(
+            {
+                "memories": [
+                    {"content": "", "confidence": "high"},
+                    {"content": "有效内容", "confidence": "high"},
+                ]
+            }
+        )
+
+        result = parse_summary_response(response)
+
+        assert len(result["memories"]) == 1
+        assert result["memories"][0]["content"] == "有效内容"
+
+    def test_parse_mixed_format(self):
+        response = json.dumps(
+            {
+                "memories": [
+                    {"content": "新格式记忆", "confidence": "high"},
+                    "旧格式记忆",
+                ]
+            }
+        )
+
+        result = parse_summary_response(response)
+
+        assert len(result["memories"]) == 2
+        assert result["memories"][0]["confidence"] == "high"
+        assert result["memories"][1]["confidence"] == "medium"
+
+
+class TestConfidenceToFloat:
+    def test_high_confidence(self):
+        assert confidence_to_float("high") == 0.85
+
+    def test_medium_confidence(self):
+        assert confidence_to_float("medium") == 0.6
+
+    def test_low_confidence(self):
+        assert confidence_to_float("low") == 0.35
+
+    def test_unknown_confidence(self):
+        assert confidence_to_float("unknown") == 0.5
+
+    def test_empty_confidence(self):
+        assert confidence_to_float("") == 0.5

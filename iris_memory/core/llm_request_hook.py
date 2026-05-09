@@ -260,7 +260,7 @@ async def _collect_l1_context(
     adapter = get_adapter(event)
     group_id = adapter.get_group_id(event)
 
-    max_length = cast(int, config.get("l1_buffer.inject_queue_length", 30))
+    max_length = cast(int, config.get("l1_buffer.inject_queue_length", 50))
 
     messages = l1_buffer.get_context(group_id, max_length)
     if not messages:
@@ -280,7 +280,7 @@ async def _collect_l1_context(
         logger.debug(f"群聊 {group_id} 排除当前消息后 L1 上下文为空，跳过注入")
         return ""
 
-    max_content_chars = cast(int, config.get("l1_buffer.inject_max_content_chars", 200))
+    max_content_chars = cast(int, config.get("l1_inject_max_content_chars", 200))
 
     lines = []
     if group_id:
