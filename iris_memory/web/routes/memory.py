@@ -33,10 +33,16 @@ async def search_l2_memory():
             "success": true,
             "results": [
                 {
+                    "id": "mem_xxx",
                     "content": "记忆内容",
                     "score": 0.95,
                     "metadata": {},
-                    "timestamp": "2026-03-29T12:00:00"
+                    "timestamp": "2026-03-29T12:00:00",
+                    "access_count": 3,
+                    "last_access_time": "2026-04-01T10:00:00",
+                    "confidence": 0.85,
+                    "source": "summary",
+                    "group_id": "group_123"
                 }
             ]
         }
@@ -141,15 +147,17 @@ async def get_latest_l2_memories():
         if not l2_adapter or not l2_adapter.is_available:
             return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
 
-        results = await l2_adapter.get_latest_memories(limit=limit * 3, group_id=group_id)
+        all_entries = await l2_adapter.get_all_entries()
 
         raw_entries = []
-        for r in results:
-            meta = r.entry.metadata
+        for entry in all_entries:
+            meta = entry.metadata
+            if group_id and meta.get("group_id") != group_id:
+                continue
             raw_entries.append({
-                "id": r.entry.id,
-                "content": r.entry.content,
-                "score": r.score,
+                "id": entry.id,
+                "content": entry.content,
+                "score": 1.0,
                 "metadata": meta,
                 "timestamp": meta.get("timestamp"),
                 "access_count": meta.get("access_count", 0),
@@ -166,6 +174,11 @@ async def get_latest_l2_memories():
                     val = 0
                 else:
                     val = ""
+            if sort_by in ("access_count", "confidence") and isinstance(val, str):
+                try:
+                    val = float(val)
+                except (ValueError, TypeError):
+                    val = 0
             return val
 
         raw_entries.sort(key=sort_key, reverse=(sort_order == "desc"))

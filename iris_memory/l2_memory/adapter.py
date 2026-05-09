@@ -1388,21 +1388,14 @@ class L2MemoryAdapter(Component):
         try:
             loop = asyncio.get_event_loop()
 
-            query_params: Dict[str, Any] = {"n_results": limit * 3}
+            get_kwargs: Dict[str, Any] = {"include": ["documents", "metadatas"]}
 
             if group_id:
-                query_params["where"] = {"group_id": group_id}
+                get_kwargs["where"] = {"group_id": group_id}
 
             results = await loop.run_in_executor(
                 None,
-                lambda: self._collection.get(
-                    include=["documents", "metadatas"],
-                    **(
-                        {"where": query_params["where"]}
-                        if "where" in query_params
-                        else {}
-                    ),
-                ),
+                lambda: self._collection.get(**get_kwargs),
             )
 
             if not results["ids"]:

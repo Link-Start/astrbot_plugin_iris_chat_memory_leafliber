@@ -503,16 +503,16 @@ const getScoreColor = (score: number): string => {
   return 'error'
 }
 
-const getSourceColor = (source: string): string => {
+const getSourceColor = (source?: string): string => {
   if (source === 'summary') return 'info'
   if (source === 'tool') return 'success'
   return 'secondary'
 }
 
-const getSourceLabel = (source: string): string => {
+const getSourceLabel = (source?: string): string => {
   if (source === 'summary') return '总结'
   if (source === 'tool') return '工具'
-  return source
+  return source || '未知'
 }
 
 const formatTime = (timestamp?: string): string => {
