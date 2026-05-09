@@ -88,6 +88,10 @@ class IrisChatMemoryPlugin(Star):
 
         set_component_manager(self.component_manager)
 
+        from iris_memory.image.recorder_bridge import init_recorder_bridge
+
+        init_recorder_bridge(context)
+
         self._register_llm_tools()
         self._register_command_handlers()
 

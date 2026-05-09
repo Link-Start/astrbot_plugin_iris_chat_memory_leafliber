@@ -475,5 +475,7 @@ class TestImageParsingIntegration:
 
             # 验证 ImageParser 使用正确的 provider 创建
             MockImageParser.assert_called_once_with(
-                mock_llm_manager, "custom_vision_provider"
+                mock_llm_manager,
+                "custom_vision_provider",
+                recorder_bridge=None,
             )

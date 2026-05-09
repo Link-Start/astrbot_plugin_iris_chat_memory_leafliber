@@ -488,7 +488,10 @@ async def _parse_images_if_enabled(
             return
 
     provider = config.get("image_parsing.provider", "")
-    parser = ImageParser(llm_manager, provider)
+
+    from iris_memory.image.recorder_bridge import get_recorder_bridge
+
+    parser = ImageParser(llm_manager, provider, recorder_bridge=get_recorder_bridge())
 
     logger.info(f"开始解析 {len(images_to_parse)} 张图片（all 模式）")
 

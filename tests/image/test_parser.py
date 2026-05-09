@@ -43,13 +43,13 @@ class TestImageParser:
 
     @pytest.mark.asyncio
     async def test_parse_with_file_path(self, parser):
-        """测试使用文件路径解析图片（暂不支持）"""
+        """测试使用文件路径解析图片（文件不存在时回退到 URL 检查）"""
         image_info = ImageInfo(file_path="/path/to/image.jpg", format="jpg")
 
         result = await parser.parse(image_info)
 
         assert not result.success
-        assert "本地图片暂不支持" in result.error_message
+        assert "图片信息无效" in result.error_message
 
     @pytest.mark.asyncio
     async def test_parse_with_invalid_info(self, parser):
