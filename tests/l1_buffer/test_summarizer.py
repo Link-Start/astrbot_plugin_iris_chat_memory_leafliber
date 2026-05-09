@@ -314,7 +314,7 @@ class TestSegmentedQueueSummarization:
             group_id="g1",
             segment_1_length=2,
             segment_3_length=2,
-            total_length=8,
+            total_length=6,
         )
 
         for i in range(8):
@@ -335,7 +335,7 @@ class TestSegmentedQueueSummarization:
             group_id="g1",
             segment_1_length=2,
             segment_3_length=2,
-            total_length=8,
+            total_length=6,
         )
 
         for i in range(8):
@@ -352,7 +352,7 @@ class TestSegmentedQueueSummarization:
         target = list(queue.segment_2)
         context = queue.all_messages
 
-        assert len(target) == 4
+        assert len(target) == 6
         assert len(context) == 8
 
     def test_after_rotate_segments_shift(self):
@@ -360,7 +360,7 @@ class TestSegmentedQueueSummarization:
             group_id="g1",
             segment_1_length=2,
             segment_3_length=2,
-            total_length=8,
+            total_length=6,
         )
 
         for i in range(8):
@@ -379,6 +379,7 @@ class TestSegmentedQueueSummarization:
 
         queue.rotate_after_summary()
 
-        assert list(queue.segment_2) == old_seg1
-        assert list(queue.segment_3) == old_seg2
-        assert len(queue.segment_1) == 0
+        assert list(queue.segment_2) == []
+        assert len(queue.segment_3) == 2
+        assert list(queue.segment_3) == old_seg2[-2:]
+        assert list(queue.segment_1) == old_seg1

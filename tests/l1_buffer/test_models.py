@@ -73,7 +73,10 @@ class TestContextMessage:
 
 
 class TestSegmentedMessageQueue:
-    """SegmentedMessageQueue 三段式队列测试"""
+    """SegmentedMessageQueue 三段式队列测试
+
+    L1-1 和 L1-2 组成 FIFO，L1-3 不参与 FIFO 流动。
+    """
 
     def test_create_queue(self):
         queue = SegmentedMessageQueue(group_id="group_123")
@@ -84,7 +87,7 @@ class TestSegmentedMessageQueue:
         assert queue.segment_1_length == 10
         assert queue.segment_3_length == 5
         assert queue.total_length == 30
-        assert queue.segment_2_length == 15
+        assert queue.segment_2_length == 20
 
     def test_create_queue_custom_lengths(self):
         queue = SegmentedMessageQueue(
@@ -97,13 +100,13 @@ class TestSegmentedMessageQueue:
         assert queue.segment_1_length == 5
         assert queue.segment_3_length == 3
         assert queue.total_length == 20
-        assert queue.segment_2_length == 12
+        assert queue.segment_2_length == 15
 
     def test_segment_2_length_minimum(self):
         queue = SegmentedMessageQueue(
             group_id="g1",
-            segment_1_length=15,
-            segment_3_length=20,
+            segment_1_length=29,
+            segment_3_length=5,
             total_length=30,
         )
 
@@ -148,12 +151,13 @@ class TestSegmentedMessageQueue:
         assert len(queue.segment_2) == 2
         assert len(queue.segment_3) == 0
 
-    def test_overflow_from_seg2_to_seg3(self):
+    def test_no_overflow_to_seg3(self):
+        """L1-3 不参与 FIFO 流动，消息不会从 L1-2 溢出到 L1-3"""
         queue = SegmentedMessageQueue(
-            group_id="g1", segment_1_length=2, segment_3_length=2, total_length=8
+            group_id="g1", segment_1_length=2, segment_3_length=2, total_length=6
         )
 
-        for i in range(8):
+        for i in range(10):
             queue.add_message(
                 ContextMessage(
                     role="user",
@@ -165,12 +169,13 @@ class TestSegmentedMessageQueue:
             )
 
         assert len(queue.segment_1) == 2
-        assert len(queue.segment_2) == 4
-        assert len(queue.segment_3) == 2
+        assert len(queue.segment_2) == 8
+        assert len(queue.segment_3) == 0
 
-    def test_is_full(self):
+    def test_is_full_when_seg2_full(self):
+        """L1-2 满时触发 is_full"""
         queue = SegmentedMessageQueue(
-            group_id="g1", segment_1_length=2, segment_3_length=2, total_length=8
+            group_id="g1", segment_1_length=2, segment_3_length=2, total_length=6
         )
 
         for i in range(8):
@@ -184,6 +189,7 @@ class TestSegmentedMessageQueue:
                 )
             )
 
+        assert len(queue.segment_2) >= queue.segment_2_length
         assert queue.is_full()
 
     def test_is_not_full(self):
@@ -209,7 +215,7 @@ class TestSegmentedMessageQueue:
             group_id="g1", segment_1_length=2, segment_3_length=2, total_length=8
         )
 
-        for i in range(7):
+        for i in range(5):
             queue.add_message(
                 ContextMessage(
                     role="user",
@@ -222,16 +228,30 @@ class TestSegmentedMessageQueue:
 
         all_msgs = queue.all_messages
 
-        assert len(all_msgs) == 7
+        assert len(all_msgs) == 5
         assert all_msgs[0].content == "消息0"
-        assert all_msgs[-1].content == "消息6"
+        assert all_msgs[-1].content == "消息4"
 
     def test_inject_messages_excludes_seg3(self):
+        """inject_messages 不包含 L1-3 的消息"""
         queue = SegmentedMessageQueue(
             group_id="g1", segment_1_length=2, segment_3_length=2, total_length=8
         )
 
-        for i in range(9):
+        for i in range(5):
+            queue.add_message(
+                ContextMessage(
+                    role="user",
+                    content=f"消息{i}",
+                    timestamp=datetime.now(),
+                    token_count=1,
+                    source="user",
+                )
+            )
+
+        queue.rotate_after_summary()
+
+        for i in range(5, 8):
             queue.add_message(
                 ContextMessage(
                     role="user",
@@ -244,19 +264,18 @@ class TestSegmentedMessageQueue:
 
         inject = queue.inject_messages
 
-        assert len(queue.segment_3) == 3
-        assert len(inject) == 6
         seg3_contents = {m.content for m in queue.segment_3}
         inject_contents = {m.content for m in inject}
         assert seg3_contents.isdisjoint(inject_contents)
         assert len(inject) == len(queue.segment_1) + len(queue.segment_2)
 
     def test_rotate_after_summary(self):
+        """总结后：L1-2 最新部分→L1-3，L1-2 清空，L1-1 不动"""
         queue = SegmentedMessageQueue(
-            group_id="g1", segment_1_length=2, segment_3_length=2, total_length=8
+            group_id="g1", segment_1_length=2, segment_3_length=2, total_length=6
         )
 
-        for i in range(7):
+        for i in range(8):
             queue.add_message(
                 ContextMessage(
                     role="user",
@@ -267,25 +286,28 @@ class TestSegmentedMessageQueue:
                 )
             )
 
-        assert len(queue.segment_3) == 1
-        assert len(queue.segment_2) == 4
         assert len(queue.segment_1) == 2
+        assert len(queue.segment_2) == 6
+        assert len(queue.segment_3) == 0
 
         queue.rotate_after_summary()
 
-        assert len(queue.segment_1) == 0
-        assert len(queue.segment_2) == 2
-        assert len(queue.segment_3) == 4
+        assert len(queue.segment_1) == 2
+        assert len(queue.segment_2) == 0
+        assert len(queue.segment_3) == 2
 
-        inject = queue.inject_messages
-        assert len(inject) == 2
+        assert queue.segment_3[0].content == "消息4"
+        assert queue.segment_3[1].content == "消息5"
+
+        assert queue.segment_1[0].content == "消息6"
+        assert queue.segment_1[1].content == "消息7"
 
     def test_rotate_after_summary_token_update(self):
         queue = SegmentedMessageQueue(
-            group_id="g1", segment_1_length=2, segment_3_length=2, total_length=8
+            group_id="g1", segment_1_length=2, segment_3_length=2, total_length=6
         )
 
-        for i in range(7):
+        for i in range(8):
             queue.add_message(
                 ContextMessage(
                     role="user",
@@ -296,11 +318,38 @@ class TestSegmentedMessageQueue:
                 )
             )
 
-        assert queue.total_tokens == 70
+        assert queue.total_tokens == 80
 
         queue.rotate_after_summary()
 
-        assert queue.total_tokens == 20
+        assert len(queue.segment_1) == 2
+        assert len(queue.segment_3) == 2
+        assert queue.total_tokens == 40
+
+    def test_rotate_when_seg2_less_than_seg3_capacity(self):
+        """L1-2 消息数少于 L1-3 容量时，全部转入 L1-3"""
+        queue = SegmentedMessageQueue(
+            group_id="g1", segment_1_length=2, segment_3_length=5, total_length=6
+        )
+
+        for i in range(4):
+            queue.add_message(
+                ContextMessage(
+                    role="user",
+                    content=f"消息{i}",
+                    timestamp=datetime.now(),
+                    token_count=1,
+                    source="user",
+                )
+            )
+
+        assert len(queue.segment_2) == 2
+
+        queue.rotate_after_summary()
+
+        assert len(queue.segment_3) == 2
+        assert len(queue.segment_2) == 0
+        assert len(queue.segment_1) == 2
 
     def test_clear(self):
         queue = SegmentedMessageQueue(
@@ -421,8 +470,9 @@ class TestSegmentedMessageQueue:
         assert MessageQueue is SegmentedMessageQueue
 
     def test_full_cycle_add_summarize_rotate(self):
+        """完整周期：添加→满→总结→rotate→继续添加"""
         queue = SegmentedMessageQueue(
-            group_id="g1", segment_1_length=2, segment_3_length=2, total_length=8
+            group_id="g1", segment_1_length=2, segment_3_length=2, total_length=6
         )
 
         for i in range(8):
@@ -437,15 +487,15 @@ class TestSegmentedMessageQueue:
             )
 
         assert queue.is_full()
-        assert len(queue.segment_3) == 2
 
         queue.rotate_after_summary()
 
-        assert len(queue.segment_1) == 0
-        assert len(queue.segment_2) == 2
-        assert len(queue.segment_3) == 4
+        assert len(queue.segment_1) == 2
+        assert len(queue.segment_2) == 0
+        assert len(queue.segment_3) == 2
+        assert queue.total_tokens == 4
 
-        for i in range(8, 10):
+        for i in range(8, 12):
             queue.add_message(
                 ContextMessage(
                     role="user",
@@ -457,8 +507,35 @@ class TestSegmentedMessageQueue:
             )
 
         assert len(queue.segment_1) == 2
-        assert len(queue.segment_2) == 2
-        assert len(queue.segment_3) == 4
+        assert len(queue.segment_2) == 4
+        assert len(queue.segment_3) == 2
 
         inject = queue.inject_messages
-        assert len(inject) == 4
+        assert len(inject) == 6
+        seg3_contents = {m.content for m in queue.segment_3}
+        inject_contents = {m.content for m in inject}
+        assert seg3_contents.isdisjoint(inject_contents)
+
+    def test_multiple_rotate_cycles(self):
+        """多次 rotate 周期，验证 token 不会出现负数"""
+        queue = SegmentedMessageQueue(
+            group_id="g1", segment_1_length=2, segment_3_length=2, total_length=6
+        )
+
+        for cycle in range(5):
+            for i in range(8):
+                queue.add_message(
+                    ContextMessage(
+                        role="user",
+                        content=f"周期{cycle}_消息{i}",
+                        timestamp=datetime.now(),
+                        token_count=10,
+                        source="user",
+                    )
+                )
+
+            assert queue.is_full()
+            queue.rotate_after_summary()
+            assert queue.total_tokens >= 0
+
+        assert queue.total_tokens > 0

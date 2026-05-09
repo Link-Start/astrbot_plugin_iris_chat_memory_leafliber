@@ -85,17 +85,20 @@ class SegmentedMessageQueue:
     """三段式 FIFO 消息队列
 
     队列分为三段：
-    - L1-1（segment_1）：最新段，接收新消息，注入上下文，总结时辅助理解
+    - L1-1（segment_1）：最新段，接收新消息，注入上下文
     - L1-2（segment_2）：主体段，注入上下文，总结时的目标段
-    - L1-3（segment_3）：缓冲段，不注入上下文，总结时辅助理解
+    - L1-3（segment_3）：辅助段，不注入上下文，仅作为总结时的辅助理解
 
-    数据流：新消息 → L1-1 → 溢出到 L1-2 → 溢出到 L1-3 → 触发总结
+    L1-1 和 L1-2 组成首尾链接的 FIFO 队列，消息从 L1-1 流向 L1-2。
+    L1-3 不参与 FIFO 流动，仅保存旧 L1-2 的最新部分作为下次总结的上下文。
+
+    数据流：新消息 → L1-1 → 溢出到 L1-2 → L1-2 满时触发总结
 
     总结后段位转移：
     - 旧 L1-3 → 删除
-    - 旧 L1-2 → 内容删除（已总结到L2），槽位成为新 L1-3
-    - 旧 L1-1 → 成为新 L1-2
-    - 新 L1-1 → 空，接收新消息
+    - 旧 L1-2 最新部分 → 新 L1-3（填满，辅助下次总结）
+    - 旧 L1-2 其余部分 → 删除（已总结到 L2）
+    - L1-1 → 不动
 
     Note:
         本类非线程安全。在 asyncio 单线程事件循环中，同步方法在同一个
@@ -106,11 +109,11 @@ class SegmentedMessageQueue:
         group_id: 群聊ID
         segment_1: L1-1 最新段
         segment_2: L1-2 主体段
-        segment_3: L1-3 缓冲段
+        segment_3: L1-3 辅助段
         total_tokens: 队列总 Token 数
         segment_1_length: L1-1 段最大长度
         segment_3_length: L1-3 段最大长度
-        total_length: 队列总长度
+        total_length: 队列总长度（L1-1 + L1-2）
     """
 
     group_id: str
@@ -124,8 +127,8 @@ class SegmentedMessageQueue:
 
     @property
     def segment_2_length(self) -> int:
-        """L1-2 段最大长度（由总长减去 L1-1 和 L1-3 计算得出）"""
-        return max(1, self.total_length - self.segment_1_length - self.segment_3_length)
+        """L1-2 段最大长度（由总长减去 L1-1 计算得出，L1-3 不占 FIFO 容量）"""
+        return max(1, self.total_length - self.segment_1_length)
 
     @property
     def all_messages(self) -> list[ContextMessage]:
@@ -140,7 +143,7 @@ class SegmentedMessageQueue:
     def add_message(self, message: ContextMessage) -> None:
         """添加消息到队列
 
-        消息先入 L1-1，溢出时依次推入 L1-2 → L1-3。
+        消息先入 L1-1，溢出时推入 L1-2。L1-3 不参与 FIFO 流动。
 
         Args:
             message: 要添加的消息
@@ -150,34 +153,39 @@ class SegmentedMessageQueue:
         self._overflow()
 
     def _overflow(self) -> None:
-        """段间溢出处理：L1-1 → L1-2 → L1-3"""
+        """段间溢出处理：L1-1 → L1-2（L1-3 不参与 FIFO 流动）"""
         while len(self.segment_1) > self.segment_1_length:
             msg = self.segment_1.popleft()
             self.segment_2.append(msg)
 
-        while len(self.segment_2) > self.segment_2_length:
-            msg = self.segment_2.popleft()
-            self.segment_3.append(msg)
-
     def is_full(self) -> bool:
-        """检查队列是否已满（L1-3 段达到上限）"""
-        return len(self.segment_3) >= self.segment_3_length
+        """检查队列是否已满（L1-2 段达到上限，需要触发总结）"""
+        return len(self.segment_2) >= self.segment_2_length
 
     def rotate_after_summary(self) -> None:
         """总结后段位转移
 
         旧 L1-3 → 删除
-        旧 L1-2 → 内容删除（已总结到L2），槽位成为新 L1-3
-        旧 L1-1 → 成为新 L1-2
-        新 L1-1 → 空
+        旧 L1-2 最新部分 → 新 L1-3（填满至 segment_3_length，辅助下次总结）
+        旧 L1-2 其余部分 → 删除（已总结到 L2）
+        L1-1 → 不动
         """
-        seg3_removed_tokens = sum(m.token_count for m in self.segment_3)
-        seg2_removed_tokens = sum(m.token_count for m in self.segment_2)
-        self.total_tokens -= seg3_removed_tokens + seg2_removed_tokens
+        old_seg3_tokens = sum(m.token_count for m in self.segment_3)
 
-        self.segment_3 = self.segment_2
-        self.segment_2 = self.segment_1
-        self.segment_1 = deque()
+        old_seg2_list = list(self.segment_2)
+        seg3_count = min(self.segment_3_length, len(old_seg2_list))
+        new_seg3 = deque(old_seg2_list[-seg3_count:])
+
+        new_seg3_tokens = sum(m.token_count for m in new_seg3)
+        removed_tokens = (
+            old_seg3_tokens
+            + sum(m.token_count for m in self.segment_2)
+            - new_seg3_tokens
+        )
+        self.total_tokens -= removed_tokens
+
+        self.segment_3 = new_seg3
+        self.segment_2 = deque()
 
     def clear(self) -> None:
         """清空所有段的消息并重置 Token 计数"""
