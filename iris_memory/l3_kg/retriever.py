@@ -266,6 +266,10 @@ class GraphRetriever:
             for edge in edges:
                 source_id = edge.get("source", edge.get("_src", ""))
                 target_id = edge.get("target", edge.get("_dst", ""))
+                if isinstance(source_id, dict):
+                    source_id = source_id.get("id", "")
+                if isinstance(target_id, dict):
+                    target_id = target_id.get("id", "")
                 relation = edge.get("relation_type", "")
 
                 source_node = node_map.get(source_id, {})

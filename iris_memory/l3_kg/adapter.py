@@ -517,10 +517,13 @@ class L3KGAdapter(Component):
                     if isinstance(e, dict):
                         edges.append(e)
 
+            def _edge_id(v):
+                return v.get("id", "") if isinstance(v, dict) else str(v)
+
             nodes = list({n["id"]: n for n in nodes}.values())
             edges = list(
                 {
-                    f"{e.get('source', '')}-{e.get('relation_type', '')}-{e.get('target', '')}": e
+                    f"{_edge_id(e.get('source', ''))}-{e.get('relation_type', '')}-{_edge_id(e.get('target', ''))}": e
                     for e in edges
                 }.values()
             )
