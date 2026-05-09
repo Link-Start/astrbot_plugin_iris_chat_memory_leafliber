@@ -7,6 +7,7 @@ Iris Chat Memory - 图片解析器
 
 from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING
+import asyncio
 
 from iris_memory.core import get_logger
 from .models import ImageInfo, ParseResult
@@ -75,9 +76,7 @@ class ImageParser:
             if local_path:
                 data_url = MessageRecorderBridge.image_to_data_url(local_path)
                 if data_url:
-                    logger.debug(
-                        f"使用 MessageRecorder 本地图片：{local_path.name}"
-                    )
+                    logger.debug(f"使用 MessageRecorder 本地图片：{local_path.name}")
                     return data_url
 
         if image_info.has_file_path and image_info.file_path:
@@ -129,21 +128,26 @@ class ImageParser:
                 image_info=image_info, success=False, error_message=str(e)
             )
 
-    async def parse_batch(self, images: List[ImageInfo]) -> List[ParseResult]:
+    async def parse_batch(
+        self, images: List[ImageInfo], max_concurrent: int = 3
+    ) -> List[ParseResult]:
         """批量解析图片
 
         Args:
             images: 图片信息列表
+            max_concurrent: 最大并发数
 
         Returns:
             解析结果列表
         """
-        results = []
-        for image in images:
-            result = await self.parse(image)
-            results.append(result)
+        semaphore = asyncio.Semaphore(max_concurrent)
 
-        return results
+        async def _parse_with_semaphore(image: ImageInfo) -> ParseResult:
+            async with semaphore:
+                return await self.parse(image)
+
+        tasks = [_parse_with_semaphore(img) for img in images]
+        return list(await asyncio.gather(*tasks))
 
     def _build_parse_prompt(self) -> str:
         """构建图片解析提示词

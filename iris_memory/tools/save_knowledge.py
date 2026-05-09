@@ -77,9 +77,7 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
         }
     )
 
-    async def call(
-        self, context: ContextWrapper[AstrAgentContext], **kwargs
-    ) -> str:
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> str:
         """执行保存知识操作
 
         Args:

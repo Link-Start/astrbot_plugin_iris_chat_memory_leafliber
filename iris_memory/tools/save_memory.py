@@ -47,9 +47,7 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
         }
     )
 
-    async def call(
-        self, context: ContextWrapper[AstrAgentContext], **kwargs
-    ) -> str:
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> str:
         """执行保存记忆操作
 
         Args:

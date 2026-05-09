@@ -3,38 +3,60 @@ Iris Chat Memory - Token 计数工具
 
 使用 tiktoken 实现文本 Token 计数，支持多种编码格式。
 采用单例模式缓存编码器，避免重复初始化。
+若 tiktoken 未安装，降级为字符估算。
 """
-
-import tiktoken
 
 from iris_memory.core import get_logger
 
 logger = get_logger("token_counter")
+
+try:
+    import tiktoken
+
+    _TIKTOKEN_AVAILABLE = True
+except ImportError:
+    tiktoken = None  # type: ignore[assignment]
+    _TIKTOKEN_AVAILABLE = False
+    logger.debug("tiktoken 未安装，Token 计数将使用字符估算")
 
 
 # ============================================================================
 # 编码器缓存（单例模式）
 # ============================================================================
 
-_encoder_cache: dict[str, tiktoken.Encoding] = {}
+_encoder_cache: dict = {}
 
 
-def get_encoder(encoding_name: str = "cl100k_base") -> tiktoken.Encoding:
+def _estimate_tokens(text: str) -> int:
+    """字符估算 Token 数
+
+    中文约 2 字符/token，英文约 4 字符/token。
+    采用保守估算：平均 2 字符/token。
+
+    Args:
+        text: 文本内容
+
+    Returns:
+        估算的 Token 数
+    """
+    return len(text) // 2 + 1
+
+
+def get_encoder(encoding_name: str = "cl100k_base"):
     """获取编码器实例（单例模式）
 
     缓存编码器实例，避免重复初始化带来的性能开销。
+    若 tiktoken 不可用则返回 None。
 
     Args:
         encoding_name: 编码名称，默认 cl100k_base（GPT-4/ChatGPT 使用）
 
     Returns:
-        tiktoken 编码器实例
-
-    Examples:
-        >>> encoder = get_encoder()
-        >>> encoder.encode("Hello, world!")
-        [9906, 11, 1917, 0]
+        tiktoken 编码器实例，或 None（tiktoken 不可用时）
     """
+    if not _TIKTOKEN_AVAILABLE:
+        return None
+
     if encoding_name not in _encoder_cache:
         logger.debug(f"初始化编码器：{encoding_name}")
         _encoder_cache[encoding_name] = tiktoken.get_encoding(encoding_name)
@@ -46,7 +68,7 @@ def get_encoder(encoding_name: str = "cl100k_base") -> tiktoken.Encoding:
 def count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
     """计算文本的 Token 数量
 
-    使用 tiktoken 编码器计算文本的 Token 数量。
+    优先使用 tiktoken 编码器计算，若不可用则降级为字符估算。
     对于空字符串返回 0。
 
     Args:
@@ -55,20 +77,15 @@ def count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
 
     Returns:
         Token 数量
-
-    Examples:
-        >>> count_tokens("Hello, world!")
-        4
-        >>> count_tokens("")
-        0
-        >>> count_tokens("你好，世界！")
-        9
     """
     if not text:
         return 0
 
     encoder = get_encoder(encoding_name)
-    return len(encoder.encode(text))
+    if encoder is not None:
+        return len(encoder.encode(text))
+
+    return _estimate_tokens(text)
 
 
 def count_messages_tokens(
@@ -85,35 +102,27 @@ def count_messages_tokens(
 
     Returns:
         总 Token 数量
-
-    Examples:
-        >>> messages = [
-        ...     {"role": "user", "content": "Hello"},
-        ...     {"role": "assistant", "content": "Hi there!"}
-        ... ]
-        >>> count_messages_tokens(messages)
-        7
     """
     if not messages:
         return 0
 
     encoder = get_encoder(encoding_name)
+
     total_tokens = 0
 
     for message in messages:
-        # 每条消息的格式：<|start|>{role}\n{content}<|end|>\n
-        # 这里简化计算：role + content + 格式开销
         role = message.get("role", "")
         content = message.get("content", "")
 
-        # 计算角色和内容的 Token
-        total_tokens += len(encoder.encode(role))
-        total_tokens += len(encoder.encode(content))
+        if encoder is not None:
+            total_tokens += len(encoder.encode(role))
+            total_tokens += len(encoder.encode(content))
+        else:
+            total_tokens += _estimate_tokens(role)
+            total_tokens += _estimate_tokens(content)
 
-        # 每条消息的格式开销（约 4 tokens）
         total_tokens += 4
 
-    # 整个消息列表的格式开销（约 2 tokens）
     total_tokens += 2
 
     return total_tokens

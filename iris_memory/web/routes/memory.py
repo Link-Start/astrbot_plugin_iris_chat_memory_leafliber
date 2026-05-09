@@ -134,7 +134,12 @@ async def get_latest_l2_memories():
         if limit not in valid_limits:
             limit = 20
 
-        valid_sort_fields = ["timestamp", "access_count", "confidence", "last_access_time"]
+        valid_sort_fields = [
+            "timestamp",
+            "access_count",
+            "confidence",
+            "last_access_time",
+        ]
         if sort_by not in valid_sort_fields:
             sort_by = "timestamp"
 
@@ -154,18 +159,20 @@ async def get_latest_l2_memories():
             meta = entry.metadata
             if group_id and meta.get("group_id") != group_id:
                 continue
-            raw_entries.append({
-                "id": entry.id,
-                "content": entry.content,
-                "score": 1.0,
-                "metadata": meta,
-                "timestamp": meta.get("timestamp"),
-                "access_count": meta.get("access_count", 0),
-                "last_access_time": meta.get("last_access_time"),
-                "confidence": meta.get("confidence", 0.5),
-                "source": meta.get("source"),
-                "group_id": meta.get("group_id"),
-            })
+            raw_entries.append(
+                {
+                    "id": entry.id,
+                    "content": entry.content,
+                    "score": 1.0,
+                    "metadata": meta,
+                    "timestamp": meta.get("timestamp"),
+                    "access_count": meta.get("access_count", 0),
+                    "last_access_time": meta.get("last_access_time"),
+                    "confidence": meta.get("confidence", 0.5),
+                    "source": meta.get("source"),
+                    "group_id": meta.get("group_id"),
+                }
+            )
 
         def sort_key(entry):
             val = entry.get(sort_by)
@@ -185,7 +192,9 @@ async def get_latest_l2_memories():
 
         formatted_results = raw_entries[:limit]
 
-        logger.info(f"获取最新L2记忆成功：limit={limit}, sort_by={sort_by}, sort_order={sort_order}, 结果数={len(formatted_results)}")
+        logger.info(
+            f"获取最新L2记忆成功：limit={limit}, sort_by={sort_by}, sort_order={sort_order}, 结果数={len(formatted_results)}"
+        )
 
         return jsonify({"success": True, "results": formatted_results})
 
@@ -435,9 +444,7 @@ async def get_l2_stats():
         if not l2_retriever or not l2_retriever.is_available:
             return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
 
-        # 获取统计信息（需要实现get_stats方法）
-        # TODO: 在MemoryRetriever中实现get_stats方法
-        stats = {"total_count": 0, "group_count": 0}
+        stats = await l2_retriever.get_stats()
 
         return jsonify({"success": True, "stats": stats})
 

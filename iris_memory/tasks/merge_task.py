@@ -115,19 +115,21 @@ class MergeTask:
     # =========================================================================
 
     async def _merge_similar_memories(self) -> None:
-        l2_adapter: "L2MemoryAdapter" = self._component_manager.get_component(
-            "l2_memory"
-        )  # type: ignore[assignment]
+        l2_adapter = cast(
+            "L2MemoryAdapter",
+            self._component_manager.get_component("l2_memory"),
+        )
         if not l2_adapter or not l2_adapter.is_available:
             logger.debug("L2 记忆库不可用，跳过合并")
             return
 
-        llm_manager: "LLMManager" = self._component_manager.get_component("llm_manager")  # type: ignore[assignment]
+        llm_manager = cast(
+            "LLMManager",
+            self._component_manager.get_component("llm_manager"),
+        )
         if not llm_manager or not llm_manager.is_available:
             logger.warning("LLMManager 不可用，无法合并记忆")
             return
-
-        llm_manager = llm_manager  # type: LLMManager
 
         try:
             entries = await l2_adapter.get_all_entries()

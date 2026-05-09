@@ -175,13 +175,9 @@ class RelatedMemoryRetriever:
             return []
 
         try:
-            all_entries = await adapter.get_all_entries()
+            group_entries = await adapter.get_entries_by_group(memory.group_id)
 
-            group_entries = [
-                e
-                for e in all_entries
-                if e.group_id == memory.group_id and e.id != memory.id
-            ]
+            group_entries = [e for e in group_entries if e.id != memory.id]
 
             group_entries.sort(key=lambda e: e.timestamp or "", reverse=True)
 
@@ -205,13 +201,9 @@ class RelatedMemoryRetriever:
             (记忆条目, 分数) 列表
         """
         try:
-            all_entries = await adapter.get_all_entries()
+            user_entries = await adapter.get_entries_by_user(user_id)
 
-            user_entries = [
-                e
-                for e in all_entries
-                if e.metadata.get("user_id") == user_id and e.id != memory.id
-            ]
+            user_entries = [e for e in user_entries if e.id != memory.id]
 
             user_entries.sort(key=lambda e: e.timestamp or "", reverse=True)
 

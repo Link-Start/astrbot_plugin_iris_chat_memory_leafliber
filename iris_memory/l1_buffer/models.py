@@ -208,9 +208,7 @@ class SegmentedMessageQueue:
         Returns:
             消息列表，每条消息包含 role 和 content
         """
-        return [
-            {"role": msg.role, "content": msg.content} for msg in self.all_messages
-        ]
+        return [{"role": msg.role, "content": msg.content} for msg in self.all_messages]
 
     def remove_messages(self, messages: list[ContextMessage]) -> None:
         """从队列中移除指定消息

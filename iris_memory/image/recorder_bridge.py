@@ -50,32 +50,24 @@ class MessageRecorderBridge:
         try:
             star_meta = self._context.get_registered_star(RECORDER_PLUGIN_NAME)
             if not star_meta:
-                logger.debug(
-                    f"未找到插件 {RECORDER_PLUGIN_NAME}，本地图片获取不可用"
-                )
+                logger.debug(f"未找到插件 {RECORDER_PLUGIN_NAME}，本地图片获取不可用")
                 return False
 
             star_instance = getattr(star_meta, "star_instance", None) or getattr(
                 star_meta, "instance", None
             )
             if not star_instance:
-                logger.debug(
-                    f"插件 {RECORDER_PLUGIN_NAME} 无实例，本地图片获取不可用"
-                )
+                logger.debug(f"插件 {RECORDER_PLUGIN_NAME} 无实例，本地图片获取不可用")
                 return False
 
             get_api = getattr(star_instance, "get_api", None)
             if not callable(get_api):
-                logger.debug(
-                    f"插件 {RECORDER_PLUGIN_NAME} 无 get_api() 方法"
-                )
+                logger.debug(f"插件 {RECORDER_PLUGIN_NAME} 无 get_api() 方法")
                 return False
 
             self._api = get_api()
             if self._api is None:
-                logger.debug(
-                    f"插件 {RECORDER_PLUGIN_NAME} get_api() 返回 None"
-                )
+                logger.debug(f"插件 {RECORDER_PLUGIN_NAME} get_api() 返回 None")
                 return False
 
             logger.info("已连接 MessageRecorder API，本地图片获取可用")
@@ -109,9 +101,7 @@ class MessageRecorderBridge:
         try:
             record = await self._api.get_by_platform_message_id(message_id)
             if not record:
-                logger.debug(
-                    f"MessageRecorder 中未找到消息：message_id={message_id}"
-                )
+                logger.debug(f"MessageRecorder 中未找到消息：message_id={message_id}")
                 return None
 
             chain_list = record.get_message_chain_list()
@@ -140,21 +130,15 @@ class MessageRecorderBridge:
 
             local_path = target_comp.get("local_path")
             if not local_path:
-                logger.debug(
-                    f"消息 {message_id} 中的图片未下载到本地"
-                )
+                logger.debug(f"消息 {message_id} 中的图片未下载到本地")
                 return None
 
             abs_path = self._api.get_media_absolute_path(local_path)
             if abs_path and abs_path.exists():
-                logger.debug(
-                    f"从 MessageRecorder 获取本地图片：{abs_path}"
-                )
+                logger.debug(f"从 MessageRecorder 获取本地图片：{abs_path}")
                 return abs_path
 
-            logger.debug(
-                f"本地图片文件不存在：{local_path}"
-            )
+            logger.debug(f"本地图片文件不存在：{local_path}")
             return None
 
         except Exception as e:

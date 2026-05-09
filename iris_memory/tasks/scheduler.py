@@ -16,7 +16,6 @@ from typing import Dict, Optional, Callable, Awaitable, TYPE_CHECKING
 from datetime import datetime
 
 from iris_memory.core import Component, get_logger
-from iris_memory.config import get_config
 
 if TYPE_CHECKING:
     from iris_memory.core import ComponentManager
@@ -64,8 +63,6 @@ class TaskScheduler(Component):
         创建任务队列，启动后台任务。
         """
         try:
-            config = get_config()
-
             # 创建任务队列
             self._task_queue = asyncio.Queue()
 

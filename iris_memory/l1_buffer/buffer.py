@@ -145,15 +145,9 @@ class L1Buffer(Component):
             config = get_config()
             self._queues[queue_key] = SegmentedMessageQueue(
                 group_id=queue_key,
-                segment_1_length=cast(
-                    int, config.get("l1_segment_1_length", 10)
-                ),
-                segment_3_length=cast(
-                    int, config.get("l1_segment_3_length", 10)
-                ),
-                total_length=cast(
-                    int, config.get("l1_buffer.inject_queue_length", 50)
-                ),
+                segment_1_length=cast(int, config.get("l1_segment_1_length", 10)),
+                segment_3_length=cast(int, config.get("l1_segment_3_length", 10)),
+                total_length=cast(int, config.get("l1_buffer.inject_queue_length", 50)),
             )
             logger.debug(f"创建新队列：{queue_key}")
 
@@ -179,9 +173,7 @@ class L1Buffer(Component):
 
         token_count = count_tokens(content)
 
-        max_single_tokens = cast(
-            int, config.get("l1_max_single_message_tokens", 500)
-        )
+        max_single_tokens = cast(int, config.get("l1_max_single_message_tokens", 500))
         if token_count > max_single_tokens:
             logger.warning(
                 f"消息 Token 数 {token_count} 超过限制 {max_single_tokens}，已丢弃"
@@ -342,9 +334,7 @@ class L1Buffer(Component):
                 if summary:
                     logger.info(f"总结完成：{queue_key}, 长度：{len(summary)}")
 
-                    await self._write_summary_to_l2(
-                        group_id, target_messages, summary
-                    )
+                    await self._write_summary_to_l2(group_id, target_messages, summary)
 
                     await self._update_profile_after_summary(
                         group_id, target_messages, summary
@@ -353,9 +343,7 @@ class L1Buffer(Component):
                     logger.warning(f"总结返回空，队列 {queue_key}")
 
                 queue.rotate_after_summary()
-                self._clear_images_for_summarized_messages(
-                    queue_key, target_messages
-                )
+                self._clear_images_for_summarized_messages(queue_key, target_messages)
 
                 logger.info(
                     f"总结完成，段位转移后：L1-1={len(queue.segment_1)}, "
@@ -671,16 +659,16 @@ class L1Buffer(Component):
                     f"过滤低置信度记忆：{len(summary_items)} -> {len(filtered_items)} 条"
                 )
 
-            max_per_summary = cast(
-                int, config.get("l1_max_memories_per_summary", 10)
-            )
+            max_per_summary = cast(int, config.get("l1_max_memories_per_summary", 10))
             if len(filtered_items) > max_per_summary:
                 priority_order = {"high": 0, "medium": 1, "low": 2}
                 filtered_items.sort(
                     key=lambda x: priority_order.get(x.get("confidence", "medium"), 1)
                 )
                 filtered_items = filtered_items[:max_per_summary]
-                logger.info(f"限制记忆数量：截取前 {max_per_summary} 条（按置信度优先）")
+                logger.info(
+                    f"限制记忆数量：截取前 {max_per_summary} 条（按置信度优先）"
+                )
 
             memory_ids = []
             for item in filtered_items:
@@ -819,9 +807,7 @@ class L1Buffer(Component):
             "queue_count": queue_count,
             "total_messages": total_messages,
             "total_tokens": total_tokens,
-            "max_capacity": cast(
-                int, config.get("l1_buffer.inject_queue_length", 50)
-            ),
+            "max_capacity": cast(int, config.get("l1_buffer.inject_queue_length", 50)),
             "max_queue_length": max_queue_length,
         }
 

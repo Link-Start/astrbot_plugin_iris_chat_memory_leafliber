@@ -114,7 +114,7 @@ class TestRelatedMemoryRetriever:
 
         l2_adapter = retriever._component_manager.get_component("l2_memory")
         l2_adapter.retrieve = AsyncMock(return_value=[])
-        l2_adapter.get_all_entries = AsyncMock(return_value=group_memories)
+        l2_adapter.get_entries_by_group = AsyncMock(return_value=group_memories)
 
         with patch("iris_memory.l3_kg.related_retriever.get_config") as mock_config:
             mock_config.return_value.get.side_effect = lambda key: {
@@ -145,7 +145,7 @@ class TestRelatedMemoryRetriever:
 
         l2_adapter = retriever._component_manager.get_component("l2_memory")
         l2_adapter.retrieve = AsyncMock(return_value=[])
-        l2_adapter.get_all_entries = AsyncMock(return_value=user_memories)
+        l2_adapter.get_entries_by_user = AsyncMock(return_value=user_memories)
 
         with patch("iris_memory.l3_kg.related_retriever.get_config") as mock_config:
             mock_config.return_value.get.side_effect = lambda key: {

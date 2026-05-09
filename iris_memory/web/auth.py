@@ -12,6 +12,8 @@
 - Header: X-Access-Key
 """
 
+import hmac
+
 from quart import request, jsonify
 from functools import wraps
 from typing import Optional
@@ -54,7 +56,7 @@ def verify_access_key(provided_key: str) -> bool:
     if not provided_key:
         return False
 
-    return provided_key == expected_key
+    return hmac.compare_digest(provided_key, expected_key)
 
 
 def require_auth(f):

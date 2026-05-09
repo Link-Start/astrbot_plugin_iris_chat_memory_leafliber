@@ -943,6 +943,86 @@ class L2MemoryAdapter(Component):
             logger.error(f"删除记忆失败：{e}", exc_info=True)
             return False
 
+    async def get_entries_by_group(self, group_id: str) -> List[MemoryEntry]:
+        """获取指定群聊的所有记忆条目
+
+        使用 ChromaDB where 过滤，避免全量加载。
+
+        Args:
+            group_id: 群聊 ID
+
+        Returns:
+            该群聊的记忆条目列表
+        """
+        if not self._is_available or not self._collection:
+            return []
+
+        try:
+            loop = asyncio.get_event_loop()
+            results = await loop.run_in_executor(
+                None,
+                lambda: self._collection.get(where={"group_id": group_id}),
+            )
+
+            entries = []
+            if results["ids"]:
+                for i, memory_id in enumerate(results["ids"]):
+                    entries.append(
+                        MemoryEntry(
+                            id=memory_id,
+                            content=results["documents"][i],
+                            metadata=results["metadatas"][i]
+                            if results["metadatas"]
+                            else {},
+                        )
+                    )
+
+            return entries
+
+        except Exception as e:
+            logger.error(f"获取群聊条目失败：{e}")
+            return []
+
+    async def get_entries_by_user(self, user_id: str) -> List[MemoryEntry]:
+        """获取指定用户的所有记忆条目
+
+        使用 ChromaDB where 过滤，避免全量加载。
+
+        Args:
+            user_id: 用户 ID
+
+        Returns:
+            该用户的记忆条目列表
+        """
+        if not self._is_available or not self._collection:
+            return []
+
+        try:
+            loop = asyncio.get_event_loop()
+            results = await loop.run_in_executor(
+                None,
+                lambda: self._collection.get(where={"user_id": user_id}),
+            )
+
+            entries = []
+            if results["ids"]:
+                for i, memory_id in enumerate(results["ids"]):
+                    entries.append(
+                        MemoryEntry(
+                            id=memory_id,
+                            content=results["documents"][i],
+                            metadata=results["metadatas"][i]
+                            if results["metadatas"]
+                            else {},
+                        )
+                    )
+
+            return entries
+
+        except Exception as e:
+            logger.error(f"获取用户条目失败：{e}")
+            return []
+
     async def delete_collection(self) -> bool:
         """删除当前 collection
 

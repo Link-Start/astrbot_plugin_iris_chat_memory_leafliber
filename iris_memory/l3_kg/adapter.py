@@ -10,6 +10,23 @@ from datetime import datetime
 logger = get_logger("l3_kg")
 
 
+def _escape_cypher_str(value: str) -> str:
+    """转义 Cypher 字符串值中的特殊字符
+
+    Args:
+        value: 原始字符串
+
+    Returns:
+        转义后的字符串
+    """
+    value = value.replace("\\", "\\\\")
+    value = value.replace("'", "\\'")
+    value = value.replace("\x00", "")
+    value = value.replace("\n", "\\n")
+    value = value.replace("\r", "\\r")
+    return value
+
+
 def _build_map_literal(properties: dict) -> str:
     """构建 MAP 字面量字符串
 
@@ -25,10 +42,8 @@ def _build_map_literal(properties: dict) -> str:
     keys = []
     values = []
     for k, v in properties.items():
-        escaped_key = str(k).replace("\\", "\\\\").replace("'", "\\'")
-        escaped_val = str(v).replace("\\", "\\\\").replace("'", "\\'")
-        keys.append(f"'{escaped_key}'")
-        values.append(f"'{escaped_val}'")
+        keys.append(f"'{_escape_cypher_str(str(k))}'")
+        values.append(f"'{_escape_cypher_str(str(v))}'")
 
     return f"map([{', '.join(keys)}], [{', '.join(values)}])"
 
@@ -533,6 +548,29 @@ class L3KGAdapter(Component):
         except Exception as e:
             logger.error(f"路径扩展检索失败：{e}")
             return [], []
+
+    async def update_node_access(self, node_ids: list[str]) -> None:
+        """更新节点访问计数和最后访问时间
+
+        Args:
+            node_ids: 要更新的节点ID列表
+        """
+        if not self._is_available:
+            return
+
+        try:
+            for node_id in node_ids:
+                self._conn.execute(
+                    """
+                    MATCH (e:Entity {id: $id})
+                    SET e.access_count = e.access_count + 1,
+                        e.last_access_time = $now
+                """,
+                    {"id": node_id, "now": datetime.now()},
+                )
+            logger.debug(f"更新了 {len(node_ids)} 个节点的访问计数")
+        except Exception as e:
+            logger.error(f"更新节点访问计数失败：{e}")
 
     async def get_stats(self) -> dict:
         """获取图谱统计信息

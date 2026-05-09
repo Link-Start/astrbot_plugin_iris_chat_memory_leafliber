@@ -269,7 +269,9 @@ def parse_summary_response(response: str) -> dict:
                     if confidence not in ("high", "medium", "low"):
                         confidence = "medium"
                     if content:
-                        normalized.append({"content": content, "confidence": confidence})
+                        normalized.append(
+                            {"content": content, "confidence": confidence}
+                        )
                 elif isinstance(item, str):
                     content = item.lstrip("- ").strip()
                     if content:

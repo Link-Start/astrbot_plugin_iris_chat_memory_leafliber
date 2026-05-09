@@ -16,7 +16,11 @@ from .models import (
 from .quota_manager import ImageQuotaManager
 from .cache_manager import ImageCacheManager
 from .parser import ImageParser
-from .recorder_bridge import MessageRecorderBridge, init_recorder_bridge, get_recorder_bridge
+from .recorder_bridge import (
+    MessageRecorderBridge,
+    init_recorder_bridge,
+    get_recorder_bridge,
+)
 from .image_utils import (
     compute_phash,
     hamming_distance,

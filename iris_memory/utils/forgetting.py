@@ -16,6 +16,7 @@ Iris Chat Memory - 遗忘权重算法
 
 from datetime import datetime
 from typing import Dict, Any, Optional, TYPE_CHECKING
+import math
 
 from iris_memory.config import get_config
 
@@ -60,7 +61,7 @@ def calculate_recency(
         days_elapsed = (now - access_dt).total_seconds() / 86400
 
         # 指数衰减：exp(-lambda * t)
-        recency = 2.71828 ** (-lambda_decay * days_elapsed)
+        recency = math.exp(-lambda_decay * days_elapsed)
         return max(0.0, min(1.0, recency))
 
     except (ValueError, TypeError):
@@ -91,8 +92,6 @@ def calculate_frequency(access_count: int, max_count: int = 100) -> float:
         return 0.0
 
     # 对数归一化：log(count + 1) / log(max_count + 1)
-    import math
-
     normalized = math.log(access_count + 1) / math.log(max_count + 1)
     return max(0.0, min(1.0, normalized))
 
@@ -329,8 +328,6 @@ def calculate_kg_forgetting_score(
         D = 1.0 / (connected_count + 1)
 
     C = calculate_confidence(confidence)
-
-    import math
 
     V = (
         min(1.0, math.log(source_memory_count + 1) / math.log(6))

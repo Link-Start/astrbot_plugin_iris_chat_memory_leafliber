@@ -12,7 +12,7 @@ Features:
     - 写锁保护
 """
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, cast
 from datetime import datetime
 
 from iris_memory.core import get_logger
@@ -83,12 +83,13 @@ class ForgettingTask:
         """
 
         # 获取 L2 适配器
-        l2_adapter = self._component_manager.get_component("l2_memory")
+        l2_adapter = cast(
+            "L2MemoryAdapter",
+            self._component_manager.get_component("l2_memory"),
+        )
         if not l2_adapter or not l2_adapter.is_available:
             logger.debug("L2 记忆库不可用，跳过遗忘清洗")
             return
-
-        l2_adapter = l2_adapter  # type: L2MemoryAdapter
 
         try:
             # 获取所有记忆条目
@@ -147,12 +148,13 @@ class ForgettingTask:
         查找同名同 label 的重复节点并合并。
         """
 
-        l3_adapter = self._component_manager.get_component("l3_kg")
+        l3_adapter = cast(
+            "L3KGAdapter",
+            self._component_manager.get_component("l3_kg"),
+        )
         if not l3_adapter or not l3_adapter.is_available:
             logger.debug("L3 知识图谱不可用，跳过去重合并")
             return
-
-        l3_adapter = l3_adapter  # type: L3KGAdapter
 
         try:
             merged, deleted = await l3_adapter.merge_duplicate_nodes()
@@ -334,11 +336,12 @@ class ForgettingTask:
         但不删除，仅作为后续遗忘评估的参考。
         """
 
-        l2_adapter = self._component_manager.get_component("l2_memory")
+        l2_adapter = cast(
+            "L2MemoryAdapter",
+            self._component_manager.get_component("l2_memory"),
+        )
         if not l2_adapter or not l2_adapter.is_available:
             return
-
-        l2_adapter = l2_adapter  # type: L2MemoryAdapter
 
         try:
             entries = await l2_adapter.get_all_entries()

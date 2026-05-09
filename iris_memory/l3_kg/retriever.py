@@ -3,7 +3,6 @@
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
 from .adapter import L3KGAdapter
-from datetime import datetime
 from collections import defaultdict
 import asyncio
 
@@ -65,7 +64,7 @@ class GraphRetriever:
     async def retrieve_with_expansion(
         self, memory_node_ids: list[str], group_id: str = None
     ) -> tuple[list[dict], list[dict]]:
-        if not self.adapter._is_available:
+        if not self.adapter.is_available:
             return [], []
 
         try:
@@ -105,7 +104,7 @@ class GraphRetriever:
         Returns:
             (节点列表, 边列表)
         """
-        if not self.adapter._is_available or not keywords:
+        if not self.adapter.is_available or not keywords:
             return [], []
 
         matched_node_ids: set[str] = set()
@@ -134,23 +133,7 @@ class GraphRetriever:
         )
 
     async def update_access_count(self, node_ids: list[str]):
-        if not self.adapter._is_available:
-            return
-
-        try:
-            for node_id in node_ids:
-                self.adapter._conn.execute(
-                    """
-                    MATCH (e:Entity {id: $id})
-                    SET e.access_count = e.access_count + 1,
-                        e.last_access_time = $now
-                """,
-                    {"id": node_id, "now": datetime.now()},
-                )
-
-            logger.debug(f"更新了 {len(node_ids)} 个节点的访问计数")
-        except Exception as e:
-            logger.error(f"更新节点访问计数失败：{e}")
+        await self.adapter.update_node_access(node_ids)
 
     def format_for_context(
         self,
