@@ -4,12 +4,11 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime
 
-from iris_memory.l1_buffer import Summarizer, MessageQueue, ContextMessage
+from iris_memory.l1_buffer import Summarizer, SegmentedMessageQueue, ContextMessage
 
 
 @pytest.fixture
 def mock_llm_manager():
-    """创建模拟 LLM 管理器"""
     manager = AsyncMock()
     manager.generate = AsyncMock(return_value="这是一个总结")
     return manager
@@ -17,7 +16,6 @@ def mock_llm_manager():
 
 @pytest.fixture
 def mock_messages():
-    """创建模拟消息列表"""
     messages = []
     for i in range(5):
         msg = ContextMessage(
@@ -32,37 +30,43 @@ def mock_messages():
 
 
 @pytest.fixture
-def mock_queue(mock_messages):
-    """创建模拟队列"""
-    queue = MessageQueue(group_id="group_123")
-    for msg in mock_messages:
-        queue.add_message(msg)
+def mock_queue():
+    queue = SegmentedMessageQueue(
+        group_id="group_123",
+        segment_1_length=2,
+        segment_3_length=2,
+        total_length=8,
+    )
+    for i in range(8):
+        queue.add_message(
+            ContextMessage(
+                role="user" if i % 2 == 0 else "assistant",
+                content=f"消息{i}",
+                timestamp=datetime.now(),
+                token_count=10,
+                source="user_456",
+            )
+        )
     return queue
 
 
 class TestSummarizer:
-    """总结器测试"""
-
     def test_create_summarizer(self, mock_llm_manager):
-        """测试创建总结器"""
         summarizer = Summarizer(llm_manager=mock_llm_manager)
 
         assert summarizer.llm_manager == mock_llm_manager
         assert summarizer.provider == ""
 
     def test_create_summarizer_with_provider(self, mock_llm_manager):
-        """测试使用自定义 Provider 创建"""
         summarizer = Summarizer(llm_manager=mock_llm_manager, provider="gpt-4o-mini")
 
         assert summarizer.provider == "gpt-4o-mini"
 
-    def test_should_summarize_by_length(self, mock_queue):
-        """测试按消息数量触发总结"""
+    def test_should_summarize_when_full(self, mock_queue):
         with patch("iris_memory.l1_buffer.summarizer.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.inject_queue_length": 3,
                     "l1_buffer.max_queue_tokens": 10000,
                 }.get(key)
             )
@@ -73,12 +77,10 @@ class TestSummarizer:
             assert summarizer.should_summarize(mock_queue)
 
     def test_should_summarize_by_tokens(self, mock_queue):
-        """测试按 Token 数触发总结"""
         with patch("iris_memory.l1_buffer.summarizer.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.inject_queue_length": 100,
                     "l1_buffer.max_queue_tokens": 40,
                 }.get(key)
             )
@@ -88,13 +90,28 @@ class TestSummarizer:
 
             assert summarizer.should_summarize(mock_queue)
 
-    def test_should_not_summarize(self, mock_queue):
-        """测试不触发总结"""
+    def test_should_not_summarize(self):
+        queue = SegmentedMessageQueue(
+            group_id="g1",
+            segment_1_length=5,
+            segment_3_length=3,
+            total_length=20,
+        )
+        for i in range(3):
+            queue.add_message(
+                ContextMessage(
+                    role="user",
+                    content=f"消息{i}",
+                    timestamp=datetime.now(),
+                    token_count=10,
+                    source="user",
+                )
+            )
+
         with patch("iris_memory.l1_buffer.summarizer.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.inject_queue_length": 100,
                     "l1_buffer.max_queue_tokens": 10000,
                 }.get(key)
             )
@@ -102,32 +119,33 @@ class TestSummarizer:
 
             summarizer = Summarizer(llm_manager=Mock())
 
-            assert not summarizer.should_summarize(mock_queue)
+            assert not summarizer.should_summarize(queue)
 
     @pytest.mark.asyncio
     async def test_summarize_messages(self, mock_llm_manager, mock_messages):
-        """测试总结消息列表"""
         summarizer = Summarizer(llm_manager=mock_llm_manager)
 
-        summary = await summarizer.summarize(mock_messages)
+        summary = await summarizer.summarize(
+            context_messages=mock_messages, target_messages=mock_messages
+        )
 
         assert summary == "这是一个总结"
         assert mock_llm_manager.generate.called
 
     @pytest.mark.asyncio
-    async def test_summarize_empty_messages(self, mock_llm_manager):
-        """测试总结空消息列表"""
+    async def test_summarize_empty_target(self, mock_llm_manager, mock_messages):
         summarizer = Summarizer(llm_manager=mock_llm_manager)
 
-        summary = await summarizer.summarize([])
+        summary = await summarizer.summarize(
+            context_messages=mock_messages, target_messages=[]
+        )
 
         assert summary is None
 
     def test_build_summary_prompt(self, mock_llm_manager):
-        """测试构建总结提示词"""
         summarizer = Summarizer(llm_manager=mock_llm_manager)
 
-        messages = [
+        context_messages = [
             ContextMessage(
                 role="user",
                 content="你好",
@@ -145,15 +163,18 @@ class TestSummarizer:
             ),
         ]
 
-        prompt = summarizer._build_summary_prompt(messages)
+        target_messages = context_messages
+
+        prompt = summarizer._build_summary_prompt(context_messages, target_messages)
 
         assert "[张三]: 你好" in prompt
         assert "[助手]: 你好！" in prompt
         assert "提取记忆信息" in prompt
         assert "memories" in prompt
+        assert "完整对话上下文" in prompt
+        assert "需要总结的对话片段" in prompt
 
     def test_build_summary_prompt_format(self, mock_llm_manager):
-        """测试总结提示词包含提取格式要求"""
         summarizer = Summarizer(llm_manager=mock_llm_manager)
 
         messages = [
@@ -174,7 +195,7 @@ class TestSummarizer:
             ),
         ]
 
-        prompt = summarizer._build_summary_prompt(messages)
+        prompt = summarizer._build_summary_prompt(messages, messages)
 
         assert "信息价值" in prompt
         assert "独立完整" in prompt
@@ -182,7 +203,6 @@ class TestSummarizer:
         assert "JSON" in prompt
 
     def test_build_summary_prompt_with_user_names(self, mock_llm_manager):
-        """测试总结提示词包含用户名"""
         summarizer = Summarizer(llm_manager=mock_llm_manager)
 
         messages = [
@@ -204,13 +224,12 @@ class TestSummarizer:
             ),
         ]
 
-        prompt = summarizer._build_summary_prompt(messages)
+        prompt = summarizer._build_summary_prompt(messages, messages)
 
         assert "[张三]: 我喜欢吃苹果" in prompt
         assert "[李四]: 我喜欢编程" in prompt
 
     def test_build_summary_prompt_without_user_name(self, mock_llm_manager):
-        """测试没有用户名时显示默认标签"""
         summarizer = Summarizer(llm_manager=mock_llm_manager)
 
         messages = [
@@ -223,25 +242,82 @@ class TestSummarizer:
             )
         ]
 
-        prompt = summarizer._build_summary_prompt(messages)
+        prompt = summarizer._build_summary_prompt(messages, messages)
 
         assert "[用户]: 你好" in prompt
 
+    def test_build_summary_prompt_different_context_and_target(self, mock_llm_manager):
+        summarizer = Summarizer(llm_manager=mock_llm_manager)
 
-class TestMessageQueueSplit:
-    """消息队列分割测试"""
+        context_messages = [
+            ContextMessage(
+                role="user",
+                content="旧消息",
+                timestamp=datetime.now(),
+                token_count=2,
+                source="user_001",
+            ),
+            ContextMessage(
+                role="user",
+                content="目标消息",
+                timestamp=datetime.now(),
+                token_count=2,
+                source="user_001",
+            ),
+            ContextMessage(
+                role="user",
+                content="新消息",
+                timestamp=datetime.now(),
+                token_count=2,
+                source="user_001",
+            ),
+        ]
 
-    def test_split_basic(self, mock_queue):
-        """测试基本分割"""
-        to_summarize, to_retain = mock_queue.split_for_summary(retain_count=3)
+        target_messages = [context_messages[1]]
 
-        assert len(to_summarize) == 2
-        assert len(to_retain) == 3
+        prompt = summarizer._build_summary_prompt(context_messages, target_messages)
 
-    def test_split_no_need(self):
-        """测试无需分割"""
-        queue = MessageQueue(group_id="test")
-        for i in range(3):
+        assert "旧消息" in prompt
+        assert "目标消息" in prompt
+        assert "新消息" in prompt
+
+    def test_format_messages(self, mock_llm_manager):
+        summarizer = Summarizer(llm_manager=mock_llm_manager)
+
+        messages = [
+            ContextMessage(
+                role="user",
+                content="你好",
+                timestamp=datetime.now(),
+                token_count=2,
+                source="user_001",
+                metadata={"user_name": "张三"},
+            ),
+            ContextMessage(
+                role="assistant",
+                content="你好！",
+                timestamp=datetime.now(),
+                token_count=3,
+                source="bot",
+            ),
+        ]
+
+        result = Summarizer._format_messages(messages)
+
+        assert "[张三]: 你好" in result
+        assert "[助手]: 你好！" in result
+
+
+class TestSegmentedQueueSummarization:
+    def test_queue_full_triggers_summarize(self):
+        queue = SegmentedMessageQueue(
+            group_id="g1",
+            segment_1_length=2,
+            segment_3_length=2,
+            total_length=8,
+        )
+
+        for i in range(8):
             queue.add_message(
                 ContextMessage(
                     role="user",
@@ -252,39 +328,57 @@ class TestMessageQueueSplit:
                 )
             )
 
-        to_summarize, to_retain = queue.split_for_summary(retain_count=5)
+        assert queue.is_full()
 
-        assert len(to_summarize) == 0
-        assert len(to_retain) == 3
+    def test_target_messages_are_segment_2(self):
+        queue = SegmentedMessageQueue(
+            group_id="g1",
+            segment_1_length=2,
+            segment_3_length=2,
+            total_length=8,
+        )
 
-    def test_split_with_token_limit(self):
-        """测试带 Token 限制的分割"""
-        queue = MessageQueue(group_id="test")
-        for i in range(10):
+        for i in range(8):
             queue.add_message(
                 ContextMessage(
                     role="user",
                     content=f"消息{i}",
                     timestamp=datetime.now(),
-                    token_count=100,
+                    token_count=10,
                     source="user",
                 )
             )
 
-        to_summarize, to_retain = queue.split_for_summary(
-            retain_count=5, max_retain_tokens=200
+        target = list(queue.segment_2)
+        context = queue.all_messages
+
+        assert len(target) == 4
+        assert len(context) == 8
+
+    def test_after_rotate_segments_shift(self):
+        queue = SegmentedMessageQueue(
+            group_id="g1",
+            segment_1_length=2,
+            segment_3_length=2,
+            total_length=8,
         )
 
-        retain_tokens = sum(msg.token_count for msg in to_retain)
-        assert retain_tokens <= 200
-        assert len(to_retain) >= 1
+        for i in range(8):
+            queue.add_message(
+                ContextMessage(
+                    role="user",
+                    content=f"消息{i}",
+                    timestamp=datetime.now(),
+                    token_count=10,
+                    source="user",
+                )
+            )
 
-    def test_remove_messages(self, mock_queue):
-        """测试移除消息"""
-        messages = list(mock_queue.messages)
-        to_remove = messages[:2]
+        old_seg1 = list(queue.segment_1)
+        old_seg2 = list(queue.segment_2)
 
-        mock_queue.remove_messages(to_remove)
+        queue.rotate_after_summary()
 
-        assert len(mock_queue) == 3
-        assert mock_queue.total_tokens == 30
+        assert list(queue.segment_2) == old_seg1
+        assert list(queue.segment_3) == old_seg2
+        assert len(queue.segment_1) == 0

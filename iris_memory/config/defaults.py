@@ -18,9 +18,10 @@ class L1BufferConfig:
 
     enable: bool = True
     summary_provider: str = ""
-    inject_queue_length: int = 30
+    inject_queue_length: int = 50
     inject_max_content_chars: int = 200
-    retain_message_count: int = 10
+    segment_1_length: int = 10
+    segment_3_length: int = 10
     max_queue_tokens: int = 4000
     max_single_message_tokens: int = 500
 

@@ -11,7 +11,7 @@ import re
 
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
-from .models import ContextMessage, MessageQueue
+from .models import ContextMessage, SegmentedMessageQueue
 
 if TYPE_CHECKING:
     from iris_memory.llm import LLMManager
@@ -45,31 +45,26 @@ class Summarizer:
         self.provider = provider
         logger.info("总结器已初始化")
 
-    def should_summarize(self, queue: MessageQueue) -> bool:
+    def should_summarize(self, queue: SegmentedMessageQueue) -> bool:
         """检查是否应该触发总结
 
-        检查消息数量或 Token 数是否超过限制。
+        三段式队列的触发条件：
+        1. L1-3 段已满（队列溢出到缓冲段）
+        2. 总 Token 数超过限制
 
         Args:
-            queue: 消息队列
+            queue: 三段式消息队列
 
         Returns:
             是否应该触发总结
-
-        Examples:
-            >>> queue = MessageQueue(group_id="group_123")
-            >>> queue.total_tokens = 5000  # 超过默认限制 4000
-            >>> summarizer = Summarizer(llm_manager)
-            >>> summarizer.should_summarize(queue)
-            True
         """
-        config = get_config()
-
-        max_length = cast(int, config.get("l1_buffer.inject_queue_length", 30))
-        if len(queue) >= max_length:
-            logger.debug(f"队列长度 {len(queue)} >= {max_length}，触发总结")
+        if queue.is_full():
+            logger.debug(
+                f"L1-3 段已满 ({len(queue.segment_3)}/{queue.segment_3_length})，触发总结"
+            )
             return True
 
+        config = get_config()
         max_tokens = cast(int, config.get("l1_buffer.max_queue_tokens", 4000))
         if queue.total_tokens >= max_tokens:
             logger.debug(
@@ -79,13 +74,19 @@ class Summarizer:
 
         return False
 
-    async def summarize(self, messages: list[ContextMessage]) -> Optional[str]:
+    async def summarize(
+        self,
+        context_messages: list[ContextMessage],
+        target_messages: list[ContextMessage],
+    ) -> Optional[str]:
         """总结消息列表
 
-        调用 LLM 生成消息的总结。
+        调用 LLM 生成总结。context_messages 提供完整上下文（L1-1+L1-2+L1-3），
+        但只总结 target_messages（L1-2）的内容。
 
         Args:
-            messages: 待总结的消息列表
+            context_messages: 全量上下文消息（L1-1+L1-2+L1-3，辅助理解）
+            target_messages: 待总结的目标消息（L1-2，实际总结内容）
 
         Returns:
             总结文本
@@ -93,15 +94,18 @@ class Summarizer:
         Raises:
             Exception: LLM 调用失败时抛出
         """
-        if not messages:
-            logger.debug("消息列表为空，跳过总结")
+        if not target_messages:
+            logger.debug("目标消息列表为空，跳过总结")
             return None
 
         try:
-            total_tokens = sum(msg.token_count for msg in messages)
-            prompt = self._build_summary_prompt(messages)
+            total_tokens = sum(msg.token_count for msg in target_messages)
+            prompt = self._build_summary_prompt(context_messages, target_messages)
 
-            logger.info(f"开始总结，共 {len(messages)} 条消息，{total_tokens} tokens")
+            logger.info(
+                f"开始总结，上下文 {len(context_messages)} 条，"
+                f"目标 L1-2 {len(target_messages)} 条，{total_tokens} tokens"
+            )
 
             summary = await self.llm_manager.generate(
                 prompt=prompt,
@@ -116,40 +120,33 @@ class Summarizer:
             logger.error(f"总结失败：{e}", exc_info=True)
             raise
 
-    def _build_summary_prompt(self, messages: list[ContextMessage]) -> str:
+    def _build_summary_prompt(
+        self,
+        context_messages: list[ContextMessage],
+        target_messages: list[ContextMessage],
+    ) -> str:
         """构建总结提示词
 
-        将消息列表转换为总结提示词，要求 LLM 同时输出：
-        1. 记忆总结（分条格式）
-        2. 群聊画像分析
-        3. 用户画像分析
+        将消息列表转换为总结提示词。context_messages 提供完整对话上下文，
+        target_messages 是实际需要总结的 L1-2 段消息。
 
         Args:
-            messages: 消息列表
+            context_messages: 全量上下文消息（L1-1+L1-2+L1-3）
+            target_messages: 待总结的目标消息（L1-2）
 
         Returns:
             总结提示词
         """
-        formatted_messages = []
-        user_names = set()
-
-        for msg in messages:
-            if msg.role == "user":
-                user_name = msg.metadata.get("user_name") if msg.metadata else None
-                if user_name:
-                    formatted_messages.append(f"[{user_name}]: {msg.content}")
-                    user_names.add(user_name)
-                else:
-                    formatted_messages.append(f"[用户]: {msg.content}")
-            else:
-                formatted_messages.append(f"[助手]: {msg.content}")
-
-        messages_text = "\n".join(formatted_messages)
+        context_formatted = self._format_messages(context_messages)
+        target_formatted = self._format_messages(target_messages)
 
         prompt = f"""请分析以下对话，提取记忆信息。
 
-对话内容：
-{messages_text}
+## 完整对话上下文（供理解参考）
+{context_formatted}
+
+## 需要总结的对话片段（仅提取此部分的记忆）
+{target_formatted}
 
 ## 提取标准（必须同时满足）
 1. **信息价值**：包含用户偏好、重要事实、计划安排、观点态度、技能经验等可复用信息
@@ -180,10 +177,33 @@ class Summarizer:
 ## 注意事项
 1. 如果没有有效记忆，memories 数组为空
 2. 仅输出 JSON，不要添加任何其他内容
+3. 只提取"需要总结的对话片段"中的记忆，上下文仅供参考理解
 
 请分析并输出 JSON："""
 
         return prompt
+
+    @staticmethod
+    def _format_messages(messages: list[ContextMessage]) -> str:
+        """格式化消息列表为文本
+
+        Args:
+            messages: 消息列表
+
+        Returns:
+            格式化的消息文本
+        """
+        formatted = []
+        for msg in messages:
+            if msg.role == "user":
+                user_name = msg.metadata.get("user_name") if msg.metadata else None
+                if user_name:
+                    formatted.append(f"[{user_name}]: {msg.content}")
+                else:
+                    formatted.append(f"[用户]: {msg.content}")
+            else:
+                formatted.append(f"[助手]: {msg.content}")
+        return "\n".join(formatted)
 
 
 def parse_summary_response(response: str) -> dict:

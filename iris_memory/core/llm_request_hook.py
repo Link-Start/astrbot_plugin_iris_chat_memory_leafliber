@@ -1077,8 +1077,8 @@ def _log_final_context(req: "ProviderRequest") -> None:
         )
         for i, part in enumerate(req.extra_user_content_parts, 1):
             text = getattr(part, "text", None) or str(part)
-            if len(text) > 500:
-                text = text[:500] + "..."
+            # if len(text) > 500:
+            #     text = text[:500] + "..."
             log_parts.append(f"  [{i}] {text}")
     else:
         log_parts.append("\n[Extra User Content Parts]\n(无)")

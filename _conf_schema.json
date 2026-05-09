@@ -18,9 +18,9 @@
       },
       "inject_queue_length": {
         "type": "int",
-        "default": 30,
-        "description": "注入上下文的最大消息条数",
-        "hint": "超过此数量将触发自动总结"
+        "default": 50,
+        "description": "L1 队列总长度（= L1-1 + L1-2 + L1-3）",
+        "hint": "三段式FIFO队列的总消息容量，超过时触发自动总结"
       },
       "inject_max_content_chars": {
         "type": "int",
@@ -28,11 +28,17 @@
         "description": "注入时单条消息最大字符数",
         "hint": "超过此长度的消息将被截断，0 表示不截断"
       },
-      "retain_message_count": {
+      "segment_1_length": {
         "type": "int",
         "default": 10,
-        "description": "总结时保留的消息数",
-        "hint": "触发总结后保留最新的n条消息，只总结被抛弃的旧消息，必须小于最大消息数"
+        "description": "L1-1 最新段消息数",
+        "hint": "最新消息的缓冲段，始终注入上下文，总结时作为辅助理解"
+      },
+      "segment_3_length": {
+        "type": "int",
+        "default": 10,
+        "description": "L1-3 缓冲段消息数",
+        "hint": "最旧消息的缓冲段，不注入上下文，总结时作为辅助理解。L1-2长度=总长度-L1-1-L1-3"
       },
       "max_queue_tokens": {
         "type": "int",
