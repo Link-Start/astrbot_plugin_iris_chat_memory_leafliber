@@ -152,13 +152,14 @@ async def get_latest_l2_memories():
         if not l2_adapter or not l2_adapter.is_available:
             return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
 
-        all_entries = await l2_adapter.get_all_entries()
+        if group_id:
+            all_entries = await l2_adapter.get_entries_by_group(group_id)
+        else:
+            all_entries = await l2_adapter.get_all_entries()
 
         raw_entries = []
         for entry in all_entries:
             meta = entry.metadata
-            if group_id and meta.get("group_id") != group_id:
-                continue
             raw_entries.append(
                 {
                     "id": entry.id,

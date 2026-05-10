@@ -81,11 +81,23 @@ class ImageParser:
 
         if image_info.has_file_path and image_info.file_path:
             file_path = Path(image_info.file_path)
-            data_url = MessageRecorderBridge.image_to_data_url(file_path)
-            if data_url:
-                logger.debug(f"使用本地文件图片：{file_path.name}")
-                return data_url
-            logger.warning(f"本地图片文件无法读取：{image_info.file_path}")
+            if file_path.is_absolute():
+                data_url = MessageRecorderBridge.image_to_data_url(file_path)
+                if data_url:
+                    logger.debug(f"使用本地文件图片：{file_path.name}")
+                    return data_url
+                logger.warning(f"本地图片文件无法读取：{image_info.file_path}")
+            elif self._recorder_bridge:
+                abs_path = self._recorder_bridge.resolve_relative_path(
+                    image_info.file_path
+                )
+                if abs_path:
+                    data_url = MessageRecorderBridge.image_to_data_url(abs_path)
+                    if data_url:
+                        logger.debug(
+                            f"通过 MessageRecorder 解析本地图片：{abs_path.name}"
+                        )
+                        return data_url
 
         if image_info.has_url:
             return image_info.url

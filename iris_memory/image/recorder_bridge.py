@@ -145,6 +145,33 @@ class MessageRecorderBridge:
             logger.debug(f"从 MessageRecorder 获取本地图片失败：{e}")
             return None
 
+    def resolve_relative_path(self, rel_path: str) -> Optional[Path]:
+        """通过 MessageRecorder API 将相对路径解析为绝对路径
+
+        利用 message_recorder 插件的 get_media_absolute_path() 方法，
+        将平台提供的相对文件名（如 QQ 的 CC00AC7C...jpg）解析为本地绝对路径。
+
+        Args:
+            rel_path: 相对文件路径或平台文件名
+
+        Returns:
+            解析后的绝对路径，失败返回 None
+        """
+        if not self._ensure_api():
+            return None
+
+        try:
+            abs_path = self._api.get_media_absolute_path(rel_path)
+            if abs_path and abs_path.exists():
+                logger.debug(f"通过 MessageRecorder 解析路径：{rel_path} -> {abs_path}")
+                return abs_path
+
+            return None
+
+        except Exception as e:
+            logger.debug(f"解析相对路径失败：{e}")
+            return None
+
     @staticmethod
     def image_to_data_url(file_path: Path) -> Optional[str]:
         """将本地图片文件转为 base64 data URL
