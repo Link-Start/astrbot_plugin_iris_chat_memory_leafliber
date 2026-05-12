@@ -463,7 +463,7 @@ async def _rewrite_query_for_retrieval(
 
     try:
         rewritten = await asyncio.wait_for(
-            llm_manager.generate(prompt=prompt, module="l2_query_rewrite"),
+            llm_manager.generate_direct(prompt=prompt, module="l2_query_rewrite"),
             timeout=timeout_ms / 1000.0,
         )
 
@@ -877,6 +877,30 @@ def _format_profiles_for_injection(
     return "\n\n".join(sections) if sections else ""
 
 
+def _is_passive_trigger(event: "AstrMessageEvent") -> bool:
+    """检查当前 LLM 请求是否为被动触发（sampling/主动回复）
+
+    通过检查 event extras 中的 iris_passive_trigger 标志判断。
+    该标志由 main.py 中的 _detect_passive_trigger() 设置。
+
+    被动触发时，用户消息不以唤醒前缀开头，LLM 请求由 AstrBot 的
+    active_reply/sampling 机制触发。此时图片解析是不必要的，
+    跳过可节省 token 和配额。
+
+    Args:
+        event: AstrBot 消息事件对象
+
+    Returns:
+        True 表示被动触发，应跳过图片解析
+    """
+    try:
+        if hasattr(event, "get_extra"):
+            return bool(event.get_extra("iris_passive_trigger"))
+    except Exception:
+        pass
+    return False
+
+
 async def _parse_images_if_related_mode(
     event: "AstrMessageEvent",
     req: "ProviderRequest",
@@ -907,6 +931,11 @@ async def _parse_images_if_related_mode(
     config = get_config()
     if not config.get("image_parsing.enable"):
         return
+
+    if config.get("image_parsing.skip_on_passive_trigger", True):
+        if _is_passive_trigger(event):
+            logger.info("被动触发（sampling/主动回复），跳过图片解析以节省 token")
+            return
 
     mode = config.get("image_parsing.parsing_mode", "related")
 

@@ -59,6 +59,7 @@ class ImageParsingConfig:
     max_parse_per_request: int = 5
     max_concurrent_parse: int = 3
     cache_retention_days: int = 7
+    skip_on_passive_trigger: bool = True
 
 
 @dataclass

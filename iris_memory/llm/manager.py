@@ -2,6 +2,13 @@
 Iris Chat Memory - LLM 调用管理器
 
 提供统一的 LLM 调用入口，支持 Token 统计与调用追踪。
+
+调用方式：
+- generate(): 通过 context.llm_generate() 调用，会触发 AstrBot 的 on_llm_request 钩子链。
+  适用于需要走完整钩子流程的场景。
+- generate_direct(): 直接调用 Provider.text_chat()，绕过所有 on_llm_request 钩子。
+  适用于插件内部调用（图片解析、总结器、画像分析等），避免递归触发钩子和
+  不必要的上下文注入（如 sampling 触发时的图片解析）。
 """
 
 from typing import Optional, Dict, List, Any, TYPE_CHECKING
@@ -19,6 +26,7 @@ from .call_log import CallLog
 if TYPE_CHECKING:
     from astrbot.api.star import Context
     from astrbot.api.provider import LLMResponse
+    from astrbot.core.provider.provider import Provider
 
 logger = get_logger("llm_manager")
 
@@ -201,6 +209,174 @@ class LLMManager(Component):
             logger.error(f"LLM 调用失败：module={module}, error={e}")
             raise
 
+    async def generate_direct(
+        self,
+        prompt: str,
+        module: str = "default",
+        provider_id: Optional[str] = None,
+        contexts: Optional[List[Dict[str, Any]]] = None,
+        system_prompt: Optional[str] = None,
+        **kwargs,
+    ) -> str:
+        """直接调用 Provider 生成文本响应（绕过 on_llm_request 钩子）
+
+        通过 context.get_provider_by_id() 获取 Provider 实例，
+        直接调用 provider.text_chat()，不经过 AstrBot 的 llm_generate 流程，
+        因此不会触发 on_llm_request / on_llm_response 钩子。
+
+        适用于插件内部调用（图片解析、总结器、画像分析、查询改写等），
+        避免递归触发钩子和不必要的上下文注入。
+
+        Args:
+            prompt: 输入提示词
+            module: 调用模块标识（用于统计），如 "image_parsing"
+            provider_id: Provider ID（留空使用模块配置或默认）
+            contexts: 上下文消息列表
+            system_prompt: 系统提示词（可选）
+            **kwargs: 其他参数
+
+        Returns:
+            生成的文本响应
+
+        Raises:
+            RuntimeError: LLMManager 未初始化或 Provider 不可用
+            Exception: LLM 调用失败
+        """
+        if not self._is_available:
+            raise RuntimeError("LLMManager 未初始化")
+
+        actual_provider_id = await self._resolve_provider(module, provider_id)
+
+        if not actual_provider_id:
+            raise RuntimeError(
+                f"未配置 Provider：module={module}。"
+                f"请在插件配置中设置相应的 Provider，"
+                f"或在 AstrBot 中配置默认 Provider。"
+            )
+
+        provider = self._get_provider_instance(actual_provider_id)
+        if not provider:
+            raise RuntimeError(
+                f"Provider 实例不可用：{actual_provider_id}。"
+                f"请检查 AstrBot 中该 Provider 是否已启用。"
+            )
+
+        start_time = time.time()
+        call_id = str(uuid.uuid4())
+
+        try:
+            logger.debug(
+                f"LLM 直接调用开始：module={module}, provider={actual_provider_id}"
+            )
+
+            llm_resp: "LLMResponse" = await provider.text_chat(
+                prompt=prompt,
+                contexts=contexts or [],
+                system_prompt=system_prompt,
+            )
+
+            response_text = llm_resp.completion_text or ""
+
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            if llm_resp.usage:
+                input_tokens = llm_resp.usage.input_other + llm_resp.usage.input_cached
+                output_tokens = llm_resp.usage.output
+            else:
+                input_tokens = 0
+                output_tokens = 0
+
+            if self._token_stats:
+                await self._token_stats.record_usage(
+                    module=module,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
+
+            log = CallLog(
+                call_id=call_id,
+                timestamp=datetime.now(),
+                module=module,
+                provider_id=actual_provider_id,
+                prompt=self._truncate_text(prompt, 500),
+                response=self._truncate_text(response_text, 500),
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                duration_ms=duration_ms,
+                success=True,
+            )
+            self._call_logs.append(log)
+
+            logger.info(
+                f"LLM 直接调用成功：module={module}, "
+                f"tokens={input_tokens}+{output_tokens}, "
+                f"duration={duration_ms}ms"
+            )
+
+            return response_text
+
+        except Exception as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            log = CallLog(
+                call_id=call_id,
+                timestamp=datetime.now(),
+                module=module,
+                provider_id=actual_provider_id,
+                prompt=self._truncate_text(prompt, 500),
+                response="",
+                input_tokens=0,
+                output_tokens=0,
+                duration_ms=duration_ms,
+                success=False,
+                error_message=str(e),
+            )
+            self._call_logs.append(log)
+
+            logger.error(f"LLM 直接调用失败：module={module}, error={e}")
+            raise
+
+    def _get_provider_instance(self, provider_id: str) -> Optional["Provider"]:
+        """获取 Provider 实例
+
+        通过 context.get_provider_by_id() 获取 Provider 实例。
+
+        Args:
+            provider_id: Provider ID
+
+        Returns:
+            Provider 实例，不可用时返回 None
+        """
+        try:
+            if hasattr(self._context, "get_provider_by_id"):
+                provider = self._context.get_provider_by_id(provider_id)
+                if provider:
+                    return provider
+
+            if hasattr(self._context, "provider_manager"):
+                provider_manager = self._context.provider_manager
+                if hasattr(provider_manager, "inst_map"):
+                    return provider_manager.inst_map.get(provider_id)
+        except Exception as e:
+            logger.debug(f"获取 Provider 实例失败: {e}")
+
+        return None
+
+    async def resolve_provider(
+        self, module: str = "default", provider_id: Optional[str] = None
+    ) -> Optional[str]:
+        """解析要使用的 Provider ID（公开接口）
+
+        优先级：参数 > 模块配置 > AstrBot 默认 Provider
+
+        Args:
+            module: 模块名
+            provider_id: 参数传入的 provider_id
+
+        Returns:
+            实际使用的 Provider ID，None 表示无法获取
+        """
+        return await self._resolve_provider(module, provider_id)
+
     async def _resolve_provider(
         self, module: str, provider_id: Optional[str]
     ) -> Optional[str]:
@@ -348,7 +524,7 @@ class LLMManager(Component):
 
         contexts = [{"role": "user", "content": content}]
 
-        return await self.generate(
+        return await self.generate_direct(
             prompt="",
             module=module,
             provider_id=provider_id,

@@ -50,7 +50,7 @@ class ProfileAnalyzer:
         prompt = self._build_group_analysis_prompt(messages, current_profile, tier)
 
         try:
-            response = await self._llm_manager.generate(
+            response = await self._llm_manager.generate_direct(
                 prompt=prompt, module="profile_analysis"
             )
 
@@ -81,7 +81,7 @@ class ProfileAnalyzer:
         prompt = self._build_user_analysis_prompt(messages, current_profile, tier)
 
         try:
-            response = await self._llm_manager.generate(
+            response = await self._llm_manager.generate_direct(
                 prompt=prompt, module="profile_analysis"
             )
 

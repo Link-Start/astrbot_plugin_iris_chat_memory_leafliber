@@ -56,6 +56,40 @@ from iris_memory.commands import (
 logger = get_logger("main")
 
 
+def _detect_passive_trigger(event: AstrMessageEvent, req, context: Context) -> None:
+    """检测 LLM 请求是否为被动触发（sampling/主动回复）
+
+    当用户消息不以唤醒前缀开头时，LLM 请求可能是由 AstrBot 的
+    active_reply/sampling 机制触发的。此时标记事件，供后续钩子
+    判断是否跳过图片解析等高 token 消耗操作。
+
+    检测逻辑：
+    - AstrBot 对显式请求会剥离唤醒前缀，因此 req.prompt 应短于
+      event.message_str
+    - 若 req.prompt 与 event.message_str 相同，说明唤醒前缀未被剥离，
+      即为被动触发
+
+    Args:
+        event: AstrBot 消息事件
+        req: ProviderRequest 对象
+        context: AstrBot Context
+    """
+    try:
+        message_str = getattr(event, "message_str", "") or ""
+        prompt = getattr(req, "prompt", "") or ""
+
+        if not message_str:
+            return
+
+        if prompt == message_str and message_str:
+            event.set_extra("iris_passive_trigger", True)
+            logger.debug(
+                f"检测到被动触发（sampling），prompt 与 message_str 相同：{message_str[:50]}"
+            )
+    except Exception as e:
+        logger.debug(f"被动触发检测异常（不影响正常流程）：{e}")
+
+
 @register(
     "astrbot_plugin_iris_chat_memory",
     "Leafiber",
@@ -176,6 +210,7 @@ class IrisChatMemoryPlugin(Star):
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req) -> None:
         if self.component_manager:
+            _detect_passive_trigger(event, req, self.context)
             await preprocess_llm_request(event, req, self.component_manager)
 
     @filter.on_llm_response()

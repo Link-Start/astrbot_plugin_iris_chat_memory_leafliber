@@ -51,7 +51,7 @@ class EntityExtractor:
         prompt = self._build_extraction_prompt(text)
 
         try:
-            response = await self.llm_manager.generate(
+            response = await self.llm_manager.generate_direct(
                 prompt=prompt, module="l3_kg_extraction"
             )
 

@@ -84,7 +84,7 @@ class MemoryReranker:
 
         try:
             # 调用 LLM
-            response = await self._llm_manager.generate(
+            response = await self._llm_manager.generate_direct(
                 prompt=prompt, module="enhancement_rerank"
             )
 

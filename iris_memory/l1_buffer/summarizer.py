@@ -107,7 +107,7 @@ class Summarizer:
                 f"目标 L1-2 {len(target_messages)} 条，{total_tokens} tokens"
             )
 
-            summary = await self.llm_manager.generate(
+            summary = await self.llm_manager.generate_direct(
                 prompt=prompt,
                 module="l1_summarizer",
                 provider_id=self.provider if self.provider else None,

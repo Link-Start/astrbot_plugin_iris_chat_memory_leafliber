@@ -308,7 +308,7 @@ class ForgettingTask:
                     "请只回复 FORGET 或 KEEP："
                 )
 
-                response = await llm_manager.generate(
+                response = await llm_manager.generate_direct(
                     prompt=prompt, module="forgetting_confirm", provider_id=provider
                 )
 

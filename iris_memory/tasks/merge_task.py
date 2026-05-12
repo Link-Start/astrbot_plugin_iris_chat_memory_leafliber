@@ -379,7 +379,7 @@ class MergeTask:
 
 合并后的记忆："""
 
-            merged = await llm_manager.generate(prompt=prompt, module="scheduled_tasks")
+            merged = await llm_manager.generate_direct(prompt=prompt, module="scheduled_tasks")
 
             if not merged or not merged.strip():
                 logger.warning(
