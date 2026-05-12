@@ -59,14 +59,14 @@ logger = get_logger("main")
 def _detect_passive_trigger(event: AstrMessageEvent, req, context: Context) -> None:
     """检测 LLM 请求是否为被动触发（sampling/主动回复）
 
-    当用户消息不以唤醒前缀开头时，LLM 请求可能是由 AstrBot 的
+    当用户消息不以唤醒前缀开头且未 @机器人 时，LLM 请求可能是由 AstrBot 的
     active_reply/sampling 机制触发的。此时标记事件，供后续钩子
     判断是否跳过图片解析等高 token 消耗操作。
 
     检测逻辑：
-    - AstrBot 对显式请求会剥离唤醒前缀，因此 req.prompt 应短于
-      event.message_str
-    - 若 req.prompt 与 event.message_str 相同，说明唤醒前缀未被剥离，
+    - AstrBot 在 WakingCheckStage 中，当用户通过 @机器人 或唤醒前缀主动触发时，
+      会设置 event.is_at_or_wake_command = True
+    - 若 is_at_or_wake_command 为 False，说明 LLM 请求由 sampling/主动回复触发，
       即为被动触发
 
     Args:
@@ -75,16 +75,11 @@ def _detect_passive_trigger(event: AstrMessageEvent, req, context: Context) -> N
         context: AstrBot Context
     """
     try:
-        message_str = getattr(event, "message_str", "") or ""
-        prompt = getattr(req, "prompt", "") or ""
-
-        if not message_str:
-            return
-
-        if prompt == message_str and message_str:
+        is_at_or_wake = getattr(event, "is_at_or_wake_command", False)
+        if not is_at_or_wake:
             event.set_extra("iris_passive_trigger", True)
             logger.debug(
-                f"检测到被动触发（sampling），prompt 与 message_str 相同：{message_str[:50]}"
+                "检测到被动触发（sampling/主动回复），is_at_or_wake_command 为 False"
             )
     except Exception as e:
         logger.debug(f"被动触发检测异常（不影响正常流程）：{e}")

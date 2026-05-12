@@ -881,9 +881,10 @@ def _is_passive_trigger(event: "AstrMessageEvent") -> bool:
     """检查当前 LLM 请求是否为被动触发（sampling/主动回复）
 
     通过检查 event extras 中的 iris_passive_trigger 标志判断。
-    该标志由 main.py 中的 _detect_passive_trigger() 设置。
+    该标志由 main.py 中的 _detect_passive_trigger() 设置，
+    其依据是 event.is_at_or_wake_command 是否为 False。
 
-    被动触发时，用户消息不以唤醒前缀开头，LLM 请求由 AstrBot 的
+    被动触发时，用户未通过 @机器人 或唤醒前缀主动请求，LLM 请求由 AstrBot 的
     active_reply/sampling 机制触发。此时图片解析是不必要的，
     跳过可节省 token 和配额。
 
