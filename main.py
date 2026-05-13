@@ -42,7 +42,7 @@ from iris_memory.tools import (
     SearchKnowledgeGraphTool,
     GetProfileTool,
 )
-from iris_memory.web import WebServer, create_web_server_from_config
+from iris_memory.web import register_all_routes
 from iris_memory.commands import (
     get_registry,
     execute_command,
@@ -123,8 +123,7 @@ class IrisChatMemoryPlugin(Star):
 
         self._register_llm_tools()
         self._register_command_handlers()
-
-        self.web_server: Optional[WebServer] = None
+        self._register_web_api()
 
         logger.info("Iris Chat Memory 插件已加载（等待异步初始化）")
 
@@ -162,26 +161,23 @@ class IrisChatMemoryPlugin(Star):
         except Exception as e:
             logger.error(f"注册指令处理器失败：{e}", exc_info=True)
 
+    def _register_web_api(self) -> None:
+        try:
+            register_all_routes(self.context)
+        except Exception as e:
+            logger.error(f"注册 Web API 失败：{e}", exc_info=True)
+
     async def initialize(self) -> None:
         try:
             await initialize_components(self.component_manager)
         except Exception as e:
             logger.error(f"组件初始化失败：{e}", exc_info=True)
 
-        try:
-            self.web_server = create_web_server_from_config()
-            if self.web_server:
-                self.web_server.start()
-        except Exception as e:
-            logger.error(f"初始化 Web 服务器失败：{e}", exc_info=True)
-
         logger.info("Iris Chat Memory 插件异步初始化完成")
 
     async def terminate(self):
         """插件卸载清理"""
         logger.info("开始关闭插件组件...")
-        if self.web_server:
-            self.web_server.shutdown()
         await shutdown_components(self.component_manager)
         logger.info("Iris Chat Memory 插件已卸载")
 

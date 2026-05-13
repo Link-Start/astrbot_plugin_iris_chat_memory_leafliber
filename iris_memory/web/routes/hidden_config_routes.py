@@ -8,18 +8,18 @@
 - 重置所有隐藏配置为默认值
 """
 
+import re
 from dataclasses import asdict, fields
 from typing import Dict, Any
 
-from quart import Blueprint, jsonify, request
-from iris_memory.web.auth import dashboard_auth
+from quart import jsonify, request
 from iris_memory.config import get_config
 from iris_memory.config.defaults import HiddenConfig
 from iris_memory.core import get_logger
 
 logger = get_logger("web.hidden_config")
 
-hidden_config_bp = Blueprint("hidden_config", __name__)
+PLUGIN_NAME = "astrbot_plugin_iris_chat_memory"
 
 _HIDDEN_CONFIG_DESCRIPTIONS: Dict[str, str] = {
     "token_budget_max_tokens": "Token 预算上限",
@@ -67,12 +67,6 @@ _HIDDEN_CONFIG_DESCRIPTIONS: Dict[str, str] = {
     "tool_correction_require_confirmation": "修正需确认",
     "tool_timeout_ms": "Tool调用超时(ms)",
     "tool_read_max_results": "读取记忆最大返回数",
-    "web_ssl_cert": "SSL 证书路径",
-    "web_ssl_key": "SSL 私钥路径",
-    "web_cors_origins": "CORS 允许的源(逗号分隔)",
-    "web_enable_csrf_protection": "是否启用 CSRF 保护",
-    "web_rate_limit_max_requests": "速率限制: 每分钟最大请求数",
-    "web_rate_limit_window_seconds": "速率限制: 时间窗口(秒)",
     "profile_analysis_interval_hours": "分析任务间隔(小时)",
     "profile_max_messages_for_analysis": "分析时最大消息数",
     "profile_enable_version_control": "启用版本控制",
@@ -164,14 +158,6 @@ _HIDDEN_CONFIG_GROUPS: Dict[str, list] = {
         "tool_timeout_ms",
         "tool_read_max_results",
     ],
-    "Web 安全": [
-        "web_ssl_cert",
-        "web_ssl_key",
-        "web_cors_origins",
-        "web_enable_csrf_protection",
-        "web_rate_limit_max_requests",
-        "web_rate_limit_window_seconds",
-    ],
     "画像系统": [
         "profile_analysis_interval_hours",
         "profile_max_messages_for_analysis",
@@ -209,7 +195,6 @@ _HIDDEN_CONFIG_GROUPS: Dict[str, list] = {
 
 
 def _get_field_type(field_obj) -> str:
-    """获取字段的简化类型名称"""
     type_name = str(field_obj.type)
     if "int" in type_name:
         return "int"
@@ -225,24 +210,14 @@ def _get_field_type(field_obj) -> str:
 
 
 def _get_literal_options(field_obj) -> list:
-    """获取 Literal 类型的可选值列表"""
     type_str = str(field_obj.type)
     if "Literal" not in type_str:
         return []
-    import re
-
     matches = re.findall(r"'([^']*)'", type_str)
     return matches
 
 
-@hidden_config_bp.route("/", methods=["GET"])
-@dashboard_auth.require_auth
 async def get_hidden_config():
-    """
-    获取所有隐藏配置
-
-    返回每个配置项的：当前值、默认值、类型、描述、所属分组、Literal 可选值
-    """
     try:
         config = get_config()
         all_values = config.get_all_hidden()
@@ -283,20 +258,7 @@ async def get_hidden_config():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@hidden_config_bp.route("/", methods=["PUT"])
-@dashboard_auth.require_auth
 async def update_hidden_config():
-    """
-    批量更新隐藏配置
-
-    Request Body:
-        {
-            "updates": {
-                "key1": value1,
-                "key2": value2
-            }
-        }
-    """
     try:
         config = get_config()
         data = await request.get_json()
@@ -323,15 +285,7 @@ async def update_hidden_config():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@hidden_config_bp.route("/<key>", methods=["DELETE"])
-@dashboard_auth.require_auth
-async def delete_hidden_config(key: str):
-    """
-    删除单个隐藏配置项（恢复为默认值）
-
-    Path Params:
-        key: 配置键名
-    """
+async def delete_hidden_config_item(key: str):
     try:
         config = get_config()
 
@@ -353,12 +307,7 @@ async def delete_hidden_config(key: str):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@hidden_config_bp.route("/reset", methods=["POST"])
-@dashboard_auth.require_auth
 async def reset_hidden_config():
-    """
-    重置所有隐藏配置为默认值
-    """
     try:
         config = get_config()
         config.reset_hidden_to_defaults()
@@ -370,3 +319,17 @@ async def reset_hidden_config():
     except Exception as e:
         logger.error(f"重置隐藏配置失败：{e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+def register_hidden_config_routes(context) -> None:
+    prefix = f"/{PLUGIN_NAME}/hidden-config"
+
+    routes = [
+        (f"{prefix}/", get_hidden_config, ["GET"], "获取隐藏配置"),
+        (f"{prefix}/update", update_hidden_config, ["POST"], "更新隐藏配置"),
+        (f"{prefix}/<key>/delete", delete_hidden_config_item, ["POST"], "删除隐藏配置项"),
+        (f"{prefix}/reset", reset_hidden_config, ["POST"], "重置隐藏配置"),
+    ]
+
+    for route, handler, methods, desc in routes:
+        context.register_web_api(route, handler, methods, desc)

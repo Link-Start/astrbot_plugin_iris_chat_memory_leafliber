@@ -106,16 +106,6 @@ class ContextControlConfig:
 
 
 @dataclass
-class WebConfig:
-    """Web 服务器配置"""
-
-    enable: bool = True
-    host: str = "0.0.0.0"
-    port: int = 9967
-    access_key: str = ""
-
-
-@dataclass
 class HiddenConfig:
     """隐藏配置(内部参数)
 
@@ -188,14 +178,6 @@ class HiddenConfig:
     tool_timeout_ms: int = 2000  # Tool调用超时
     tool_read_max_results: int = 10  # 读取记忆最大返回数
 
-    # Web 安全增强配置（可选）
-    web_ssl_cert: str = ""  # SSL 证书路径（启用 HTTPS）
-    web_ssl_key: str = ""  # SSL 私钥路径
-    web_cors_origins: str = "*"  # CORS 允许的源（逗号分隔）
-    web_enable_csrf_protection: bool = True  # 是否启用 CSRF 保护
-    web_rate_limit_max_requests: int = 100  # 速率限制：每分钟最大请求数
-    web_rate_limit_window_seconds: int = 60  # 速率限制：时间窗口（秒）
-
     # 画像系统参数
     profile_analysis_interval_hours: int = 24  # 分析任务间隔（小时）
     profile_max_messages_for_analysis: int = 50  # 分析时最大消息数
@@ -248,7 +230,6 @@ class Defaults:
     isolation_config: IsolationConfig = field(default_factory=IsolationConfig)
     scheduled_tasks: ScheduledTasksConfig = field(default_factory=ScheduledTasksConfig)
     context_control: ContextControlConfig = field(default_factory=ContextControlConfig)
-    web: WebConfig = field(default_factory=WebConfig)
     hidden: HiddenConfig = field(default_factory=HiddenConfig)
 
     def get_by_flat_key(self, flat_key: str) -> Optional[object]:

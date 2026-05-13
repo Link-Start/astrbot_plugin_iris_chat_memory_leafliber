@@ -1,27 +1,32 @@
-import axios, { AxiosInstance, AxiosError } from 'axios'
+const bridge = window.AstrBotPluginPage as any
 
-const apiClient: AxiosInstance = axios.create({
-  baseURL: '/api/iris',
-  timeout: 30000,
-  withCredentials: true,
-  headers: {
-    'Content-Type': 'application/json'
+let readyPromise: Promise<any> | null = null
+
+function ensureReady(): Promise<any> {
+  if (!readyPromise) {
+    readyPromise = bridge.ready()
   }
-})
+  return readyPromise
+}
 
-apiClient.interceptors.response.use(
-  (response) => response.data,
-  (error: AxiosError<{ error?: string; code?: string }>) => {
-    const message = error.response?.data?.error || error.message || '请求失败'
-    const code = error.response?.data?.code
-    
-    if (code === 'UNAUTHORIZED' || error.response?.status === 401) {
-      console.warn('未授权，需要重新登录')
-      window.location.reload()
-    }
-    
-    return Promise.reject(new Error(message))
-  }
-)
+async function apiGet<T = any>(endpoint: string, params?: Record<string, any>): Promise<T> {
+  await ensureReady()
+  return bridge.apiGet(endpoint, params)
+}
 
-export default apiClient
+async function apiPost<T = any>(endpoint: string, body?: any): Promise<T> {
+  await ensureReady()
+  return bridge.apiPost(endpoint, body)
+}
+
+async function apiDownload(endpoint: string, params?: Record<string, string>, filename?: string): Promise<void> {
+  await ensureReady()
+  return bridge.download(endpoint, params, filename)
+}
+
+async function apiUpload<T = any>(endpoint: string, file: File): Promise<T> {
+  await ensureReady()
+  return bridge.upload(endpoint, file)
+}
+
+export { apiGet, apiPost, apiDownload, apiUpload, ensureReady }

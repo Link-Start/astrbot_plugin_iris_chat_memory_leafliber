@@ -1,87 +1,60 @@
-import type { GroupProfile, UserProfile, GroupListItem, UserListItem } from '@/types'
-import apiClient from './request'
+import { apiGet, apiPost } from './request'
 
 interface ApiBaseResponse {
   success: boolean
   error?: string
 }
 
-interface GroupProfileApiResponse extends ApiBaseResponse {
-  profile: GroupProfile
-}
-
-interface UserProfileApiResponse extends ApiBaseResponse {
-  profile: UserProfile
-}
-
-interface GroupListApiResponse extends ApiBaseResponse {
-  groups: GroupListItem[]
-}
-
-interface UserListApiResponse extends ApiBaseResponse {
-  users: UserListItem[]
-}
-
-export const getGroupProfile = async (groupId: string): Promise<GroupProfile> => {
-  const response = await apiClient.get(`/profile/group/${groupId}`) as unknown as GroupProfileApiResponse
+function checkSuccess(response: ApiBaseResponse, errorMsg: string): void {
   if (!response.success) {
-    throw new Error(response.error || '获取群聊画像失败')
+    throw new Error(response.error || errorMsg)
   }
+}
+
+export async function getGroupProfile(groupId: string): Promise<any> {
+  const response = await apiGet<any>(`profile/group/${groupId}`)
+  checkSuccess(response, '获取群聊画像失败')
   return response.profile || {}
 }
 
-export const updateGroupProfile = async (groupId: string, data: Partial<GroupProfile>): Promise<void> => {
-  const response = await apiClient.put(`/profile/group/${groupId}`, data) as unknown as ApiBaseResponse
-  if (!response.success) {
-    throw new Error(response.error || '更新群聊画像失败')
-  }
+export async function updateGroupProfile(groupId: string, data: any): Promise<void> {
+  const response = await apiPost<any>(`profile/group/${groupId}/update`, data)
+  checkSuccess(response, '更新群聊画像失败')
 }
 
-export const getUserProfile = async (userId: string, groupId?: string): Promise<UserProfile> => {
+export async function getUserProfile(userId: string, groupId?: string): Promise<any> {
   const params = groupId ? { group_id: groupId } : {}
-  const response = await apiClient.get(`/profile/user/${userId}`, { params }) as unknown as UserProfileApiResponse
-  if (!response.success) {
-    throw new Error(response.error || '获取用户画像失败')
-  }
+  const response = await apiGet<any>(`profile/user/${userId}`, params)
+  checkSuccess(response, '获取用户画像失败')
   return response.profile || {}
 }
 
-export const updateUserProfile = async (userId: string, data: Partial<UserProfile>, groupId?: string): Promise<void> => {
+export async function updateUserProfile(userId: string, data: any, groupId?: string): Promise<void> {
   const params = groupId ? { group_id: groupId } : {}
-  const response = await apiClient.put(`/profile/user/${userId}`, data, { params }) as unknown as ApiBaseResponse
-  if (!response.success) {
-    throw new Error(response.error || '更新用户画像失败')
-  }
+  const response = await apiPost<any>(`profile/user/${userId}/update`, data, )
+  checkSuccess(response, '更新用户画像失败')
 }
 
-export const getGroupList = async (): Promise<GroupListItem[]> => {
-  const response = await apiClient.get('/profile/groups') as unknown as GroupListApiResponse
-  if (!response.success) {
-    throw new Error(response.error || '获取群聊列表失败')
-  }
+export async function getGroupList(): Promise<any[]> {
+  const response = await apiGet<any>('profile/groups')
+  checkSuccess(response, '获取群聊列表失败')
   return response.groups || []
 }
 
-export const deleteGroupProfile = async (groupId: string): Promise<void> => {
-  const response = await apiClient.delete(`/profile/group/${groupId}`) as unknown as ApiBaseResponse
-  if (!response.success) {
-    throw new Error(response.error || '删除群聊画像失败')
-  }
+export async function deleteGroupProfile(groupId: string): Promise<void> {
+  const response = await apiPost<any>(`profile/group/${groupId}/delete`)
+  checkSuccess(response, '删除群聊画像失败')
 }
 
-export const deleteUserProfile = async (userId: string, groupId?: string): Promise<void> => {
+export async function deleteUserProfile(userId: string, groupId?: string): Promise<void> {
   const params = groupId ? { group_id: groupId } : {}
-  const response = await apiClient.delete(`/profile/user/${userId}`, { params }) as unknown as ApiBaseResponse
-  if (!response.success) {
-    throw new Error(response.error || '删除用户画像失败')
-  }
+  const response = await apiPost<any>(`profile/user/${userId}/delete`, params)
+  checkSuccess(response, '删除用户画像失败')
 }
 
-export const getUserList = async (groupId?: string): Promise<UserListItem[]> => {
+export async function getUserList(groupId?: string): Promise<any[]> {
   const params = groupId ? { group_id: groupId } : {}
-  const response = await apiClient.get('/profile/users', { params }) as unknown as UserListApiResponse
-  if (!response.success) {
-    throw new Error(response.error || '获取用户列表失败')
-  }
+  const response = await apiGet<any>('profile/users', params)
+  checkSuccess(response, '获取用户列表失败')
   return response.users || []
 }

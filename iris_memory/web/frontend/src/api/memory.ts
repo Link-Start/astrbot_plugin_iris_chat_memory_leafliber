@@ -1,16 +1,4 @@
-import type {
-  L1ListResponse,
-  L2SearchRequest,
-  L2SearchResponse,
-  KGGraph,
-  KGNode,
-  L1QueueItem,
-  L3NodeDetail,
-  L3EdgeDetail,
-  L2SortField,
-  L2SortOrder
-} from '@/types'
-import apiClient from './request'
+import { apiGet, apiPost } from './request'
 
 interface ApiBaseResponse {
   success: boolean
@@ -18,207 +6,115 @@ interface ApiBaseResponse {
   message?: string
 }
 
-interface L1ListApiResponse extends ApiBaseResponse, L1ListResponse {}
-
-interface L1QueuesApiResponse extends ApiBaseResponse {
-  queues: L1QueueItem[]
-}
-
-interface L2SearchApiResponse extends ApiBaseResponse {
-  results: L2SearchResponse['results']
-}
-
-interface L2StatsApiResponse extends ApiBaseResponse {
-  stats: { total_count: number; group_count: number }
-}
-
-interface L3GraphApiResponse extends ApiBaseResponse {
-  start_node: KGNode | null
-  nodes: KGGraph['nodes']
-  edges: KGGraph['edges']
-}
-
-export interface L3GraphParams {
-  node_id?: string
-  depth?: number
-  max_nodes?: number
-  max_edges?: number
-}
-
-export const getL1Messages = async (groupId?: string): Promise<L1ListResponse> => {
-  const params = groupId ? { group_id: groupId } : {}
-  const response = await apiClient.get('/memory/l1/list', { params }) as unknown as L1ListApiResponse
+function checkSuccess(response: ApiBaseResponse, errorMsg: string): void {
   if (!response.success) {
-    throw new Error(response.error || '获取L1缓冲失败')
+    throw new Error(response.error || errorMsg)
   }
+}
+
+export async function getL1Messages(groupId?: string): Promise<any> {
+  const params = groupId ? { group_id: groupId } : {}
+  const response = await apiGet<any>('memory/l1/list', params)
+  checkSuccess(response, '获取L1缓冲失败')
   return {
     messages: response.messages || [],
     count: response.count || 0
   }
 }
 
-export const getL1Queues = async (): Promise<L1QueueItem[]> => {
-  const response = await apiClient.get('/memory/l1/queues') as unknown as L1QueuesApiResponse
-  if (!response.success) {
-    throw new Error(response.error || '获取L1队列列表失败')
-  }
+export async function getL1Queues(): Promise<any[]> {
+  const response = await apiGet<any>('memory/l1/queues')
+  checkSuccess(response, '获取L1队列列表失败')
   return response.queues || []
 }
 
-export const searchL2Memory = async (params: L2SearchRequest): Promise<L2SearchResponse> => {
-  const response = await apiClient.post('/memory/l2/search', params) as unknown as L2SearchApiResponse
-  if (!response.success) {
-    throw new Error(response.error || '搜索L2记忆失败')
-  }
+export async function searchL2Memory(params: any): Promise<any> {
+  const response = await apiPost<any>('memory/l2/search', params)
+  checkSuccess(response, '搜索L2记忆失败')
   return { results: response.results || [] }
 }
 
-export const getL2Stats = async (): Promise<{ total_count: number; group_count: number }> => {
-  const response = await apiClient.get('/memory/l2/stats') as unknown as L2StatsApiResponse
-  if (!response.success) {
-    throw new Error(response.error || '获取L2统计失败')
-  }
+export async function getL2Stats(): Promise<{ total_count: number; group_count: number }> {
+  const response = await apiGet<any>('memory/l2/stats')
+  checkSuccess(response, '获取L2统计失败')
   return response.stats || { total_count: 0, group_count: 0 }
 }
 
-export const getLatestL2Memories = async (
+export async function getLatestL2Memories(
   limit: number = 20,
   groupId?: string,
-  sortBy: L2SortField = 'timestamp',
-  sortOrder: L2SortOrder = 'desc'
-): Promise<L2SearchResponse> => {
-  const params: Record<string, unknown> = { limit, sort_by: sortBy, sort_order: sortOrder }
+  sortBy: string = 'timestamp',
+  sortOrder: string = 'desc'
+): Promise<any> {
+  const params: Record<string, any> = { limit, sort_by: sortBy, sort_order: sortOrder }
   if (groupId) {
     params.group_id = groupId
   }
-  const response = await apiClient.get('/memory/l2/latest', { params }) as unknown as L2SearchApiResponse
-  if (!response.success) {
-    throw new Error(response.error || '获取最新L2记忆失败')
-  }
+  const response = await apiGet<any>('memory/l2/latest', params)
+  checkSuccess(response, '获取最新L2记忆失败')
   return { results: response.results || [] }
 }
 
-export const deleteL2Entries = async (ids: string[]): Promise<number> => {
-  const response = await apiClient.post('/memory/l2/delete', { ids }) as unknown as ApiBaseResponse & { deleted_count: number }
-  if (!response.success) {
-    throw new Error(response.error || '删除L2记忆失败')
-  }
+export async function deleteL2Entries(ids: string[]): Promise<number> {
+  const response = await apiPost<any>('memory/l2/delete', { ids })
+  checkSuccess(response, '删除L2记忆失败')
   return response.deleted_count
 }
 
-export const updateL2Entry = async (id: string, content: string): Promise<void> => {
-  const response = await apiClient.post('/memory/l2/update', { id, content }) as unknown as ApiBaseResponse
-  if (!response.success) {
-    throw new Error(response.error || '更新L2记忆失败')
-  }
+export async function updateL2Entry(id: string, content: string): Promise<void> {
+  const response = await apiPost<any>('memory/l2/update', { id, content })
+  checkSuccess(response, '更新L2记忆失败')
 }
 
-export const getL3Graph = async (params?: L3GraphParams): Promise<L3GraphApiResponse> => {
-  const response = await apiClient.get('/memory/l3/graph', { params }) as unknown as L3GraphApiResponse
-  if (!response.success) {
-    throw new Error(response.error || response.message || '获取L3图谱失败')
-  }
+export async function getL3Graph(params?: any): Promise<any> {
+  const response = await apiGet<any>('memory/l3/graph', params)
+  checkSuccess(response, '获取L3图谱失败')
   return response
 }
 
-export interface L3SearchNodeResult {
-  id: string
-  label: string
-  name: string
-  content: string
-  confidence: number
-}
-
-export interface L3SearchEdgeResult {
-  source: {
-    id: string
-    label: string
-    name: string
-  }
-  target: {
-    id: string
-    label: string
-    name: string
-  }
-  relation: string
-  confidence: number
-}
-
-interface L3SearchNodesApiResponse extends ApiBaseResponse {
-  nodes: L3SearchNodeResult[]
-}
-
-interface L3SearchEdgesApiResponse extends ApiBaseResponse {
-  edges: L3SearchEdgeResult[]
-}
-
-export const searchL3Nodes = async (keyword: string, limit: number = 20): Promise<L3SearchNodeResult[]> => {
-  const response = await apiClient.get('/memory/l3/search/nodes', { 
-    params: { keyword, limit } 
-  }) as unknown as L3SearchNodesApiResponse
-  if (!response.success) {
-    throw new Error(response.error || '搜索节点失败')
-  }
+export async function searchL3Nodes(keyword: string, limit: number = 20): Promise<any[]> {
+  const response = await apiGet<any>('memory/l3/search/nodes', { keyword, limit })
+  checkSuccess(response, '搜索节点失败')
   return response.nodes || []
 }
 
-export const searchL3Edges = async (keyword: string, limit: number = 20): Promise<L3SearchEdgeResult[]> => {
-  const response = await apiClient.get('/memory/l3/search/edges', { 
-    params: { keyword, limit } 
-  }) as unknown as L3SearchEdgesApiResponse
-  if (!response.success) {
-    throw new Error(response.error || '搜索边失败')
-  }
+export async function searchL3Edges(keyword: string, limit: number = 20): Promise<any[]> {
+  const response = await apiGet<any>('memory/l3/search/edges', { keyword, limit })
+  checkSuccess(response, '搜索边失败')
   return response.edges || []
 }
 
-interface L3NodesApiResponse extends ApiBaseResponse {
-  nodes: L3NodeDetail[]
-}
-
-interface L3EdgesApiResponse extends ApiBaseResponse {
-  edges: L3EdgeDetail[]
-}
-
-export const getL3Nodes = async (limit: number = 100, keyword?: string): Promise<L3NodeDetail[]> => {
-  const params: Record<string, unknown> = { limit }
+export async function getL3Nodes(limit: number = 100, keyword?: string): Promise<any[]> {
+  const params: Record<string, any> = { limit }
   if (keyword) {
     params.keyword = keyword
   }
-  const response = await apiClient.get('/memory/l3/nodes', { params }) as unknown as L3NodesApiResponse
-  if (!response.success) {
-    throw new Error(response.error || '获取L3节点列表失败')
-  }
+  const response = await apiGet<any>('memory/l3/nodes', params)
+  checkSuccess(response, '获取L3节点列表失败')
   return response.nodes || []
 }
 
-export const getL3Edges = async (limit: number = 100, keyword?: string): Promise<L3EdgeDetail[]> => {
-  const params: Record<string, unknown> = { limit }
+export async function getL3Edges(limit: number = 100, keyword?: string): Promise<any[]> {
+  const params: Record<string, any> = { limit }
   if (keyword) {
     params.keyword = keyword
   }
-  const response = await apiClient.get('/memory/l3/edges', { params }) as unknown as L3EdgesApiResponse
-  if (!response.success) {
-    throw new Error(response.error || '获取L3关系列表失败')
-  }
+  const response = await apiGet<any>('memory/l3/edges', params)
+  checkSuccess(response, '获取L3关系列表失败')
   return response.edges || []
 }
 
-export const deleteL3Nodes = async (ids: string[]): Promise<number> => {
-  const response = await apiClient.post('/memory/l3/nodes/delete', { ids }) as unknown as ApiBaseResponse & { deleted_count: number }
-  if (!response.success) {
-    throw new Error(response.error || '删除L3节点失败')
-  }
+export async function deleteL3Nodes(ids: string[]): Promise<number> {
+  const response = await apiPost<any>('memory/l3/nodes/delete', { ids })
+  checkSuccess(response, '删除L3节点失败')
   return response.deleted_count
 }
 
-export const deleteL3Edge = async (sourceId: string, targetId: string, relation: string): Promise<void> => {
-  const response = await apiClient.post('/memory/l3/edges/delete', {
+export async function deleteL3Edge(sourceId: string, targetId: string, relation: string): Promise<void> {
+  const response = await apiPost<any>('memory/l3/edges/delete', {
     source_id: sourceId,
     target_id: targetId,
     relation
-  }) as unknown as ApiBaseResponse
-  if (!response.success) {
-    throw new Error(response.error || '删除L3关系失败')
-  }
+  })
+  checkSuccess(response, '删除L3关系失败')
 }

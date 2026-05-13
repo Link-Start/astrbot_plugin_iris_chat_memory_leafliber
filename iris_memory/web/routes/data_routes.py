@@ -11,27 +11,16 @@
 import json
 from datetime import datetime
 
-from quart import Blueprint, jsonify, request, Response
-from iris_memory.web.auth import dashboard_auth
+from quart import jsonify, request, Response
 from iris_memory.core import get_component_manager, get_logger
 from iris_memory.l2_memory.io import MemoryExporter, MemoryImporter
 
 logger = get_logger("web.data")
-data_bp = Blueprint("data", __name__)
+
+PLUGIN_NAME = "astrbot_plugin_iris_chat_memory"
 
 
-@data_bp.route("/l2/export", methods=["GET"])
-@dashboard_auth.require_auth
 async def export_l2_memory():
-    """
-    导出 L2 记忆
-
-    Query Params:
-        group_id: 群聊ID筛选（可选）
-
-    Response:
-        JSON 文件下载
-    """
     try:
         manager = get_component_manager()
         l2_adapter = manager.get_component("l2_memory")
@@ -76,20 +65,7 @@ async def export_l2_memory():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@data_bp.route("/l2/import", methods=["POST"])
-@dashboard_auth.require_auth
 async def import_l2_memory():
-    """
-    导入 L2 记忆
-
-    Request Body (JSON):
-        {
-            "data": {...},
-            "skip_duplicates": true
-        }
-
-    或直接上传 JSON 文件（multipart/form-data）
-    """
     try:
         manager = get_component_manager()
         l2_adapter = manager.get_component("l2_memory")
@@ -153,15 +129,7 @@ async def import_l2_memory():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@data_bp.route("/l3/export", methods=["GET"])
-@dashboard_auth.require_auth
 async def export_l3_kg():
-    """
-    导出 L3 知识图谱
-
-    Response:
-        JSON 文件下载
-    """
     try:
         manager = get_component_manager()
         l3_adapter = manager.get_component("l3_kg")
@@ -188,18 +156,7 @@ async def export_l3_kg():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@data_bp.route("/l3/import", methods=["POST"])
-@dashboard_auth.require_auth
 async def import_l3_kg():
-    """
-    导入 L3 知识图谱
-
-    Request Body (JSON):
-        {
-            "data": {...},
-            "skip_duplicates": true
-        }
-    """
     try:
         manager = get_component_manager()
         l3_adapter = manager.get_component("l3_kg")
@@ -242,15 +199,7 @@ async def import_l3_kg():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@data_bp.route("/profile/export", methods=["GET"])
-@dashboard_auth.require_auth
 async def export_profiles():
-    """
-    导出画像数据
-
-    Response:
-        JSON 文件下载
-    """
     try:
         manager = get_component_manager()
         profile_storage = manager.get_component("profile")
@@ -277,18 +226,7 @@ async def export_profiles():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@data_bp.route("/profile/import", methods=["POST"])
-@dashboard_auth.require_auth
 async def import_profiles():
-    """
-    导入画像数据
-
-    Request Body (JSON):
-        {
-            "data": {...},
-            "skip_duplicates": true
-        }
-    """
     try:
         manager = get_component_manager()
         profile_storage = manager.get_component("profile")
@@ -331,15 +269,7 @@ async def import_profiles():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@data_bp.route("/all/export", methods=["GET"])
-@dashboard_auth.require_auth
 async def export_all():
-    """
-    全量导出（L2 + L3 + Profile）
-
-    Response:
-        JSON 文件下载
-    """
     try:
         manager = get_component_manager()
         result = {
@@ -394,18 +324,7 @@ async def export_all():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@data_bp.route("/all/import", methods=["POST"])
-@dashboard_auth.require_auth
 async def import_all():
-    """
-    全量导入（L2 + L3 + Profile）
-
-    Request Body (JSON):
-        {
-            "data": {...},
-            "skip_duplicates": true
-        }
-    """
     try:
         manager = get_component_manager()
         body = await request.get_json()
@@ -487,3 +406,21 @@ async def import_all():
     except Exception as e:
         logger.error(f"全量导入失败：{e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+def register_data_routes(context) -> None:
+    prefix = f"/{PLUGIN_NAME}/data"
+
+    routes = [
+        (f"{prefix}/l2/export", export_l2_memory, ["GET"], "导出 L2 记忆"),
+        (f"{prefix}/l2/import", import_l2_memory, ["POST"], "导入 L2 记忆"),
+        (f"{prefix}/l3/export", export_l3_kg, ["GET"], "导出 L3 知识图谱"),
+        (f"{prefix}/l3/import", import_l3_kg, ["POST"], "导入 L3 知识图谱"),
+        (f"{prefix}/profile/export", export_profiles, ["GET"], "导出画像"),
+        (f"{prefix}/profile/import", import_profiles, ["POST"], "导入画像"),
+        (f"{prefix}/all/export", export_all, ["GET"], "全量导出"),
+        (f"{prefix}/all/import", import_all, ["POST"], "全量导入"),
+    ]
+
+    for route, handler, methods, desc in routes:
+        context.register_web_api(route, handler, methods, desc)

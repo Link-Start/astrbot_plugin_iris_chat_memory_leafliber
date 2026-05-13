@@ -6,27 +6,20 @@
 - 用户画像：查看和编辑
 """
 
-from quart import Blueprint, jsonify, request
-from iris_memory.web.auth import dashboard_auth
+from quart import jsonify, request
 from iris_memory.core import get_component_manager, get_logger
 from iris_memory.profile.models import profile_to_dict
 from typing import Any, Optional, Tuple
 import os
 
 logger = get_logger("web.profile")
-profile_bp = Blueprint("profile", __name__)
+
+PLUGIN_NAME = "astrbot_plugin_iris_chat_memory"
 
 DEBUG_MODE = os.environ.get("IRIS_DEBUG", "").lower() in ("true", "1", "yes")
 
 
 def get_profile_storage() -> Tuple[Optional[Any], Optional[Tuple]]:
-    """获取画像存储组件
-
-    Returns:
-        (storage, error_response): 组件和错误响应元组
-        如果组件可用，返回 (storage, None)
-        如果组件不可用，返回 (None, (response, status_code))
-    """
     manager = get_component_manager()
     storage = manager.get_component("profile")
 
@@ -37,15 +30,6 @@ def get_profile_storage() -> Tuple[Optional[Any], Optional[Tuple]]:
 
 
 def handle_exception(e: Exception, operation: str) -> Tuple[Any, int]:
-    """统一异常处理
-
-    Args:
-        e: 异常对象
-        operation: 操作描述
-
-    Returns:
-        (response, status_code)
-    """
     logger.error(f"{operation}失败：{e}", exc_info=True)
 
     if DEBUG_MODE:
@@ -56,30 +40,7 @@ def handle_exception(e: Exception, operation: str) -> Tuple[Any, int]:
     return jsonify({"success": False, "error": error_msg}), 500
 
 
-@profile_bp.route("/group/<group_id>", methods=["GET"])
-@dashboard_auth.require_auth
 async def get_group_profile(group_id: str):
-    """
-    获取群聊画像
-
-    Path Params:
-        group_id: 群聊ID
-
-    Response:
-        {
-            "success": true,
-            "profile": {
-                "group_id": "123456",
-                "group_name": "测试群",
-                "interests": ["游戏", "技术"],
-                "atmosphere_tags": ["友好活跃", "技术范"],
-                "long_term_tags": ["技术交流群"],
-                "blacklist_topics": ["政治"],
-                "custom_fields": {},
-                "version": 1
-            }
-        }
-    """
     try:
         profile_storage, error = get_profile_storage()
         if error:
@@ -100,30 +61,7 @@ async def get_group_profile(group_id: str):
         return handle_exception(e, "获取群聊画像")
 
 
-@profile_bp.route("/group/<group_id>", methods=["PUT"])
-@dashboard_auth.require_auth
 async def update_group_profile(group_id: str):
-    """
-    更新群聊画像
-
-    Path Params:
-        group_id: 群聊ID
-
-    Request Body:
-        {
-            "group_name": "测试群",
-            "interests": ["游戏", "技术"],
-            "atmosphere_tags": ["友好活跃"],
-            "long_term_tags": ["技术交流群"],
-            "blacklist_topics": ["政治"]
-        }
-
-    Response:
-        {
-            "success": true,
-            "message": "画像已更新"
-        }
-    """
     try:
         data = await request.get_json()
 
@@ -146,38 +84,7 @@ async def update_group_profile(group_id: str):
         return handle_exception(e, "更新群聊画像")
 
 
-@profile_bp.route("/user/<user_id>", methods=["GET"])
-@dashboard_auth.require_auth
 async def get_user_profile(user_id: str):
-    """
-    获取用户画像
-
-    Path Params:
-        user_id: 用户ID
-
-    Query Params:
-        group_id: 群聊ID（可选）
-
-    Response:
-        {
-            "success": true,
-            "profile": {
-                "user_id": "user123",
-                "user_name": "小明",
-                "historical_names": ["旧昵称"],
-                "personality_tags": ["开朗", "幽默"],
-                "interests": ["编程", "游戏"],
-                "occupation": "程序员",
-                "language_style": "简洁",
-                "bot_relationship": "助手",
-                "important_dates": [],
-                "taboo_topics": [],
-                "important_events": [],
-                "custom_fields": {},
-                "version": 1
-            }
-        }
-    """
     try:
         group_id = request.args.get("group_id")
 
@@ -200,34 +107,7 @@ async def get_user_profile(user_id: str):
         return handle_exception(e, "获取用户画像")
 
 
-@profile_bp.route("/user/<user_id>", methods=["PUT"])
-@dashboard_auth.require_auth
 async def update_user_profile(user_id: str):
-    """
-    更新用户画像
-
-    Path Params:
-        user_id: 用户ID
-
-    Query Params:
-        group_id: 群聊ID（可选）
-
-    Request Body:
-        {
-            "user_name": "小明",
-            "personality_tags": ["开朗", "幽默"],
-            "interests": ["编程", "游戏"],
-            "occupation": "程序员",
-            "language_style": "简洁",
-            "bot_relationship": "助手"
-        }
-
-    Response:
-        {
-            "success": true,
-            "message": "画像已更新"
-        }
-    """
     try:
         group_id = request.args.get("group_id")
         data = await request.get_json()
@@ -253,21 +133,7 @@ async def update_user_profile(user_id: str):
         return handle_exception(e, "更新用户画像")
 
 
-@profile_bp.route("/group/<group_id>", methods=["DELETE"])
-@dashboard_auth.require_auth
 async def delete_group_profile(group_id: str):
-    """
-    删除群聊画像
-
-    Path Params:
-        group_id: 群聊ID
-
-    Response:
-        {
-            "success": true,
-            "message": "群聊画像已删除"
-        }
-    """
     try:
         profile_storage, error = get_profile_storage()
         if error:
@@ -285,24 +151,7 @@ async def delete_group_profile(group_id: str):
         return handle_exception(e, "删除群聊画像")
 
 
-@profile_bp.route("/user/<user_id>", methods=["DELETE"])
-@dashboard_auth.require_auth
 async def delete_user_profile(user_id: str):
-    """
-    删除用户画像
-
-    Path Params:
-        user_id: 用户ID
-
-    Query Params:
-        group_id: 群聊ID（可选，默认为 default）
-
-    Response:
-        {
-            "success": true,
-            "message": "用户画像已删除"
-        }
-    """
     try:
         group_id = request.args.get("group_id", "default")
 
@@ -322,24 +171,7 @@ async def delete_user_profile(user_id: str):
         return handle_exception(e, "删除用户画像")
 
 
-@profile_bp.route("/groups", methods=["GET"])
-@dashboard_auth.require_auth
 async def list_group_profiles():
-    """
-    获取所有群聊画像列表
-
-    Response:
-        {
-            "success": true,
-            "groups": [
-                {
-                    "group_id": "123456",
-                    "group_name": "测试群",
-                    "member_count": 50
-                }
-            ]
-        }
-    """
     try:
         profile_storage, error = get_profile_storage()
         if error:
@@ -353,27 +185,7 @@ async def list_group_profiles():
         return handle_exception(e, "获取群聊列表")
 
 
-@profile_bp.route("/users", methods=["GET"])
-@dashboard_auth.require_auth
 async def list_user_profiles():
-    """
-    获取用户画像列表
-
-    Query Params:
-        group_id: 群聊ID（可选，默认为 default）
-
-    Response:
-        {
-            "success": true,
-            "users": [
-                {
-                    "user_id": "user123",
-                    "nickname": "小明",
-                    "group_id": "123456"
-                }
-            ]
-        }
-    """
     try:
         group_id = request.args.get("group_id", "default")
 
@@ -387,3 +199,21 @@ async def list_user_profiles():
 
     except Exception as e:
         return handle_exception(e, "获取用户列表")
+
+
+def register_profile_routes(context) -> None:
+    prefix = f"/{PLUGIN_NAME}/profile"
+
+    routes = [
+        (f"{prefix}/group/<group_id>", get_group_profile, ["GET"], "获取群聊画像"),
+        (f"{prefix}/group/<group_id>/update", update_group_profile, ["POST"], "更新群聊画像"),
+        (f"{prefix}/group/<group_id>/delete", delete_group_profile, ["POST"], "删除群聊画像"),
+        (f"{prefix}/user/<user_id>", get_user_profile, ["GET"], "获取用户画像"),
+        (f"{prefix}/user/<user_id>/update", update_user_profile, ["POST"], "更新用户画像"),
+        (f"{prefix}/user/<user_id>/delete", delete_user_profile, ["POST"], "删除用户画像"),
+        (f"{prefix}/groups", list_group_profiles, ["GET"], "获取群聊列表"),
+        (f"{prefix}/users", list_user_profiles, ["GET"], "获取用户列表"),
+    ]
+
+    for route, handler, methods, desc in routes:
+        context.register_web_api(route, handler, methods, desc)

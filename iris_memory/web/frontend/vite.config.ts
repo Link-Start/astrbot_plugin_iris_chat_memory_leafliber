@@ -3,7 +3,6 @@ import vue from '@vitejs/plugin-vue'
 import vuetify from 'vite-plugin-vuetify'
 import { resolve } from 'path'
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     vue(),
@@ -14,9 +13,10 @@ export default defineConfig({
       '@': resolve(__dirname, 'src')
     }
   },
-  base: '/iris/',  // 基础路径
+  base: './',
   build: {
-    outDir: 'dist',
+    outDir: resolve(__dirname, '../../../pages/iris'),
+    emptyOutDir: true,
     assetsDir: 'assets',
     sourcemap: false,
     chunkSizeWarningLimit: 1000,
@@ -24,19 +24,8 @@ export default defineConfig({
       output: {
         manualChunks: {
           'vue-vendor': ['vue', 'vue-router', 'pinia'],
-          'vuetify': ['vuetify'],
-          'axios': ['axios']
+          'vuetify': ['vuetify']
         }
-      }
-    }
-  },
-  server: {
-    host: '0.0.0.0',
-    allowedHosts: true,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:6185',
-        changeOrigin: true
       }
     }
   }

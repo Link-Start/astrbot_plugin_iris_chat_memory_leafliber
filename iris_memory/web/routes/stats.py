@@ -8,21 +8,16 @@
 - 组件状态追踪
 """
 
-from quart import Blueprint, jsonify
-from iris_memory.web.auth import dashboard_auth
+from quart import jsonify
 from iris_memory.core import get_component_manager, get_logger, get_uptime
 from typing import Dict, Any
 
 logger = get_logger("web.stats")
-stats_bp = Blueprint("stats", __name__)
+
+PLUGIN_NAME = "astrbot_plugin_iris_chat_memory"
 
 
 def _get_uptime() -> int:
-    """获取运行时间（秒）
-
-    Returns:
-        运行时间（秒）
-    """
     try:
         return get_uptime()
     except Exception as e:
@@ -30,29 +25,7 @@ def _get_uptime() -> int:
         return 0
 
 
-@stats_bp.route("/token", methods=["GET"])
-@dashboard_auth.require_auth
 async def get_token_stats():
-    """
-    获取 Token 使用统计
-
-    Response:
-        {
-            "success": true,
-            "stats": {
-                "global": {
-                    "total_input_tokens": 10000,
-                    "total_output_tokens": 3000,
-                    "total_calls": 50
-                },
-                "l1_summarizer": {
-                    "total_input_tokens": 5000,
-                    "total_output_tokens": 1500,
-                    "total_calls": 25
-                }
-            }
-        }
-    """
     try:
         manager = get_component_manager()
         llm_manager = manager.get_component("llm_manager")
@@ -85,31 +58,7 @@ async def get_token_stats():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@stats_bp.route("/memory", methods=["GET"])
-@dashboard_auth.require_auth
 async def get_memory_stats():
-    """
-    获取记忆统计
-
-    Response:
-        {
-            "success": true,
-            "stats": {
-                "l1": {
-                    "queue_length": 10,
-                    "max_capacity": 100
-                },
-                "l2": {
-                    "total_count": 1000,
-                    "group_count": 5
-                },
-                "l3": {
-                    "node_count": 500,
-                    "edge_count": 1000
-                }
-            }
-        }
-    """
     try:
         manager = get_component_manager()
 
@@ -149,29 +98,7 @@ async def get_memory_stats():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@stats_bp.route("/kg", methods=["GET"])
-@dashboard_auth.require_auth
 async def get_kg_stats():
-    """
-    获取知识图谱统计
-
-    Response:
-        {
-            "success": true,
-            "stats": {
-                "node_count": 500,
-                "edge_count": 1000,
-                "node_types": {
-                    "Person": 100,
-                    "Event": 50
-                },
-                "relation_types": {
-                    "KNOWS": 200,
-                    "MENTIONED_IN": 150
-                }
-            }
-        }
-    """
     try:
         manager = get_component_manager()
         l3_adapter = manager.get_component("l3_kg")
@@ -190,34 +117,7 @@ async def get_kg_stats():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@stats_bp.route("/system", methods=["GET"])
-@dashboard_auth.require_auth
 async def get_system_stats():
-    """
-    获取系统整体统计（包含详细组件状态）
-
-    Response:
-        {
-            "success": true,
-            "stats": {
-                "components": {
-                    "l1_buffer": {
-                        "status": "available",
-                        "error": null,
-                        "error_type": null
-                    },
-                    "l2_memory": {
-                        "status": "unavailable",
-                        "error": "ChromaDB 连接失败",
-                        "error_type": "connection_failed"
-                    }
-                },
-                "global_status": "available",
-                "uptime": 3600,
-                "version": "1.0.0"
-            }
-        }
-    """
     try:
         manager = get_component_manager()
 
@@ -241,31 +141,7 @@ async def get_system_stats():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@stats_bp.route("/all", methods=["GET"])
-@dashboard_auth.require_auth
 async def get_all_stats():
-    """
-    获取所有统计数据（合并端点）
-
-    一次性返回 memory、token、kg、system 四种统计数据，
-    减少前端并发请求数，避免触发速率限制。
-
-    Response:
-        {
-            "success": true,
-            "data": {
-                "memory": {...},
-                "token": {...},
-                "kg": {...},
-                "system": {
-                    "components": {...},
-                    "global_status": "available",
-                    "uptime": 3600,
-                    "version": "1.0.0"
-                }
-            }
-        }
-    """
     try:
         manager = get_component_manager()
 
@@ -357,3 +233,18 @@ async def get_all_stats():
     except Exception as e:
         logger.error(f"获取所有统计失败：{e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+def register_stats_routes(context) -> None:
+    prefix = f"/{PLUGIN_NAME}/stats"
+
+    routes = [
+        (f"{prefix}/token", get_token_stats, ["GET"], "获取 Token 统计"),
+        (f"{prefix}/memory", get_memory_stats, ["GET"], "获取记忆统计"),
+        (f"{prefix}/kg", get_kg_stats, ["GET"], "获取图谱统计"),
+        (f"{prefix}/system", get_system_stats, ["GET"], "获取系统统计"),
+        (f"{prefix}/all", get_all_stats, ["GET"], "获取所有统计"),
+    ]
+
+    for route, handler, methods, desc in routes:
+        context.register_web_api(route, handler, methods, desc)

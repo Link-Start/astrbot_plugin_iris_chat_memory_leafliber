@@ -9,25 +9,15 @@
 - 任务手动触发
 """
 
-from quart import Blueprint, jsonify, request
-from iris_memory.web.auth import dashboard_auth
+from quart import jsonify, request
 from iris_memory.core import get_component_manager, get_logger
 
 logger = get_logger("web.manage")
-manage_bp = Blueprint("manage", __name__)
+
+PLUGIN_NAME = "astrbot_plugin_iris_chat_memory"
 
 
-@manage_bp.route("/l1/clear", methods=["POST"])
-@dashboard_auth.require_auth
 async def clear_l1_buffer():
-    """
-    清空 L1 缓冲
-
-    Request Body (optional):
-        {
-            "group_id": "群聊ID（可选，不指定则清空所有）"
-        }
-    """
     try:
         manager = get_component_manager()
         l1_buffer = manager.get_component("l1_buffer")
@@ -52,18 +42,7 @@ async def clear_l1_buffer():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@manage_bp.route("/l2/delete", methods=["POST"])
-@dashboard_auth.require_auth
 async def delete_l2_memory():
-    """
-    删除 L2 记忆
-
-    Request Body:
-        {
-            "scope": "all" | "group",
-            "group_id": "群聊ID（scope=group 时必填）"
-        }
-    """
     try:
         manager = get_component_manager()
         l2_adapter = manager.get_component("l2_memory")
@@ -100,18 +79,7 @@ async def delete_l2_memory():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@manage_bp.route("/l3/delete", methods=["POST"])
-@dashboard_auth.require_auth
 async def delete_l3_kg():
-    """
-    删除 L3 知识图谱数据
-
-    Request Body:
-        {
-            "scope": "all" | "group",
-            "group_id": "群聊ID（scope=group 时必填）"
-        }
-    """
     try:
         manager = get_component_manager()
         l3_adapter = manager.get_component("l3_kg")
@@ -148,12 +116,7 @@ async def delete_l3_kg():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@manage_bp.route("/l3/merge-duplicates", methods=["POST"])
-@dashboard_auth.require_auth
 async def merge_l3_duplicates():
-    """
-    合并 L3 知识图谱中的重复节点
-    """
     try:
         manager = get_component_manager()
         l3_adapter = manager.get_component("l3_kg")
@@ -180,19 +143,7 @@ async def merge_l3_duplicates():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@manage_bp.route("/profile/delete", methods=["POST"])
-@dashboard_auth.require_auth
 async def delete_profile():
-    """
-    删除画像
-
-    Request Body:
-        {
-            "scope": "group" | "user" | "all",
-            "group_id": "群聊ID（scope=group 或 user 时必填）",
-            "user_id": "用户ID（scope=user 时必填）"
-        }
-    """
     try:
         manager = get_component_manager()
         profile_storage = manager.get_component("profile")
@@ -251,17 +202,7 @@ async def delete_profile():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@manage_bp.route("/tasks/trigger", methods=["POST"])
-@dashboard_auth.require_auth
 async def trigger_task():
-    """
-    手动触发定时任务
-
-    Request Body:
-        {
-            "task": "forgetting" | "merge" | "kg_extraction" | "cache_cleanup"
-        }
-    """
     try:
         manager = get_component_manager()
         scheduler = manager.get_component("scheduler")
@@ -323,12 +264,7 @@ async def trigger_task():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@manage_bp.route("/tasks/status", methods=["GET"])
-@dashboard_auth.require_auth
 async def get_tasks_status():
-    """
-    获取任务调度器状态
-    """
     try:
         manager = get_component_manager()
         scheduler = manager.get_component("scheduler")
@@ -348,3 +284,20 @@ async def get_tasks_status():
     except Exception as e:
         logger.error(f"获取任务状态失败：{e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+def register_manage_routes(context) -> None:
+    prefix = f"/{PLUGIN_NAME}/manage"
+
+    routes = [
+        (f"{prefix}/l1/clear", clear_l1_buffer, ["POST"], "清空 L1 缓冲"),
+        (f"{prefix}/l2/delete", delete_l2_memory, ["POST"], "删除 L2 记忆"),
+        (f"{prefix}/l3/delete", delete_l3_kg, ["POST"], "删除 L3 图谱"),
+        (f"{prefix}/l3/merge-duplicates", merge_l3_duplicates, ["POST"], "合并 L3 重复节点"),
+        (f"{prefix}/profile/delete", delete_profile, ["POST"], "删除画像"),
+        (f"{prefix}/tasks/trigger", trigger_task, ["POST"], "手动触发任务"),
+        (f"{prefix}/tasks/status", get_tasks_status, ["GET"], "获取任务状态"),
+    ]
+
+    for route, handler, methods, desc in routes:
+        context.register_web_api(route, handler, methods, desc)
