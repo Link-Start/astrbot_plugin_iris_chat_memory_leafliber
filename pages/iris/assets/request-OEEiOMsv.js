@@ -1,1 +1,0 @@
-const t=window.AstrBotPluginPage;let i=null;function e(){return i||(i=t.ready()),i}async function r(a,n){return await e(),t.apiGet(a,n)}async function s(a,n){return await e(),t.apiPost(a,n)}async function u(a,n,o){return await e(),t.download(a,n,o)}export{r as a,s as b,u as c};

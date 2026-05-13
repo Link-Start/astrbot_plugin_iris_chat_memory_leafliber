@@ -1,6 +1,7 @@
 import { defineConfig, Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vuetify from 'vite-plugin-vuetify'
+import { viteSingleFile } from 'vite-plugin-singlefile'
 import { resolve } from 'path'
 
 function removeCrossorigin(): Plugin {
@@ -10,9 +11,7 @@ function removeCrossorigin(): Plugin {
     generateBundle(_, bundle) {
       for (const [fileName, chunk] of Object.entries(bundle)) {
         if (fileName.endsWith('.html') && chunk.type === 'asset') {
-          chunk.source = (chunk.source as string)
-            .replace(/\s+crossorigin/g, '')
-            .replace(/<link[^>]*rel="modulepreload"[^>]*>/g, '')
+          chunk.source = (chunk.source as string).replace(/\s+crossorigin/g, '')
         }
       }
     }
@@ -23,6 +22,7 @@ export default defineConfig({
   plugins: [
     vue(),
     vuetify({ autoImport: true }),
+    viteSingleFile(),
     removeCrossorigin()
   ],
   resolve: {
@@ -34,17 +34,13 @@ export default defineConfig({
   build: {
     outDir: resolve(__dirname, '../../../pages/iris'),
     emptyOutDir: true,
-    assetsDir: 'assets',
     sourcemap: false,
-    chunkSizeWarningLimit: 1000,
-    modulePreload: false,
+    chunkSizeWarningLimit: 2000,
     cssCodeSplit: false,
+    modulePreload: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vue-vendor': ['vue', 'vue-router', 'pinia'],
-          'vuetify': ['vuetify']
-        }
+        inlineDynamicImports: true
       }
     }
   }
