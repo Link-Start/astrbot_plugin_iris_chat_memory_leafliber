@@ -39,7 +39,7 @@ export async function updateHiddenConfig(updates: Record<string, unknown>): Prom
 }
 
 export async function deleteHiddenConfig(key: string): Promise<string> {
-  const response = await apiPost<any>(`hidden-config/${key}/delete`)
+  const response = await apiPost<any>('hidden-config/delete', { key })
   checkSuccess(response, '删除配置项失败')
   return response.message || ''
 }

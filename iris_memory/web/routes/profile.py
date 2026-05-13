@@ -40,8 +40,12 @@ def handle_exception(e: Exception, operation: str) -> Tuple[Any, int]:
     return jsonify({"success": False, "error": error_msg}), 500
 
 
-async def get_group_profile(group_id: str):
+async def get_group_profile():
     try:
+        group_id = request.args.get("group_id")
+        if not group_id:
+            return jsonify({"success": False, "error": "缺少 group_id 参数"}), 400
+
         profile_storage, error = get_profile_storage()
         if error:
             return error
@@ -61,9 +65,13 @@ async def get_group_profile(group_id: str):
         return handle_exception(e, "获取群聊画像")
 
 
-async def update_group_profile(group_id: str):
+async def update_group_profile():
     try:
         data = await request.get_json()
+        group_id = data.get("group_id") or request.args.get("group_id")
+
+        if not group_id:
+            return jsonify({"success": False, "error": "缺少 group_id 参数"}), 400
 
         if not data:
             return jsonify({"success": False, "error": "请求体不能为空"}), 400
@@ -84,8 +92,12 @@ async def update_group_profile(group_id: str):
         return handle_exception(e, "更新群聊画像")
 
 
-async def get_user_profile(user_id: str):
+async def get_user_profile():
     try:
+        user_id = request.args.get("user_id")
+        if not user_id:
+            return jsonify({"success": False, "error": "缺少 user_id 参数"}), 400
+
         group_id = request.args.get("group_id")
 
         profile_storage, error = get_profile_storage()
@@ -107,8 +119,12 @@ async def get_user_profile(user_id: str):
         return handle_exception(e, "获取用户画像")
 
 
-async def update_user_profile(user_id: str):
+async def update_user_profile():
     try:
+        user_id = request.args.get("user_id")
+        if not user_id:
+            return jsonify({"success": False, "error": "缺少 user_id 参数"}), 400
+
         group_id = request.args.get("group_id")
         data = await request.get_json()
 
@@ -133,8 +149,11 @@ async def update_user_profile(user_id: str):
         return handle_exception(e, "更新用户画像")
 
 
-async def delete_group_profile(group_id: str):
+async def delete_group_profile():
     try:
+        group_id = request.args.get("group_id") or (await request.get_json(silent=True) or {}).get("group_id")
+        if not group_id:
+            return jsonify({"success": False, "error": "缺少 group_id 参数"}), 400
         profile_storage, error = get_profile_storage()
         if error:
             return error
@@ -151,8 +170,12 @@ async def delete_group_profile(group_id: str):
         return handle_exception(e, "删除群聊画像")
 
 
-async def delete_user_profile(user_id: str):
+async def delete_user_profile():
     try:
+        user_id = request.args.get("user_id") or (await request.get_json(silent=True) or {}).get("user_id")
+        if not user_id:
+            return jsonify({"success": False, "error": "缺少 user_id 参数"}), 400
+
         group_id = request.args.get("group_id", "default")
 
         profile_storage, error = get_profile_storage()
@@ -205,12 +228,12 @@ def register_profile_routes(context) -> None:
     prefix = f"/{PLUGIN_NAME}/profile"
 
     routes = [
-        (f"{prefix}/group/<group_id>", get_group_profile, ["GET"], "获取群聊画像"),
-        (f"{prefix}/group/<group_id>/update", update_group_profile, ["POST"], "更新群聊画像"),
-        (f"{prefix}/group/<group_id>/delete", delete_group_profile, ["POST"], "删除群聊画像"),
-        (f"{prefix}/user/<user_id>", get_user_profile, ["GET"], "获取用户画像"),
-        (f"{prefix}/user/<user_id>/update", update_user_profile, ["POST"], "更新用户画像"),
-        (f"{prefix}/user/<user_id>/delete", delete_user_profile, ["POST"], "删除用户画像"),
+        (f"{prefix}/group", get_group_profile, ["GET"], "获取群聊画像"),
+        (f"{prefix}/group/update", update_group_profile, ["POST"], "更新群聊画像"),
+        (f"{prefix}/group/delete", delete_group_profile, ["POST"], "删除群聊画像"),
+        (f"{prefix}/user", get_user_profile, ["GET"], "获取用户画像"),
+        (f"{prefix}/user/update", update_user_profile, ["POST"], "更新用户画像"),
+        (f"{prefix}/user/delete", delete_user_profile, ["POST"], "删除用户画像"),
         (f"{prefix}/groups", list_group_profiles, ["GET"], "获取群聊列表"),
         (f"{prefix}/users", list_user_profiles, ["GET"], "获取用户列表"),
     ]

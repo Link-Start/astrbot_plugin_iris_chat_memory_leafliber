@@ -12,26 +12,29 @@ function checkSuccess(response: ApiBaseResponse, errorMsg: string): void {
 }
 
 export async function getGroupProfile(groupId: string): Promise<any> {
-  const response = await apiGet<any>(`profile/group/${groupId}`)
+  const response = await apiGet<any>('profile/group', { group_id: groupId })
   checkSuccess(response, '获取群聊画像失败')
   return response.profile || {}
 }
 
 export async function updateGroupProfile(groupId: string, data: any): Promise<void> {
-  const response = await apiPost<any>(`profile/group/${groupId}/update`, data)
+  const response = await apiPost<any>('profile/group/update', { ...data, group_id: groupId })
   checkSuccess(response, '更新群聊画像失败')
 }
 
 export async function getUserProfile(userId: string, groupId?: string): Promise<any> {
-  const params = groupId ? { group_id: groupId } : {}
-  const response = await apiGet<any>(`profile/user/${userId}`, params)
+  const params: Record<string, any> = { user_id: userId }
+  if (groupId) {
+    params.group_id = groupId
+  }
+  const response = await apiGet<any>('profile/user', params)
   checkSuccess(response, '获取用户画像失败')
   return response.profile || {}
 }
 
 export async function updateUserProfile(userId: string, data: any, groupId?: string): Promise<void> {
   const params = groupId ? { group_id: groupId } : {}
-  const response = await apiPost<any>(`profile/user/${userId}/update`, data, )
+  const response = await apiPost<any>('profile/user/update', { ...data, user_id: userId, ...params })
   checkSuccess(response, '更新用户画像失败')
 }
 
@@ -42,13 +45,16 @@ export async function getGroupList(): Promise<any[]> {
 }
 
 export async function deleteGroupProfile(groupId: string): Promise<void> {
-  const response = await apiPost<any>(`profile/group/${groupId}/delete`)
+  const response = await apiPost<any>('profile/group/delete', { group_id: groupId })
   checkSuccess(response, '删除群聊画像失败')
 }
 
 export async function deleteUserProfile(userId: string, groupId?: string): Promise<void> {
-  const params = groupId ? { group_id: groupId } : {}
-  const response = await apiPost<any>(`profile/user/${userId}/delete`, params)
+  const params: Record<string, any> = { user_id: userId }
+  if (groupId) {
+    params.group_id = groupId
+  }
+  const response = await apiPost<any>('profile/user/delete', params)
   checkSuccess(response, '删除用户画像失败')
 }
 

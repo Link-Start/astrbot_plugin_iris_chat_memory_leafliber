@@ -285,8 +285,12 @@ async def update_hidden_config():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-async def delete_hidden_config_item(key: str):
+async def delete_hidden_config_item():
     try:
+        key = request.args.get("key")
+        if not key:
+            return jsonify({"success": False, "error": "缺少 key 参数"}), 400
+
         config = get_config()
 
         valid_keys = {f.name for f in fields(HiddenConfig)}
@@ -327,7 +331,7 @@ def register_hidden_config_routes(context) -> None:
     routes = [
         (f"{prefix}/", get_hidden_config, ["GET"], "获取隐藏配置"),
         (f"{prefix}/update", update_hidden_config, ["POST"], "更新隐藏配置"),
-        (f"{prefix}/<key>/delete", delete_hidden_config_item, ["POST"], "删除隐藏配置项"),
+        (f"{prefix}/delete", delete_hidden_config_item, ["POST"], "删除隐藏配置项"),
         (f"{prefix}/reset", reset_hidden_config, ["POST"], "重置隐藏配置"),
     ]
 
