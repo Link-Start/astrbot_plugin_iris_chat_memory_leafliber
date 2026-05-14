@@ -329,7 +329,7 @@ def register_hidden_config_routes(context) -> None:
     prefix = f"/{PLUGIN_NAME}/hidden-config"
 
     routes = [
-        (f"{prefix}/", get_hidden_config, ["GET"], "获取隐藏配置"),
+        (f"{prefix}", get_hidden_config, ["GET"], "获取隐藏配置"),
         (f"{prefix}/update", update_hidden_config, ["POST"], "更新隐藏配置"),
         (f"{prefix}/delete", delete_hidden_config_item, ["POST"], "删除隐藏配置项"),
         (f"{prefix}/reset", reset_hidden_config, ["POST"], "重置隐藏配置"),

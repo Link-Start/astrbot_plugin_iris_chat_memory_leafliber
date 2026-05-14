@@ -221,12 +221,10 @@ async def get_all_stats():
         return jsonify(
             {
                 "success": True,
-                "data": {
-                    "memory": memory_stats,
-                    "token": token_stats,
-                    "kg": kg_stats,
-                    "system": system_stats,
-                },
+                "memory": memory_stats,
+                "token": token_stats,
+                "kg": kg_stats,
+                "system": system_stats,
             }
         )
 

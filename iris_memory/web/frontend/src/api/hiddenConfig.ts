@@ -27,7 +27,7 @@ function checkSuccess(response: ApiBaseResponse, errorMsg: string): void {
 }
 
 export async function getHiddenConfig(): Promise<{ items: HiddenConfigItem[]; groups: HiddenConfigGroup[] }> {
-  const response = await apiGet<any>('hidden-config/')
+  const response = await apiGet<any>('hidden-config')
   checkSuccess(response, '获取隐藏配置失败')
   return { items: response.items, groups: response.groups }
 }

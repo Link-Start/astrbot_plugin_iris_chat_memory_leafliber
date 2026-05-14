@@ -14,11 +14,11 @@ function checkSuccess(response: ApiBaseResponse, errorMsg: string): void {
 export async function getAllStats(): Promise<any> {
   const response = await apiGet<any>('stats/all')
   checkSuccess(response, '获取统计失败')
-  return response.data || {
-    memory: { l1: {}, l2: {}, l3: {} },
-    token: {},
-    kg: { node_count: 0, edge_count: 0, node_types: {}, relation_types: {} },
-    system: { components: { l1_buffer: false, l2_memory: false, l3_kg: false, profile: false, llm_manager: false }, uptime: 0, version: '1.0.0' }
+  return {
+    memory: response.memory || { l1: {}, l2: {}, l3: {} },
+    token: response.token || {},
+    kg: response.kg || { node_count: 0, edge_count: 0, node_types: {}, relation_types: {} },
+    system: response.system || { components: { l1_buffer: false, l2_memory: false, l3_kg: false, profile: false, llm_manager: false }, uptime: 0, version: '1.0.0' }
   }
 }
 
