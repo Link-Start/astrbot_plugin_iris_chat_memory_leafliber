@@ -464,6 +464,7 @@ const processedNodeTypes = computed<TypeDistributionItem[]>(() => {
     customDetails.sort((a, b) => b.count - a.count)
     items.push({ type: '自定义', label: '自定义', count: customTotal, isCustom: true, customDetails })
   }
+  items.sort((a, b) => b.count - a.count)
   return items
 })
 
@@ -485,6 +486,7 @@ const processedRelationTypes = computed<TypeDistributionItem[]>(() => {
     customDetails.sort((a, b) => b.count - a.count)
     items.push({ type: '自定义', label: '自定义', count: customTotal, isCustom: true, customDetails })
   }
+  items.sort((a, b) => b.count - a.count)
   return items
 })
 
