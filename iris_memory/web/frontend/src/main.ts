@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 import { createVuetify } from 'vuetify'
 import 'vuetify/styles'
 
-import { mdi } from 'vuetify/iconsets/mdi-svg'
+import { mdi, aliases as mdiAliases } from 'vuetify/iconsets/mdi-svg'
 
 import * as customIcons from './icons'
 import App from './App.vue'
@@ -11,7 +11,11 @@ import router from './router'
 
 const svgAliases: Record<string, string> = {}
 for (const [key, value] of Object.entries(customIcons)) {
-  svgAliases[key] = `svg:${value}`
+  const aliasKey = key
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .toLowerCase()
+    .replace(/^mdi-/, '')
+  svgAliases[aliasKey] = `svg:${value}`
 }
 
 const vuetify = createVuetify({
@@ -21,7 +25,7 @@ const vuetify = createVuetify({
       mdi: {
         ...mdi,
         aliases: {
-          ...mdi.aliases,
+          ...mdiAliases,
           ...svgAliases
         }
       }
