@@ -1,7 +1,6 @@
 import { defineConfig, Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vuetify from 'vite-plugin-vuetify'
-import { viteSingleFile } from 'vite-plugin-singlefile'
 import { resolve } from 'path'
 
 function removeCrossorigin(): Plugin {
@@ -22,7 +21,6 @@ export default defineConfig({
   plugins: [
     vue(),
     vuetify({ autoImport: true }),
-    viteSingleFile(),
     removeCrossorigin()
   ],
   resolve: {
@@ -36,11 +34,12 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
     chunkSizeWarningLimit: 2000,
-    cssCodeSplit: false,
-    modulePreload: false,
     rollupOptions: {
       output: {
-        inlineDynamicImports: true
+        manualChunks: {
+          'vue-vendor': ['vue', 'vue-router', 'pinia'],
+          'vuetify': ['vuetify']
+        }
       }
     }
   }
