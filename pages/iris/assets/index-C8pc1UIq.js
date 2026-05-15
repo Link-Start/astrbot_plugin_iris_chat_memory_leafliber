@@ -1,1 +1,0 @@
-const e={l1_buffer:"L1 缓冲",l2_memory:"L2 记忆",l3_kg:"L3 图谱",profile:"画像管理",llm_manager:"LLM 管理器"},n={disabled:"已禁用",dependency_missing:"依赖缺失",connection_failed:"连接失败",other:"其他原因"},a={pending:"等待初始化",initializing:"正在初始化",available:"可用",unavailable:"不可用"},_={forgetting:"记忆遗忘",merge:"记忆合并",kg_extraction:"知识图谱提取",cache_cleanup:"缓存清理"};export{e as C,n as E,a as S,_ as T};

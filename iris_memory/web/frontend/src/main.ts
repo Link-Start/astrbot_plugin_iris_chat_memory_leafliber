@@ -1,23 +1,30 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { createVuetify } from 'vuetify'
-import * as components from 'vuetify/components'
-import * as directives from 'vuetify/directives'
-import { aliases, mdi } from 'vuetify/iconsets/mdi'
 import 'vuetify/styles'
-import '@mdi/font/css/materialdesignicons.css'
 
+import { mdi } from 'vuetify/iconsets/mdi-svg'
+
+import * as customIcons from './icons'
 import App from './App.vue'
 import router from './router'
 
+const svgAliases: Record<string, string> = {}
+for (const [key, value] of Object.entries(customIcons)) {
+  svgAliases[key] = `svg:${value}`
+}
+
 const vuetify = createVuetify({
-  components,
-  directives,
   icons: {
     defaultSet: 'mdi',
-    aliases,
     sets: {
-      mdi
+      mdi: {
+        ...mdi,
+        aliases: {
+          ...mdi.aliases,
+          ...svgAliases
+        }
+      }
     }
   },
   theme: {
