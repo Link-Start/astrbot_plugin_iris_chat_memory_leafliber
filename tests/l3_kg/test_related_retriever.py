@@ -29,7 +29,7 @@ class TestRelatedMemoryRetriever:
         l2_adapter.retrieve = AsyncMock(return_value=[])
         l2_adapter.get_all_entries = AsyncMock(return_value=[])
 
-        def get_component(name):
+        def get_component(name, expected_type=None):
             if name == "l2_memory":
                 return l2_adapter
             return None

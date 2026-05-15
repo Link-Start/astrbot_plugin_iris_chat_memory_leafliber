@@ -11,6 +11,11 @@
 
 from quart import jsonify, request
 from iris_memory.core import get_component_manager, get_logger
+from iris_memory.l1_buffer.buffer import L1Buffer
+from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from iris_memory.l3_kg.adapter import L3KGAdapter
+from iris_memory.profile.storage import ProfileStorage
+from iris_memory.tasks.scheduler import TaskScheduler
 
 logger = get_logger("web.manage")
 
@@ -20,7 +25,7 @@ PLUGIN_NAME = "astrbot_plugin_iris_chat_memory"
 async def clear_l1_buffer():
     try:
         manager = get_component_manager()
-        l1_buffer = manager.get_component("l1_buffer")
+        l1_buffer = manager.get_component("l1_buffer", L1Buffer)
 
         if not l1_buffer or not l1_buffer.is_available:
             return jsonify({"success": False, "error": "L1 缓冲不可用"}), 503
@@ -45,7 +50,7 @@ async def clear_l1_buffer():
 async def delete_l2_memory():
     try:
         manager = get_component_manager()
-        l2_adapter = manager.get_component("l2_memory")
+        l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
 
         if not l2_adapter or not l2_adapter.is_available:
             return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
@@ -82,7 +87,7 @@ async def delete_l2_memory():
 async def delete_l3_kg():
     try:
         manager = get_component_manager()
-        l3_adapter = manager.get_component("l3_kg")
+        l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
 
         if not l3_adapter or not l3_adapter.is_available:
             return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
@@ -119,7 +124,7 @@ async def delete_l3_kg():
 async def merge_l3_duplicates():
     try:
         manager = get_component_manager()
-        l3_adapter = manager.get_component("l3_kg")
+        l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
 
         if not l3_adapter or not l3_adapter.is_available:
             return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
@@ -146,7 +151,7 @@ async def merge_l3_duplicates():
 async def delete_profile():
     try:
         manager = get_component_manager()
-        profile_storage = manager.get_component("profile")
+        profile_storage = manager.get_component("profile", ProfileStorage)
 
         if not profile_storage or not profile_storage.is_available:
             return jsonify({"success": False, "error": "画像系统不可用"}), 503
@@ -205,7 +210,7 @@ async def delete_profile():
 async def trigger_task():
     try:
         manager = get_component_manager()
-        scheduler = manager.get_component("scheduler")
+        scheduler = manager.get_component("scheduler", TaskScheduler)
 
         if not scheduler or not scheduler.is_available:
             return jsonify({"success": False, "error": "任务调度器不可用"}), 503
@@ -267,7 +272,7 @@ async def trigger_task():
 async def get_tasks_status():
     try:
         manager = get_component_manager()
-        scheduler = manager.get_component("scheduler")
+        scheduler = manager.get_component("scheduler", TaskScheduler)
 
         if not scheduler or not scheduler.is_available:
             return jsonify({"success": False, "error": "任务调度器不可用"}), 503
@@ -293,7 +298,12 @@ def register_manage_routes(context) -> None:
         (f"{prefix}/l1/clear", clear_l1_buffer, ["POST"], "清空 L1 缓冲"),
         (f"{prefix}/l2/delete", delete_l2_memory, ["POST"], "删除 L2 记忆"),
         (f"{prefix}/l3/delete", delete_l3_kg, ["POST"], "删除 L3 图谱"),
-        (f"{prefix}/l3/merge-duplicates", merge_l3_duplicates, ["POST"], "合并 L3 重复节点"),
+        (
+            f"{prefix}/l3/merge-duplicates",
+            merge_l3_duplicates,
+            ["POST"],
+            "合并 L3 重复节点",
+        ),
         (f"{prefix}/profile/delete", delete_profile, ["POST"], "删除画像"),
         (f"{prefix}/tasks/trigger", trigger_task, ["POST"], "手动触发任务"),
         (f"{prefix}/tasks/status", get_tasks_status, ["GET"], "获取任务状态"),

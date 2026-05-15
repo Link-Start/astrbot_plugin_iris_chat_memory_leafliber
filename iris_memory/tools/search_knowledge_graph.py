@@ -6,6 +6,7 @@ from astrbot.core.agent.tool import FunctionTool
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
 from iris_memory.core import get_logger, get_component_manager
+from iris_memory.l3_kg.adapter import L3KGAdapter
 
 logger = get_logger("tools")
 
@@ -75,7 +76,7 @@ class SearchKnowledgeGraphTool(FunctionTool[AstrAgentContext]):
                 group_id = None
 
             manager = get_component_manager()
-            l3_adapter = manager.get_component("l3_kg")
+            l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
 
             if not l3_adapter or not l3_adapter._is_available:
                 return "知识图谱当前不可用"

@@ -15,10 +15,14 @@ Iris Chat Memory - 平台适配器工厂
 """
 
 import threading
+from typing import TYPE_CHECKING
 
 from iris_memory.core import get_logger
 from iris_memory.platform.base import PlatformAdapter, UnsupportedPlatformError
 from iris_memory.platform.qq import OneBot11Adapter
+
+if TYPE_CHECKING:
+    from astrbot.api.event import AstrMessageEvent
 
 
 logger = get_logger("platform.factory")

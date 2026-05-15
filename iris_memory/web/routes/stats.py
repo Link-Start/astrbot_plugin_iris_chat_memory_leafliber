@@ -10,6 +10,10 @@
 
 from quart import jsonify
 from iris_memory.core import get_component_manager, get_logger, get_uptime
+from iris_memory.llm.manager import LLMManager
+from iris_memory.l1_buffer.buffer import L1Buffer
+from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from iris_memory.l3_kg.adapter import L3KGAdapter
 from typing import Dict, Any
 
 logger = get_logger("web.stats")
@@ -28,7 +32,7 @@ def _get_uptime() -> int:
 async def get_token_stats():
     try:
         manager = get_component_manager()
-        llm_manager = manager.get_component("llm_manager")
+        llm_manager = manager.get_component("llm_manager", LLMManager)
 
         if not llm_manager or not llm_manager.is_available:
             return jsonify({"success": False, "error": "LLM 管理器不可用"}), 503
@@ -64,7 +68,7 @@ async def get_memory_stats():
 
         stats: Dict[str, Any] = {"l1": {}, "l2": {}, "l3": {}}
 
-        l1_buffer = manager.get_component("l1_buffer")
+        l1_buffer = manager.get_component("l1_buffer", L1Buffer)
         if l1_buffer and l1_buffer.is_available:
             try:
                 stats["l1"] = l1_buffer.get_stats()
@@ -72,7 +76,7 @@ async def get_memory_stats():
                 logger.warning(f"获取L1统计失败：{e}")
                 stats["l1"] = {}
 
-        l2_memory = manager.get_component("l2_memory")
+        l2_memory = manager.get_component("l2_memory", L2MemoryAdapter)
         if l2_memory and l2_memory.is_available:
             try:
                 stats["l2"] = await l2_memory.get_stats()
@@ -80,7 +84,7 @@ async def get_memory_stats():
                 logger.warning(f"获取L2统计失败：{e}")
                 stats["l2"] = {}
 
-        l3_kg = manager.get_component("l3_kg")
+        l3_kg = manager.get_component("l3_kg", L3KGAdapter)
         if l3_kg and l3_kg.is_available:
             try:
                 kg_stats = await l3_kg.get_stats()
@@ -101,7 +105,7 @@ async def get_memory_stats():
 async def get_kg_stats():
     try:
         manager = get_component_manager()
-        l3_adapter = manager.get_component("l3_kg")
+        l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
 
         if not l3_adapter or not l3_adapter.is_available:
             return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
@@ -147,21 +151,21 @@ async def get_all_stats():
 
         memory_stats: Dict[str, Any] = {"l1": {}, "l2": {}, "l3": {}}
 
-        l1_buffer = manager.get_component("l1_buffer")
+        l1_buffer = manager.get_component("l1_buffer", L1Buffer)
         if l1_buffer and l1_buffer.is_available:
             try:
                 memory_stats["l1"] = l1_buffer.get_stats()
             except Exception as e:
                 logger.warning(f"获取L1统计失败：{e}")
 
-        l2_memory = manager.get_component("l2_memory")
+        l2_memory = manager.get_component("l2_memory", L2MemoryAdapter)
         if l2_memory and l2_memory.is_available:
             try:
                 memory_stats["l2"] = await l2_memory.get_stats()
             except Exception as e:
                 logger.warning(f"获取L2统计失败：{e}")
 
-        l3_kg = manager.get_component("l3_kg")
+        l3_kg = manager.get_component("l3_kg", L3KGAdapter)
         if l3_kg and l3_kg.is_available:
             try:
                 memory_stats["l3"] = await l3_kg.get_stats()
@@ -175,7 +179,7 @@ async def get_all_stats():
                 "total_calls": 0,
             }
         }
-        llm_manager = manager.get_component("llm_manager")
+        llm_manager = manager.get_component("llm_manager", LLMManager)
         if llm_manager and llm_manager.is_available:
             try:
                 all_stats = await llm_manager.get_all_token_stats()

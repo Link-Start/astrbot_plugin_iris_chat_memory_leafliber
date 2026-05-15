@@ -7,6 +7,7 @@ Iris Chat Memory - L1 指令处理器
 from typing import Optional, TYPE_CHECKING
 
 from iris_memory.core import get_logger, get_component_manager
+from iris_memory.l1_buffer.buffer import L1Buffer
 from iris_memory.platform import get_adapter
 from .base import CommandHandler, CommandResult, ParsedArgs, DeleteScope
 
@@ -67,7 +68,7 @@ class L1CommandHandler(CommandHandler):
         if not manager:
             return CommandResult(success=False, message="组件管理器不可用")
 
-        l1_buffer = manager.get_component("l1_buffer")
+        l1_buffer = manager.get_component("l1_buffer", L1Buffer)
         if not l1_buffer or not l1_buffer.is_available:
             return CommandResult(success=False, message="L1 缓冲组件不可用")
 
@@ -90,7 +91,7 @@ class L1CommandHandler(CommandHandler):
         if not manager:
             return CommandResult(success=False, message="组件管理器不可用")
 
-        l1_buffer = manager.get_component("l1_buffer")
+        l1_buffer = manager.get_component("l1_buffer", L1Buffer)
         if not l1_buffer or not l1_buffer.is_available:
             return CommandResult(success=False, message="L1 缓冲组件不可用")
 

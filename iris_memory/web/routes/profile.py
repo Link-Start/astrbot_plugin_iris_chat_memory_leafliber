@@ -9,6 +9,7 @@
 from quart import jsonify, request
 from iris_memory.core import get_component_manager, get_logger
 from iris_memory.profile.models import profile_to_dict
+from iris_memory.profile.storage import ProfileStorage
 from typing import Any, Optional, Tuple
 import os
 
@@ -21,7 +22,7 @@ DEBUG_MODE = os.environ.get("IRIS_DEBUG", "").lower() in ("true", "1", "yes")
 
 def get_profile_storage() -> Tuple[Optional[Any], Optional[Tuple]]:
     manager = get_component_manager()
-    storage = manager.get_component("profile")
+    storage = manager.get_component("profile", ProfileStorage)
 
     if not storage or not storage.is_available:
         return None, (jsonify({"success": False, "error": "画像系统不可用"}), 503)
@@ -151,7 +152,9 @@ async def update_user_profile():
 
 async def delete_group_profile():
     try:
-        group_id = request.args.get("group_id") or (await request.get_json(silent=True) or {}).get("group_id")
+        group_id = request.args.get("group_id") or (
+            await request.get_json(silent=True) or {}
+        ).get("group_id")
         if not group_id:
             return jsonify({"success": False, "error": "缺少 group_id 参数"}), 400
         profile_storage, error = get_profile_storage()
@@ -172,7 +175,9 @@ async def delete_group_profile():
 
 async def delete_user_profile():
     try:
-        user_id = request.args.get("user_id") or (await request.get_json(silent=True) or {}).get("user_id")
+        user_id = request.args.get("user_id") or (
+            await request.get_json(silent=True) or {}
+        ).get("user_id")
         if not user_id:
             return jsonify({"success": False, "error": "缺少 user_id 参数"}), 400
 

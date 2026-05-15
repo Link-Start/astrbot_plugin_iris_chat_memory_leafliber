@@ -14,10 +14,14 @@ OneBot11 协议参考：
 - 用户角色：event.message_obj.sender.role（owner/admin/member）
 """
 
-from typing import Any, List
+from typing import Any, List, TYPE_CHECKING
 
 from iris_memory.core import get_logger
 from iris_memory.platform.base import PlatformAdapter, ReplyInfo
+
+if TYPE_CHECKING:
+    from astrbot.api.event import AstrMessageEvent
+    from iris_memory.image.models import ImageInfo
 
 logger = get_logger("platform.qq")
 

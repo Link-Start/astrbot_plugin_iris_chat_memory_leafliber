@@ -8,6 +8,8 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
 from iris_memory.core import get_logger, get_component_manager
 from iris_memory.l2_memory import MemorySearchResult
+from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from iris_memory.l3_kg.adapter import L3KGAdapter
 
 logger = get_logger("tools")
 
@@ -78,7 +80,7 @@ class SearchMemoryTool(FunctionTool[AstrAgentContext]):
                 group_id = None
 
             manager = get_component_manager()
-            l2_adapter = manager.get_component("l2_memory")
+            l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
 
             if not l2_adapter or not l2_adapter._is_available:
                 return "L2记忆库当前不可用"
@@ -125,7 +127,7 @@ class SearchMemoryTool(FunctionTool[AstrAgentContext]):
         self, manager, results: List[MemorySearchResult], group_id
     ) -> str:
         try:
-            l3_adapter = manager.get_component("l3_kg")
+            l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
             if not l3_adapter or not l3_adapter._is_available:
                 return ""
 

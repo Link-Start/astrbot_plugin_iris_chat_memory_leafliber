@@ -9,6 +9,7 @@ from iris_memory.core import get_logger, get_component_manager
 from iris_memory.config import get_config
 from iris_memory.profile import UserProfileManager, GroupProfileManager
 from iris_memory.profile.models import UserProfile, GroupProfile
+from iris_memory.profile.storage import ProfileStorage
 
 logger = get_logger("tools")
 
@@ -77,7 +78,7 @@ class GetProfileTool(FunctionTool[AstrAgentContext]):
             return "无法获取用户ID，请手动指定target_id参数。"
 
         manager = get_component_manager()
-        profile_storage = manager.get_component("profile")
+        profile_storage = manager.get_component("profile", ProfileStorage)
 
         if not profile_storage or not profile_storage.is_available:
             return "画像系统未启用或不可用。"
@@ -104,7 +105,7 @@ class GetProfileTool(FunctionTool[AstrAgentContext]):
             return "无法获取群聊ID，请手动指定target_id参数。"
 
         manager = get_component_manager()
-        profile_storage = manager.get_component("profile")
+        profile_storage = manager.get_component("profile", ProfileStorage)
 
         if not profile_storage or not profile_storage.is_available:
             return "画像系统未启用或不可用。"

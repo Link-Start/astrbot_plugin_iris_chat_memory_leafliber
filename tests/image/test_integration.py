@@ -75,7 +75,7 @@ class TestImageParsingIntegration:
         """模拟组件管理器"""
         manager = Mock()
 
-        def get_component(name: str):
+        def get_component(name: str, expected_type=None):
             if name == "l1_buffer":
                 return mock_l1_buffer
             elif name == "image_quota":

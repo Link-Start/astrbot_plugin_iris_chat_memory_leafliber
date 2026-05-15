@@ -7,6 +7,7 @@ Iris Chat Memory - L3 指令处理器
 from typing import Optional, TYPE_CHECKING
 
 from iris_memory.core import get_logger, get_component_manager
+from iris_memory.l3_kg.adapter import L3KGAdapter
 from iris_memory.platform import get_adapter
 from .base import CommandHandler, CommandResult, ParsedArgs, DeleteScope
 
@@ -67,7 +68,7 @@ class L3CommandHandler(CommandHandler):
         if not manager:
             return CommandResult(success=False, message="组件管理器不可用")
 
-        l3_adapter = manager.get_component("l3_kg")
+        l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
         if not l3_adapter or not l3_adapter.is_available:
             return CommandResult(success=False, message="L3 知识图谱组件不可用")
 
@@ -89,7 +90,7 @@ class L3CommandHandler(CommandHandler):
         if not manager:
             return CommandResult(success=False, message="组件管理器不可用")
 
-        l3_adapter = manager.get_component("l3_kg")
+        l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
         if not l3_adapter or not l3_adapter.is_available:
             return CommandResult(success=False, message="L3 知识图谱组件不可用")
 

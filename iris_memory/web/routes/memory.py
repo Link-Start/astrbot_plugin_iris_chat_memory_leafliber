@@ -9,6 +9,10 @@
 
 from quart import jsonify, request
 from iris_memory.core import get_component_manager, get_logger
+from iris_memory.l1_buffer.buffer import L1Buffer
+from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from iris_memory.l3_kg.adapter import L3KGAdapter
+from iris_memory.profile.storage import ProfileStorage
 
 logger = get_logger("web.memory")
 
@@ -24,8 +28,12 @@ async def search_l2_memory():
     if not query:
         return jsonify({"success": False, "error": "搜索关键词不能为空"}), 400
 
+    if not isinstance(top_k, int) or top_k < 1:
+        top_k = 10
+    top_k = min(top_k, 100)
+
     manager = get_component_manager()
-    l2_retriever = manager.get_component("l2_memory")
+    l2_retriever = manager.get_component("l2_memory", L2MemoryAdapter)
 
     if not l2_retriever or not l2_retriever.is_available:
         return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
@@ -76,7 +84,7 @@ async def get_latest_l2_memories():
         sort_order = "desc"
 
     manager = get_component_manager()
-    l2_adapter = manager.get_component("l2_memory")
+    l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
 
     if not l2_adapter or not l2_adapter.is_available:
         return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
@@ -133,7 +141,7 @@ async def list_l1_buffer():
     group_id = request.args.get("group_id")
 
     manager = get_component_manager()
-    l1_buffer = manager.get_component("l1_buffer")
+    l1_buffer = manager.get_component("l1_buffer", L1Buffer)
 
     if not l1_buffer or not l1_buffer.is_available:
         return jsonify({"success": False, "error": "L1 缓冲不可用"}), 503
@@ -166,7 +174,7 @@ async def list_l1_buffer():
 
 async def list_l1_queues():
     manager = get_component_manager()
-    l1_buffer = manager.get_component("l1_buffer")
+    l1_buffer = manager.get_component("l1_buffer", L1Buffer)
 
     if not l1_buffer or not l1_buffer.is_available:
         return jsonify({"success": False, "error": "L1 缓冲不可用"}), 503
@@ -174,7 +182,7 @@ async def list_l1_queues():
     queues = l1_buffer.get_all_queues_stats()
 
     group_names: dict[str, str] = {}
-    profile_storage = manager.get_component("profile")
+    profile_storage = manager.get_component("profile", ProfileStorage)
     if profile_storage and profile_storage.is_available:
         try:
             from iris_memory.profile import GroupProfileManager
@@ -186,9 +194,7 @@ async def list_l1_queues():
                     try:
                         profile = await group_manager._storage.get_group_profile(gid)
                         group_names[gid] = (
-                            profile.group_name
-                            if profile and profile.group_name
-                            else ""
+                            profile.group_name if profile and profile.group_name else ""
                         )
                     except Exception:
                         group_names[gid] = ""
@@ -208,8 +214,12 @@ async def get_l3_graph():
     max_nodes = request.args.get("max_nodes", default=20, type=int)
     max_edges = request.args.get("max_edges", default=100, type=int)
 
+    depth = max(1, min(depth, 5))
+    max_nodes = max(1, min(max_nodes, 500))
+    max_edges = max(1, min(max_edges, 1000))
+
     manager = get_component_manager()
-    l3_adapter = manager.get_component("l3_kg")
+    l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
 
     if not l3_adapter or not l3_adapter.is_available:
         return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
@@ -274,7 +284,7 @@ async def get_l3_graph():
 
 async def get_l2_stats():
     manager = get_component_manager()
-    l2_retriever = manager.get_component("l2_memory")
+    l2_retriever = manager.get_component("l2_memory", L2MemoryAdapter)
 
     if not l2_retriever or not l2_retriever.is_available:
         return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
@@ -291,8 +301,10 @@ async def search_l3_nodes():
     if not keyword:
         return jsonify({"success": False, "error": "搜索关键词不能为空"}), 400
 
+    limit = max(1, min(limit, 100))
+
     manager = get_component_manager()
-    l3_adapter = manager.get_component("l3_kg")
+    l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
 
     if not l3_adapter or not l3_adapter.is_available:
         return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
@@ -311,8 +323,10 @@ async def search_l3_edges():
     if not keyword:
         return jsonify({"success": False, "error": "搜索关键词不能为空"}), 400
 
+    limit = max(1, min(limit, 100))
+
     manager = get_component_manager()
-    l3_adapter = manager.get_component("l3_kg")
+    l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
 
     if not l3_adapter or not l3_adapter.is_available:
         return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
@@ -328,11 +342,14 @@ async def delete_l2_entries():
     data = await request.get_json()
     ids = data.get("ids", [])
 
-    if not ids:
+    if not ids or not isinstance(ids, list):
         return jsonify({"success": False, "error": "请提供要删除的记忆 ID 列表"}), 400
 
+    if len(ids) > 100:
+        return jsonify({"success": False, "error": "单次最多删除 100 条记忆"}), 400
+
     manager = get_component_manager()
-    l2_adapter = manager.get_component("l2_memory")
+    l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
 
     if not l2_adapter or not l2_adapter.is_available:
         return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
@@ -355,7 +372,7 @@ async def update_l2_entry():
         return jsonify({"success": False, "error": "请提供记忆 ID 和新内容"}), 400
 
     manager = get_component_manager()
-    l2_adapter = manager.get_component("l2_memory")
+    l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
 
     if not l2_adapter or not l2_adapter.is_available:
         return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
@@ -374,7 +391,7 @@ async def list_l3_nodes():
     keyword = request.args.get("keyword", "")
 
     manager = get_component_manager()
-    l3_adapter = manager.get_component("l3_kg")
+    l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
 
     if not l3_adapter or not l3_adapter.is_available:
         return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
@@ -394,7 +411,7 @@ async def list_l3_edges():
     keyword = request.args.get("keyword", "")
 
     manager = get_component_manager()
-    l3_adapter = manager.get_component("l3_kg")
+    l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
 
     if not l3_adapter or not l3_adapter.is_available:
         return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
@@ -413,11 +430,14 @@ async def delete_l3_nodes():
     data = await request.get_json()
     ids = data.get("ids", [])
 
-    if not ids:
+    if not ids or not isinstance(ids, list):
         return jsonify({"success": False, "error": "请提供要删除的节点 ID 列表"}), 400
 
+    if len(ids) > 100:
+        return jsonify({"success": False, "error": "单次最多删除 100 个节点"}), 400
+
     manager = get_component_manager()
-    l3_adapter = manager.get_component("l3_kg")
+    l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
 
     if not l3_adapter or not l3_adapter.is_available:
         return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
@@ -441,7 +461,7 @@ async def delete_l3_edge():
         ), 400
 
     manager = get_component_manager()
-    l3_adapter = manager.get_component("l3_kg")
+    l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
 
     if not l3_adapter or not l3_adapter.is_available:
         return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503

@@ -15,12 +15,12 @@ from collections import defaultdict
 
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
+from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from iris_memory.l3_kg.adapter import L3KGAdapter
+from iris_memory.llm.manager import LLMManager
 
 if TYPE_CHECKING:
     from iris_memory.core import ComponentManager
-    from iris_memory.llm import LLMManager
-    from iris_memory.l2_memory import L2MemoryAdapter
-    from iris_memory.l3_kg import L3KGAdapter
 
 logger = get_logger("tasks.kg_extraction")
 
@@ -159,19 +159,19 @@ class KGExtractionTask:
         return dict(groups)
 
     def _get_l2_adapter(self) -> Optional["L2MemoryAdapter"]:
-        adapter = self._component_manager.get_component("l2_memory")
+        adapter = self._component_manager.get_component("l2_memory", L2MemoryAdapter)
         if adapter and adapter.is_available:
             return adapter
         return None
 
     def _get_kg_adapter(self) -> Optional["L3KGAdapter"]:
-        adapter = self._component_manager.get_component("l3_kg")
+        adapter = self._component_manager.get_component("l3_kg", L3KGAdapter)
         if adapter and adapter.is_available:
             return adapter
         return None
 
     def _get_llm_manager(self) -> Optional["LLMManager"]:
-        manager = self._component_manager.get_component("llm_manager")
+        manager = self._component_manager.get_component("llm_manager", LLMManager)
         if manager and manager.is_available:
             return manager
         return None

@@ -7,6 +7,7 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
 from iris_memory.core import get_logger, get_component_manager
 from iris_memory.l3_kg import GraphNode, GraphEdge
+from iris_memory.l3_kg.adapter import L3KGAdapter
 
 logger = get_logger("tools")
 
@@ -113,7 +114,7 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
 
             # 获取图谱适配器
             component_manager = get_component_manager()
-            kg_adapter = component_manager.get_component("l3_kg")
+            kg_adapter = component_manager.get_component("l3_kg", L3KGAdapter)
 
             if not kg_adapter or not kg_adapter._is_available:
                 return "知识图谱不可用"

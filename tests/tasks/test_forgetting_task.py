@@ -28,7 +28,7 @@ class TestForgettingTask:
         l3_adapter.merge_duplicate_nodes = AsyncMock(return_value=(0, 0))
         l3_adapter.get_node_connection_counts = AsyncMock(return_value={})
 
-        def get_component(name):
+        def get_component(name, expected_type=None):
             if name == "l2_memory":
                 return l2_adapter
             elif name == "l3_kg":

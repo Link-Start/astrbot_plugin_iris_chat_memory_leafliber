@@ -24,7 +24,7 @@ class TestEntityExtractor:
     def mock_llm_manager(self):
         """创建模拟 LLM 管理器"""
         manager = MagicMock()
-        manager.generate = AsyncMock()
+        manager.generate_direct = AsyncMock()
         manager.is_available = True
         return manager
 
@@ -148,7 +148,7 @@ class TestEntityExtractor:
     async def test_extract_from_text_success(self, extractor, mock_llm_manager):
         """测试完整的提取流程"""
         # 模拟 LLM 响应
-        mock_llm_manager.generate.return_value = """{
+        mock_llm_manager.generate_direct.return_value = """{
   "nodes": [
     {
       "label": "Person",
@@ -166,8 +166,7 @@ class TestEntityExtractor:
 
         result = await extractor.extract_from_text(text, context)
 
-        # 验证调用
-        mock_llm_manager.generate.assert_called_once()
+        mock_llm_manager.generate_direct.assert_called_once()
 
         # 验证结果
         assert not result.is_empty()
@@ -178,7 +177,7 @@ class TestEntityExtractor:
     async def test_extract_from_text_with_llm_error(self, extractor, mock_llm_manager):
         """测试 LLM 调用失败"""
         # 模拟 LLM 抛出异常
-        mock_llm_manager.generate.side_effect = Exception("LLM 调用失败")
+        mock_llm_manager.generate_direct.side_effect = Exception("LLM 调用失败")
 
         text = "测试文本"
         result = await extractor.extract_from_text(text, {})
@@ -191,7 +190,7 @@ class TestEntityExtractor:
         self, extractor, mock_llm_manager
     ):
         """测试提取结果生成有效 ID"""
-        mock_llm_manager.generate.return_value = """{
+        mock_llm_manager.generate_direct.return_value = """{
   "nodes": [
     {
       "label": "Person",
@@ -206,7 +205,6 @@ class TestEntityExtractor:
 
         result = await extractor.extract_from_text("测试", {})
 
-        # 验证节点 ID 已生成
         assert len(result.nodes) == 1
         node = result.nodes[0]
         assert node.id != ""
@@ -218,7 +216,7 @@ class TestEntityExtractor:
     ):
         """测试动态类型处理"""
         # 使用不在白名单中的类型
-        mock_llm_manager.generate.return_value = """{
+        mock_llm_manager.generate_direct.return_value = """{
   "nodes": [
     {
       "label": "CustomType",
@@ -240,7 +238,6 @@ class TestEntityExtractor:
 
         result = await extractor.extract_from_text("测试", {})
 
-        # 验证动态类型被接受
         assert len(result.nodes) == 1
         assert result.nodes[0].label == "CustomType"
 

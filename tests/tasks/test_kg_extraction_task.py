@@ -37,11 +37,11 @@ class TestKGExtractionTask:
 
         llm_manager = Mock()
         llm_manager.is_available = True
-        llm_manager.generate = AsyncMock(
+        llm_manager.generate_direct = AsyncMock(
             return_value='{"nodes": [], "edges": [], "extraction_confidence": 0.8}'
         )
 
-        def get_component(name):
+        def get_component(name, expected_type=None):
             if name == "l2_memory":
                 return l2_adapter
             elif name == "l3_kg":
@@ -126,7 +126,7 @@ class TestKGExtractionTask:
         }"""
 
         llm_manager = kg_extraction_task._component_manager.get_component("llm_manager")
-        llm_manager.generate = AsyncMock(return_value=llm_response)
+        llm_manager.generate_direct = AsyncMock(return_value=llm_response)
 
         with patch("iris_memory.tasks.kg_extraction_task.get_config") as mock_config:
             mock_config.return_value.get.side_effect = lambda key: {

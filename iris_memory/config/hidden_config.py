@@ -42,6 +42,7 @@ class HiddenConfigManager:
     _cache: Dict[str, object]
     _lock: threading.RLock
     _observers: List[Callable[[str, object, object], None]]
+    _dirty: bool
 
     def __init__(self, config_path: Path, defaults: HiddenConfig):
         """初始化隐藏配置管理器
@@ -55,6 +56,7 @@ class HiddenConfigManager:
         self._cache = {}
         self._lock = threading.RLock()
         self._observers = []
+        self._dirty = False
 
         # 确保目录存在
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -90,6 +92,21 @@ class HiddenConfigManager:
         try:
             with open(self._path, "w", encoding="utf-8") as f:
                 json.dump(self._cache, f, indent=2, ensure_ascii=False)
+            logger.debug(f"隐藏配置已持久化到 {self._path}")
+        except Exception as e:
+            logger.error(f"持久化隐藏配置失败: {e}")
+
+    def _persist_if_dirty(self) -> None:
+        """仅在数据脏时持久化，锁外执行 I/O"""
+        with self._lock:
+            if not self._dirty:
+                return
+            data = dict(self._cache)
+            self._dirty = False
+
+        try:
+            with open(self._path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
             logger.debug(f"隐藏配置已持久化到 {self._path}")
         except Exception as e:
             logger.error(f"持久化隐藏配置失败: {e}")
@@ -135,21 +152,18 @@ class HiddenConfigManager:
         with self._lock:
             old_value = self._cache.get(key)
 
-            # 更新缓存
             self._cache[key] = value
+            self._dirty = True
 
-            # 持久化
-            self._persist()
-
-            # 记录日志
             logger.info(f"隐藏配置已修改: {key} = {value} (原值: {old_value})")
 
-            # 通知观察者
             for observer in self._observers:
                 try:
                     observer(key, old_value, value)
                 except Exception as e:
                     logger.error(f"观察者回调执行失败: {e}")
+
+        self._persist_if_dirty()
 
     def update(self, updates: Dict[str, object]) -> None:
         """批量更新隐藏配置
@@ -166,16 +180,16 @@ class HiddenConfigManager:
                 old_value = self._cache.get(key)
                 self._cache[key] = value
 
-                # 通知观察者
                 for observer in self._observers:
                     try:
                         observer(key, old_value, value)
                     except Exception as e:
                         logger.error(f"[iris-memory:config] 观察者回调执行失败: {e}")
 
-            # 统一持久化
-            self._persist()
-            logger.info(f"批量更新隐藏配置，共 {len(updates)} 项")
+            self._dirty = True
+
+        self._persist_if_dirty()
+        logger.info(f"批量更新隐藏配置，共 {len(updates)} 项")
 
     def delete(self, key: str) -> bool:
         """删除隐藏配置项
@@ -191,18 +205,18 @@ class HiddenConfigManager:
                 return False
 
             old_value = self._cache.pop(key)
-            self._persist()
+            self._dirty = True
 
             logger.info(f"已删除隐藏配置: {key} (原值: {old_value})")
 
-            # 通知观察者(新值为 None 表示已删除)
             for observer in self._observers:
                 try:
                     observer(key, old_value, None)
                 except Exception as e:
                     logger.error(f"观察者回调执行失败: {e}")
 
-            return True
+        self._persist_if_dirty()
+        return True
 
     def get_all(self) -> Dict[str, object]:
         """获取所有隐藏配置(缓存 + 默认值)
@@ -259,5 +273,7 @@ class HiddenConfigManager:
         """重置为默认值"""
         with self._lock:
             self._cache.clear()
-            self._persist()
-            logger.info("已重置隐藏配置为默认值")
+            self._dirty = True
+
+        self._persist_if_dirty()
+        logger.info("已重置隐藏配置为默认值")

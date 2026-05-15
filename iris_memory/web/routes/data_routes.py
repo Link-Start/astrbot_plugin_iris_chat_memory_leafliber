@@ -14,6 +14,9 @@ from datetime import datetime
 from quart import jsonify, request, Response
 from iris_memory.core import get_component_manager, get_logger
 from iris_memory.l2_memory.io import MemoryExporter, MemoryImporter
+from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from iris_memory.l3_kg.adapter import L3KGAdapter
+from iris_memory.profile.storage import ProfileStorage
 
 logger = get_logger("web.data")
 
@@ -23,7 +26,7 @@ PLUGIN_NAME = "astrbot_plugin_iris_chat_memory"
 async def export_l2_memory():
     try:
         manager = get_component_manager()
-        l2_adapter = manager.get_component("l2_memory")
+        l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
 
         if not l2_adapter or not l2_adapter.is_available:
             return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
@@ -68,7 +71,7 @@ async def export_l2_memory():
 async def import_l2_memory():
     try:
         manager = get_component_manager()
-        l2_adapter = manager.get_component("l2_memory")
+        l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
 
         if not l2_adapter or not l2_adapter.is_available:
             return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
@@ -132,7 +135,7 @@ async def import_l2_memory():
 async def export_l3_kg():
     try:
         manager = get_component_manager()
-        l3_adapter = manager.get_component("l3_kg")
+        l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
 
         if not l3_adapter or not l3_adapter.is_available:
             return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
@@ -159,7 +162,7 @@ async def export_l3_kg():
 async def import_l3_kg():
     try:
         manager = get_component_manager()
-        l3_adapter = manager.get_component("l3_kg")
+        l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
 
         if not l3_adapter or not l3_adapter.is_available:
             return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
@@ -202,7 +205,7 @@ async def import_l3_kg():
 async def export_profiles():
     try:
         manager = get_component_manager()
-        profile_storage = manager.get_component("profile")
+        profile_storage = manager.get_component("profile", ProfileStorage)
 
         if not profile_storage or not profile_storage.is_available:
             return jsonify({"success": False, "error": "画像系统不可用"}), 503
@@ -229,7 +232,7 @@ async def export_profiles():
 async def import_profiles():
     try:
         manager = get_component_manager()
-        profile_storage = manager.get_component("profile")
+        profile_storage = manager.get_component("profile", ProfileStorage)
 
         if not profile_storage or not profile_storage.is_available:
             return jsonify({"success": False, "error": "画像系统不可用"}), 503
@@ -280,7 +283,7 @@ async def export_all():
             "profiles": None,
         }
 
-        l2_adapter = manager.get_component("l2_memory")
+        l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
         if l2_adapter and l2_adapter.is_available:
             try:
                 exporter = MemoryExporter(l2_adapter)
@@ -291,7 +294,7 @@ async def export_all():
                 logger.warning(f"全量导出 L2 失败：{e}")
                 result["l2_memory"] = {"error": str(e)}
 
-        l3_adapter = manager.get_component("l3_kg")
+        l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
         if l3_adapter and l3_adapter.is_available:
             try:
                 result["l3_kg"] = await l3_adapter.export_all()
@@ -299,7 +302,7 @@ async def export_all():
                 logger.warning(f"全量导出 L3 失败：{e}")
                 result["l3_kg"] = {"error": str(e)}
 
-        profile_storage = manager.get_component("profile")
+        profile_storage = manager.get_component("profile", ProfileStorage)
         if profile_storage and profile_storage.is_available:
             try:
                 result["profiles"] = await profile_storage.export_all()
@@ -343,7 +346,7 @@ async def import_all():
 
         l2_data = import_data.get("l2_memory")
         if l2_data:
-            l2_adapter = manager.get_component("l2_memory")
+            l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
             if l2_adapter and l2_adapter.is_available:
                 try:
                     importer = MemoryImporter(l2_adapter)
@@ -371,7 +374,7 @@ async def import_all():
 
         l3_data = import_data.get("l3_kg")
         if l3_data:
-            l3_adapter = manager.get_component("l3_kg")
+            l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
             if l3_adapter and l3_adapter.is_available:
                 try:
                     stats = await l3_adapter.import_from_data(
@@ -385,7 +388,7 @@ async def import_all():
 
         profile_data = import_data.get("profiles")
         if profile_data:
-            profile_storage = manager.get_component("profile")
+            profile_storage = manager.get_component("profile", ProfileStorage)
             if profile_storage and profile_storage.is_available:
                 try:
                     stats = await profile_storage.import_from_data(

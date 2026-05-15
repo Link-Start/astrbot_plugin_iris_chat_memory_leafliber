@@ -7,6 +7,7 @@ Iris Chat Memory - Profile 指令处理器
 from typing import Optional, TYPE_CHECKING
 
 from iris_memory.core import get_logger, get_component_manager
+from iris_memory.profile.storage import ProfileStorage
 from iris_memory.platform import get_adapter
 from .base import CommandHandler, CommandResult, ParsedArgs, DeleteScope
 
@@ -71,7 +72,7 @@ class ProfileCommandHandler(CommandHandler):
         if not manager:
             return CommandResult(success=False, message="组件管理器不可用")
 
-        profile_storage = manager.get_component("profile")
+        profile_storage = manager.get_component("profile", ProfileStorage)
         if not profile_storage or not profile_storage.is_available:
             return CommandResult(success=False, message="画像组件不可用")
 
@@ -128,7 +129,7 @@ class ProfileCommandHandler(CommandHandler):
         if not manager:
             return CommandResult(success=False, message="组件管理器不可用")
 
-        profile_storage = manager.get_component("profile")
+        profile_storage = manager.get_component("profile", ProfileStorage)
         if not profile_storage or not profile_storage.is_available:
             return CommandResult(success=False, message="画像组件不可用")
 
@@ -197,7 +198,7 @@ class ProfileCommandHandler(CommandHandler):
         if not manager:
             return CommandResult(success=False, message="组件管理器不可用")
 
-        profile_storage = manager.get_component("profile")
+        profile_storage = manager.get_component("profile", ProfileStorage)
         if not profile_storage or not profile_storage.is_available:
             return CommandResult(success=False, message="画像组件不可用")
 

@@ -14,7 +14,7 @@ class TestProfileAnalyzer:
     def mock_llm_manager(self):
         """创建模拟的 LLMManager"""
         manager = MagicMock()
-        manager.generate = AsyncMock()
+        manager.generate_direct = AsyncMock()
         return manager
 
     @pytest.fixture
@@ -29,7 +29,7 @@ class TestProfileAnalyzer:
             {"interests": ["技术", "AI"], "atmosphere_tags": ["轻松", "技术范"]},
             ensure_ascii=False,
         )
-        mock_llm_manager.generate.return_value = llm_response
+        mock_llm_manager.generate_direct.return_value = llm_response
 
         messages = ["今天讨论了AI技术", "yyds!", "这个方案绝了"]
         current_profile = {}
@@ -38,7 +38,7 @@ class TestProfileAnalyzer:
 
         assert result["interests"] == ["技术", "AI"]
         assert result["atmosphere_tags"] == ["轻松", "技术范"]
-        mock_llm_manager.generate.assert_called_once()
+        mock_llm_manager.generate_direct.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_analyze_user_profile(self, analyzer, mock_llm_manager):
@@ -51,7 +51,7 @@ class TestProfileAnalyzer:
             },
             ensure_ascii=False,
         )
-        mock_llm_manager.generate.return_value = llm_response
+        mock_llm_manager.generate_direct.return_value = llm_response
 
         messages = ["哈哈哈今天天气真好", "最近在学Python"]
         current_profile = {}
@@ -61,12 +61,12 @@ class TestProfileAnalyzer:
         assert result["personality_tags"] == ["外向", "幽默"]
         assert result["interests"] == ["编程", "游戏"]
         assert result["language_style"] == "简洁"
-        mock_llm_manager.generate.assert_called_once()
+        mock_llm_manager.generate_direct.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_analyze_with_llm_failure(self, analyzer, mock_llm_manager):
         """测试 LLM 调用失败"""
-        mock_llm_manager.generate.side_effect = Exception("LLM 调用失败")
+        mock_llm_manager.generate_direct.side_effect = Exception("LLM 调用失败")
 
         messages = ["测试消息"]
         current_profile = {}
@@ -79,7 +79,7 @@ class TestProfileAnalyzer:
     @pytest.mark.asyncio
     async def test_analyze_with_invalid_json(self, analyzer, mock_llm_manager):
         """测试 LLM 返回无效 JSON"""
-        mock_llm_manager.generate.return_value = "这不是 JSON"
+        mock_llm_manager.generate_direct.return_value = "这不是 JSON"
 
         messages = ["测试消息"]
         current_profile = {}

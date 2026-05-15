@@ -16,11 +16,11 @@ from typing import TYPE_CHECKING, Dict, List, Optional, cast
 
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
+from iris_memory.llm.manager import LLMManager
+from iris_memory.l2_memory.adapter import L2MemoryAdapter
 
 if TYPE_CHECKING:
     from iris_memory.core import ComponentManager
-    from iris_memory.llm import LLMManager
-    from iris_memory.l2_memory import L2MemoryAdapter
     from iris_memory.l2_memory.models import MemoryEntry, MemorySearchResult
 
 logger = get_logger("tasks.merge")
@@ -115,18 +115,12 @@ class MergeTask:
     # =========================================================================
 
     async def _merge_similar_memories(self) -> None:
-        l2_adapter = cast(
-            "L2MemoryAdapter",
-            self._component_manager.get_component("l2_memory"),
-        )
+        l2_adapter = self._component_manager.get_component("l2_memory", L2MemoryAdapter)
         if not l2_adapter or not l2_adapter.is_available:
             logger.debug("L2 记忆库不可用，跳过合并")
             return
 
-        llm_manager = cast(
-            "LLMManager",
-            self._component_manager.get_component("llm_manager"),
-        )
+        llm_manager = self._component_manager.get_component("llm_manager", LLMManager)
         if not llm_manager or not llm_manager.is_available:
             logger.warning("LLMManager 不可用，无法合并记忆")
             return
@@ -307,8 +301,6 @@ class MergeTask:
             (合并成功数, 删除条数)
         """
         ids_to_delete = [e.id for e in entries]
-        await l2_adapter.delete_entries(ids_to_delete)
-        deleted_count = len(ids_to_delete)
 
         sorted_entries = sorted(
             entries,
@@ -345,11 +337,13 @@ class MergeTask:
         )
 
         if new_id:
+            await l2_adapter.delete_entries(ids_to_delete)
+            deleted_count = len(ids_to_delete)
             logger.info(f"已合并 {len(entries)} 条记忆 -> {new_id}")
             return 1, deleted_count
         else:
-            logger.warning(f"合并记忆存储失败，已删除 {deleted_count} 条原记忆")
-            return 0, deleted_count
+            logger.warning("合并记忆存储失败，保留原记忆")
+            return 0, 0
 
     async def _merge_memories(
         self, content1: str, content2: str, llm_manager: "LLMManager"
@@ -379,7 +373,9 @@ class MergeTask:
 
 合并后的记忆："""
 
-            merged = await llm_manager.generate_direct(prompt=prompt, module="scheduled_tasks")
+            merged = await llm_manager.generate_direct(
+                prompt=prompt, module="scheduled_tasks"
+            )
 
             if not merged or not merged.strip():
                 logger.warning(

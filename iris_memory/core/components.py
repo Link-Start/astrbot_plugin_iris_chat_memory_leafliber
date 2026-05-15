@@ -11,7 +11,7 @@ Iris Chat Memory - 组件初始化框架
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict, TypeVar, overload
 import asyncio
 
 from .logger import get_logger
@@ -314,6 +314,8 @@ def classify_error(error_msg: str) -> ErrorType:
 # ============================================================================
 # 抽象基类
 # ============================================================================
+
+_C = TypeVar("_C", bound="Component")
 
 
 class Component(ABC):
@@ -781,21 +783,42 @@ class ComponentManager:
 
             logger.info("所有组件已关闭")
 
-    def get_component(self, name: str) -> Optional[Component]:
+    @overload
+    def get_component(self, name: str) -> Optional[Component]: ...
+
+    @overload
+    def get_component(self, name: str, expected_type: type[_C]) -> Optional[_C]: ...
+
+    def get_component(
+        self, name: str, expected_type: type[_C] | None = None
+    ) -> Optional[Component] | Optional[_C]:
         """按名称获取组件
 
         Args:
             name: 组件名称
+            expected_type: 期望的组件类型（可选），传入后返回值类型为该类型的 Optional
 
         Returns:
             组件实例，找不到时返回 None
         """
         for component in self._components:
             if component.name == name:
+                if expected_type is not None:
+                    return component if isinstance(component, expected_type) else None
                 return component
         return None
 
-    def get_available_component(self, name: str) -> Optional[Component]:
+    @overload
+    def get_available_component(self, name: str) -> Optional[Component]: ...
+
+    @overload
+    def get_available_component(
+        self, name: str, expected_type: type[_C]
+    ) -> Optional[_C]: ...
+
+    def get_available_component(
+        self, name: str, expected_type: type[_C] | None = None
+    ) -> Optional[Component] | Optional[_C]:
         """获取已可用的组件实例
 
         便捷方法，仅当组件存在且 is_available=True 时返回。
@@ -803,11 +826,12 @@ class ComponentManager:
 
         Args:
             name: 组件名称
+            expected_type: 期望的组件类型（可选），传入后返回值类型为该类型的 Optional
 
         Returns:
             可用的组件实例，不可用时返回 None
         """
-        component = self.get_component(name)
+        component = self.get_component(name, expected_type)  # type: ignore[arg-type]
         if component and component.is_available:
             return component
         return None

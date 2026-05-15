@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
+from iris_memory.image.cache_manager import ImageCacheManager
 
 if TYPE_CHECKING:
     from iris_memory.core import ComponentManager
@@ -48,7 +49,9 @@ class ImageCacheCleanupTask:
             logger.debug("图片解析未启用，跳过缓存清理")
             return
 
-        cache_manager = self._component_manager.get_component("image_cache")
+        cache_manager = self._component_manager.get_component(
+            "image_cache", ImageCacheManager
+        )
         if not cache_manager or not cache_manager.is_available:
             logger.debug("图片缓存管理器不可用，跳过清理")
             return

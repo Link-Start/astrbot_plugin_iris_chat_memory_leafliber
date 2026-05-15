@@ -13,6 +13,7 @@ from typing import List, Optional, TYPE_CHECKING
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
 from iris_memory.l2_memory import MemoryEntry, MemorySearchResult
+from iris_memory.l2_memory.adapter import L2MemoryAdapter
 
 if TYPE_CHECKING:
     from iris_memory.core import ComponentManager
@@ -54,7 +55,9 @@ class RelatedMemoryRetriever:
             L2MemoryAdapter 实例，不可用时返回 None
         """
         if self._adapter is None:
-            adapter = self._component_manager.get_component("l2_memory")
+            adapter = self._component_manager.get_component(
+                "l2_memory", L2MemoryAdapter
+            )
             if adapter and adapter.is_available:
                 self._adapter = adapter
         return self._adapter

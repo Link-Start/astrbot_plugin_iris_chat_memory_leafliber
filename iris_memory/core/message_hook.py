@@ -7,6 +7,7 @@
 - 图片解析（all 模式）
 """
 
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, cast
 
 from iris_memory.core import get_logger
@@ -18,18 +19,25 @@ if TYPE_CHECKING:
 
 logger = get_logger("message_hook")
 
-_name_cache: dict = {}
+_name_cache: OrderedDict = OrderedDict()
 _NAME_CACHE_MAX_SIZE = 1000
 
 
 def _get_cached_name(key: str) -> str | None:
-    return _name_cache.get(key)
+    if key in _name_cache:
+        _name_cache.move_to_end(key)
+        return _name_cache[key]
+    return None
 
 
 def _set_cached_name(key: str, name: str) -> None:
-    if len(_name_cache) >= _NAME_CACHE_MAX_SIZE:
-        _name_cache.clear()
-    _name_cache[key] = name
+    if key in _name_cache:
+        _name_cache.move_to_end(key)
+        _name_cache[key] = name
+    else:
+        if len(_name_cache) >= _NAME_CACHE_MAX_SIZE:
+            _name_cache.popitem(last=False)
+        _name_cache[key] = name
 
 
 async def handle_user_message(

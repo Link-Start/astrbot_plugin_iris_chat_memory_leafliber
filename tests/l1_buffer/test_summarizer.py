@@ -15,7 +15,7 @@ from iris_memory.l1_buffer.summarizer import (
 @pytest.fixture
 def mock_llm_manager():
     manager = AsyncMock()
-    manager.generate = AsyncMock(return_value="这是一个总结")
+    manager.generate_direct = AsyncMock(return_value="这是一个总结")
     return manager
 
 
@@ -135,7 +135,7 @@ class TestSummarizer:
         )
 
         assert summary == "这是一个总结"
-        assert mock_llm_manager.generate.called
+        assert mock_llm_manager.generate_direct.called
 
     @pytest.mark.asyncio
     async def test_summarize_empty_target(self, mock_llm_manager, mock_messages):

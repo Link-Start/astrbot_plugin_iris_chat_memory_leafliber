@@ -7,6 +7,10 @@ Iris Chat Memory - All 指令处理器
 from typing import Optional, TYPE_CHECKING
 
 from iris_memory.core import get_logger, get_component_manager
+from iris_memory.l1_buffer.buffer import L1Buffer
+from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from iris_memory.l3_kg.adapter import L3KGAdapter
+from iris_memory.profile.storage import ProfileStorage
 from iris_memory.platform import get_adapter
 from .base import CommandHandler, CommandResult, ParsedArgs, DeleteScope
 
@@ -78,10 +82,10 @@ class AllCommandHandler(CommandHandler):
             "profile_group": False,
         }
 
-        l1_buffer = manager.get_component("l1_buffer")
-        l2_adapter = manager.get_component("l2_memory")
-        l3_adapter = manager.get_component("l3_kg")
-        profile_storage = manager.get_component("profile")
+        l1_buffer = manager.get_component("l1_buffer", L1Buffer)
+        l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
+        l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
+        profile_storage = manager.get_component("profile", ProfileStorage)
 
         if scope == DeleteScope.ALL:
             results["l1"] = (

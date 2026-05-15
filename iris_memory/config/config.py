@@ -21,6 +21,8 @@ from iris_memory.core import get_logger
 from .defaults import Defaults
 from .hidden_config import HiddenConfigManager
 
+_UNSET = object()
+
 
 logger = get_logger("config")
 
@@ -126,20 +128,17 @@ class Config:
         """
         parts = flat_key.split(".")
 
-        # 第一层：用户配置(运行时查找)
         if len(parts) == 2:
             section, key = parts
             user_value = self._get_user_config(section, key)
-            if user_value is not None and user_value != "":
+            if user_value is not _UNSET:
                 return user_value
 
-        # 第二层：隐藏配置(缓存查找)
         if len(parts) == 1:
             hidden_value = self._hidden.get(parts[0])
             if hidden_value is not None:
                 return hidden_value
 
-        # 第三层：默认值
         default_value = self._defaults.get_by_flat_key(flat_key)
         if default_value is not None:
             return default_value
@@ -164,7 +163,7 @@ class Config:
         except Exception as e:
             logger.warning(f"读取用户配置失败 {section}.{key}: {e}")
 
-        return None
+        return _UNSET
 
     def set_hidden(self, key: str, value: object) -> None:
         """热修改隐藏配置

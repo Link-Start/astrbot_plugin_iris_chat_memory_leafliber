@@ -12,11 +12,14 @@ Features:
     - 写锁保护
 """
 
-from typing import TYPE_CHECKING, List, cast
+from typing import TYPE_CHECKING, List
 from datetime import datetime
 
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
+from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from iris_memory.l3_kg.adapter import L3KGAdapter
+from iris_memory.llm.manager import LLMManager
 from iris_memory.utils.forgetting import (
     calculate_forgetting_score,
     should_evict,
@@ -83,10 +86,7 @@ class ForgettingTask:
         """
 
         # 获取 L2 适配器
-        l2_adapter = cast(
-            "L2MemoryAdapter",
-            self._component_manager.get_component("l2_memory"),
-        )
+        l2_adapter = self._component_manager.get_component("l2_memory", L2MemoryAdapter)
         if not l2_adapter or not l2_adapter.is_available:
             logger.debug("L2 记忆库不可用，跳过遗忘清洗")
             return
@@ -148,10 +148,7 @@ class ForgettingTask:
         查找同名同 label 的重复节点并合并。
         """
 
-        l3_adapter = cast(
-            "L3KGAdapter",
-            self._component_manager.get_component("l3_kg"),
-        )
+        l3_adapter = self._component_manager.get_component("l3_kg", L3KGAdapter)
         if not l3_adapter or not l3_adapter.is_available:
             logger.debug("L3 知识图谱不可用，跳过去重合并")
             return
@@ -175,7 +172,7 @@ class ForgettingTask:
         使用 L3 专用遗忘评分公式，结构重要性（连接度）和验证度（来源记忆数）
         权重远高于 L2。枢纽节点和被多次验证的节点永不淘汰。
         """
-        l3_adapter = self._component_manager.get_component("l3_kg")
+        l3_adapter = self._component_manager.get_component("l3_kg", L3KGAdapter)
         if not l3_adapter or not l3_adapter.is_available:
             logger.debug("L3 知识图谱不可用，跳过淘汰")
             return
@@ -285,7 +282,7 @@ class ForgettingTask:
         if not config.get("forgetting_llm_confirm_enable"):
             return [e[0] for e in entries]
 
-        llm_manager = self._component_manager.get_component("llm_manager")
+        llm_manager = self._component_manager.get_component("llm_manager", LLMManager)
         if not llm_manager or not llm_manager.is_available:
             logger.warning("LLM Manager 不可用，跳过兜底确认，直接淘汰")
             return [e[0] for e in entries]
@@ -336,10 +333,7 @@ class ForgettingTask:
         但不删除，仅作为后续遗忘评估的参考。
         """
 
-        l2_adapter = cast(
-            "L2MemoryAdapter",
-            self._component_manager.get_component("l2_memory"),
-        )
+        l2_adapter = self._component_manager.get_component("l2_memory", L2MemoryAdapter)
         if not l2_adapter or not l2_adapter.is_available:
             return
 
@@ -372,7 +366,7 @@ class ForgettingTask:
         但不删除，仅作为后续遗忘评估的参考。
         """
 
-        l3_adapter = self._component_manager.get_component("l3_kg")
+        l3_adapter = self._component_manager.get_component("l3_kg", L3KGAdapter)
         if not l3_adapter or not l3_adapter.is_available:
             return
 

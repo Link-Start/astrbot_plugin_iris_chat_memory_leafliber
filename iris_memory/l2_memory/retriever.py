@@ -4,7 +4,7 @@ Iris Chat Memory - L2 记忆检索器
 提供记忆检索、写入和访问更新的高级接口。
 """
 
-from typing import List, Optional, Dict, Any, cast, TYPE_CHECKING
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 import asyncio
 
 from iris_memory.core import get_logger, ComponentManager
@@ -56,9 +56,9 @@ class MemoryRetriever:
             L2MemoryAdapter 实例，不可用时返回 None
         """
         if self._adapter is None:
-            adapter = self._manager.get_component("l2_memory")
+            adapter = self._manager.get_component("l2_memory", L2MemoryAdapter)
             if adapter and adapter.is_available:
-                self._adapter = cast(L2MemoryAdapter, adapter)
+                self._adapter = adapter
         return self._adapter
 
     async def retrieve(

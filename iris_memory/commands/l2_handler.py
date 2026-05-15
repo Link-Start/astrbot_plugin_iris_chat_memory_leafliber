@@ -7,6 +7,7 @@ Iris Chat Memory - L2 指令处理器
 from typing import Optional, TYPE_CHECKING
 
 from iris_memory.core import get_logger, get_component_manager
+from iris_memory.l2_memory.adapter import L2MemoryAdapter
 from iris_memory.platform import get_adapter
 from .base import CommandHandler, CommandResult, ParsedArgs, DeleteScope
 
@@ -67,7 +68,7 @@ class L2CommandHandler(CommandHandler):
         if not manager:
             return CommandResult(success=False, message="组件管理器不可用")
 
-        l2_adapter = manager.get_component("l2_memory")
+        l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
         if not l2_adapter or not l2_adapter.is_available:
             return CommandResult(success=False, message="L2 记忆库组件不可用")
 
@@ -89,7 +90,7 @@ class L2CommandHandler(CommandHandler):
         if not manager:
             return CommandResult(success=False, message="组件管理器不可用")
 
-        l2_adapter = manager.get_component("l2_memory")
+        l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
         if not l2_adapter or not l2_adapter.is_available:
             return CommandResult(success=False, message="L2 记忆库组件不可用")
 

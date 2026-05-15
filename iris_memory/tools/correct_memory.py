@@ -7,6 +7,8 @@ from astrbot.core.agent.tool import FunctionTool
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
 from iris_memory.core import get_logger, get_component_manager
+from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from iris_memory.l3_kg.adapter import L3KGAdapter
 
 logger = get_logger("tools")
 
@@ -67,8 +69,8 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
             user_id = adapter.get_user_id(event)
 
             manager = get_component_manager()
-            l2_adapter = manager.get_component("l2_memory")
-            l3_adapter = manager.get_component("l3_kg")
+            l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
+            l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
 
             if not l2_adapter or not l2_adapter._is_available:
                 return "L2记忆库当前不可用"

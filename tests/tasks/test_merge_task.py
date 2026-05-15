@@ -92,9 +92,9 @@ class TestMergeTask:
 
         llm_manager = Mock()
         llm_manager.is_available = True
-        llm_manager.generate = AsyncMock(return_value="合并后的记忆内容")
+        llm_manager.generate_direct = AsyncMock(return_value="合并后的记忆内容")
 
-        def get_component(name):
+        def get_component(name, expected_type=None):
             if name == "l2_memory":
                 return l2_adapter
             elif name == "llm_manager":
@@ -171,7 +171,7 @@ class TestMergeTask:
 
             merge_task._component_manager.get_component(
                 "llm_manager"
-            ).generate.assert_not_called()
+            ).generate_direct.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_l2_unavailable(self, merge_task):
@@ -219,7 +219,7 @@ class TestMergeTask:
 
             merge_task._component_manager.get_component(
                 "llm_manager"
-            ).generate.assert_not_called()
+            ).generate_direct.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_find_merge_groups_basic(self, merge_task):
@@ -347,7 +347,7 @@ class TestMergeTask:
                 "用户喜欢吃苹果", "用户喜欢吃苹果和香蕉", llm_manager
             )
 
-            llm_manager.generate.assert_called_once()
+            llm_manager.generate_direct.assert_called_once()
             assert merged is not None
 
     @pytest.mark.asyncio
@@ -385,7 +385,7 @@ class TestMergeTask:
             await merge_task.execute()
 
             llm_manager = merge_task._component_manager.get_component("llm_manager")
-            assert llm_manager.generate.call_count <= 5
+            assert llm_manager.generate_direct.call_count <= 5
 
     @pytest.mark.asyncio
     async def test_group_isolation(self, merge_task):
@@ -549,7 +549,7 @@ class TestMergeTask:
 
             assert merged_count == 1
             assert deleted_count == 3
-            assert llm_manager.generate.call_count == 2
+            assert llm_manager.generate_direct.call_count == 2
 
     @pytest.mark.asyncio
     async def test_max_group_size_limit(self, merge_task):

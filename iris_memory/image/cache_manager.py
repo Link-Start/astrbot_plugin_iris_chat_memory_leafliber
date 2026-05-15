@@ -228,7 +228,9 @@ class ImageCacheManager(Component):
 
         config = get_config()
         if retention_days is None:
-            retention_days = config.get("l1_buffer.image_parsing_cache_retention_days", 7)
+            retention_days = config.get(
+                "l1_buffer.image_parsing_cache_retention_days", 7
+            )
 
         cutoff_time = datetime.now() - timedelta(days=retention_days)
         cleaned_count = 0

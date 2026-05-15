@@ -9,6 +9,7 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
 from iris_memory.core import get_logger, get_component_manager
 from iris_memory.l2_memory import MemoryEntry
+from iris_memory.l2_memory.adapter import L2MemoryAdapter
 
 logger = get_logger("tools")
 
@@ -93,7 +94,7 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
 
             # 获取L2记忆适配器
             manager = get_component_manager()
-            l2_adapter = manager.get_component("l2_memory")
+            l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
 
             if not l2_adapter or not l2_adapter._is_available:
                 return "L2记忆库当前不可用"

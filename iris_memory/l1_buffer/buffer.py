@@ -12,10 +12,9 @@ Iris Chat Memory - L1 消息缓冲组件
 
 from __future__ import annotations
 
-from typing import Optional, Dict, Any, List, TYPE_CHECKING
+from typing import Optional, Dict, Any, List, TYPE_CHECKING, cast
 from datetime import datetime
 import asyncio
-from typing import cast
 
 from iris_memory.core import Component, get_logger
 from iris_memory.config import get_config
