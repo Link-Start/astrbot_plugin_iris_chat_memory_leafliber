@@ -543,51 +543,16 @@ async def _collect_l2_memory(
         llm_manager = component_manager.get_component("llm_manager")
         retriever = MemoryRetriever(component_manager, llm_manager)
 
-        enable_graph = config.get("l2_memory.enable_graph_enhancement", False)
-        enable_rerank = config.get("enhancement.enable_rerank", False)
+        context_text = await retriever.retrieve_for_context(
+            query=search_query,
+            group_id=group_id,
+            max_tokens=config.get("token_budget_max_tokens", 2000),
+        )
 
-        if enable_graph or enable_rerank:
-            context_text = await retriever.retrieve_for_context(
-                query=search_query,
-                group_id=group_id,
-                max_tokens=config.get("token_budget_max_tokens", 2000),
-            )
+        if context_text:
+            logger.debug(f"已收集检索记忆到群聊 {group_id}")
 
-            if context_text:
-                logger.debug(f"已收集增强检索记忆到群聊 {group_id}")
-
-            return context_text, []
-        else:
-            results = await retriever.retrieve(search_query, group_id)
-
-            if not results:
-                logger.debug("L2 检索未找到相关记忆")
-                return "", []
-
-            from iris_memory.enhancement import TokenBudgetController
-
-            budget_controller = TokenBudgetController()
-            max_tokens = config.get("token_budget_max_tokens", 2000)
-
-            trimmed_results, actual_tokens = budget_controller.trim_memories(
-                memories=results, max_tokens=max_tokens
-            )
-
-            if len(trimmed_results) < len(results):
-                logger.debug(
-                    f"L2 记忆注入截断：群聊 {group_id}，"
-                    f"原始 {len(results)} 条 → 保留 {len(trimmed_results)} 条 "
-                    f"（token 预算 {max_tokens}，实际 {actual_tokens}）"
-                )
-            else:
-                logger.debug(f"L2 检索到 {len(results)} 条记忆，无需裁剪")
-
-            memory_text = _format_l2_memories_for_injection(trimmed_results)
-
-            if memory_text:
-                logger.debug(f"已收集 L2 记忆到群聊 {group_id}")
-
-            return memory_text, trimmed_results
+        return context_text, []
 
     except Exception as e:
         logger.error(f"L2 记忆注入失败: {e}", exc_info=True)
@@ -603,10 +568,9 @@ async def _collect_l3_knowledge_graph(
     """收集 L3 知识图谱文本（不直接修改 req）
 
     检索策略：
-    1. 当 enable_graph_enhancement=True 时跳过（L2 阶段已处理）
-    2. 优先基于 L2 记忆关联的节点 ID 进行路径扩展
-    3. 若 L2 结果无节点 ID，则基于用户消息关键词搜索图谱
-    4. 两种策略的结果合并去重
+    1. 优先基于 L2 记忆关联的节点 ID 进行路径扩展
+    2. 若 L2 结果无节点 ID，则基于用户消息关键词搜索图谱
+    3. 两种策略的结果合并去重
 
     Args:
         event: AstrBot 消息事件对象
@@ -643,14 +607,6 @@ async def _collect_l3_knowledge_graph(
     group_id = adapter.get_group_id(event)
 
     try:
-        enable_graph_enhancement = config.get(
-            "l2_memory.enable_graph_enhancement", False
-        )
-
-        if enable_graph_enhancement:
-            logger.debug("图增强已在 L2 阶段执行，跳过 L3 独立图谱注入以避免重复")
-            return ""
-
         from iris_memory.l3_kg import GraphRetriever
 
         retriever = GraphRetriever(kg_adapter)
@@ -930,15 +886,15 @@ async def _parse_images_if_related_mode(
     import asyncio
 
     config = get_config()
-    if not config.get("image_parsing.enable"):
+    if not config.get("l1_buffer.enable_image_parsing"):
         return
 
-    if config.get("image_parsing.skip_on_passive_trigger", True):
+    if config.get("l1_buffer.image_parsing_skip_on_passive_trigger", True):
         if _is_passive_trigger(event):
             logger.info("被动触发（sampling/主动回复），跳过图片解析以节省 token")
             return
 
-    mode = config.get("image_parsing.parsing_mode", "related")
+    mode = config.get("l1_buffer.image_parsing_mode", "related")
 
     if mode == "all":
         return
@@ -964,8 +920,8 @@ async def _parse_images_if_related_mode(
         logger.warning("LLM Manager 不可用，跳过图片解析")
         return
 
-    max_parse = config.get("image_parsing.max_parse_per_request", 5)
-    max_concurrent = config.get("image_parsing.max_concurrent_parse", 3)
+    max_parse = config.get("l1_buffer.image_parsing_max_parse_per_request", 5)
+    max_concurrent = config.get("l1_buffer.image_parsing_max_concurrent_parse", 3)
 
     pending_images = l1_buffer.get_images(group_id, limit=max_parse, only_pending=True)
 
@@ -1011,7 +967,7 @@ async def _parse_images_if_related_mode(
             logger.warning("图片解析配额使用失败")
             return
 
-    provider = config.get("image_parsing.provider", "")
+    provider = config.get("l1_buffer.image_parsing_provider", "")
 
     from iris_memory.image.recorder_bridge import get_recorder_bridge
 

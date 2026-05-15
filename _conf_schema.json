@@ -21,6 +21,37 @@
         "default": 50,
         "description": "上下文消息条数",
         "hint": "注入 LLM 上下文的最大消息条数，超量时自动总结旧消息为长期记忆。越大上下文越完整，但 Token 消耗越多，最少20条"
+      },
+      "enable_image_parsing": {
+        "type": "bool",
+        "default": false,
+        "description": "启用图片解析"
+      },
+      "image_parsing_provider": {
+        "type": "string",
+        "default": "",
+        "description": "图片解析模型 Provider",
+        "hint": "选择支持视觉能力的模型，留空则使用默认 Provider",
+        "_special": "select_provider"
+      },
+      "image_parsing_mode": {
+        "type": "string",
+        "default": "related",
+        "description": "解析模式",
+        "hint": "全：所有图片；相关：触发LLM/被引用/OCR命中的图片",
+        "options": ["all", "related"]
+      },
+      "image_parsing_daily_quota": {
+        "type": "int",
+        "default": 200,
+        "description": "每日解析限额",
+        "hint": "全局共享计数器，超限后静默跳过，每日00:00重置"
+      },
+      "image_parsing_skip_on_passive_trigger": {
+        "type": "bool",
+        "default": true,
+        "description": "被动触发时跳过图片解析",
+        "hint": "当 LLM 由 sampling/主动回复触发时跳过图片解析，节省 token 和配额"
       }
     }
   },
@@ -41,12 +72,6 @@
         "description": "L2 总结模型 Provider",
         "hint": "选择用于 L2 记忆总结的模型，留空则使用默认 Provider",
         "_special": "select_provider"
-      },
-      "enable_graph_enhancement": {
-        "type": "bool",
-        "default": false,
-        "description": "启用图增强检索",
-        "hint": "利用 L3 知识图谱扩展 L2 记忆检索结果，发现更多关联信息"
       },
       "embedding_model": {
         "type": "string",
@@ -145,45 +170,6 @@
     }
   },
 
-  "image_parsing": {
-    "type": "object",
-    "description": "图片解析",
-    "hint": "将图片解析后加入上下文",
-    "items": {
-      "enable": {
-        "type": "bool",
-        "default": false,
-        "description": "启用图片解析"
-      },
-      "provider": {
-        "type": "string",
-        "default": "",
-        "description": "图片解析模型 Provider",
-        "hint": "选择支持视觉能力的模型，留空则使用默认 Provider",
-        "_special": "select_provider"
-      },
-      "parsing_mode": {
-        "type": "string",
-        "default": "related",
-        "description": "解析模式",
-        "hint": "全：所有图片；相关：触发LLM/被引用/OCR命中的图片",
-        "options": ["all", "related"]
-      },
-      "daily_quota": {
-        "type": "int",
-        "default": 200,
-        "description": "每日解析限额",
-        "hint": "全局共享计数器，超限后静默跳过，每日00:00重置"
-      },
-      "skip_on_passive_trigger": {
-        "type": "bool",
-        "default": true,
-        "description": "被动触发时跳过图片解析",
-        "hint": "当 LLM 由 sampling/主动回复触发时跳过图片解析，节省 token 和配额"
-      }
-    }
-  },
-
   "profile": {
     "type": "object",
     "description": "画像系统",
@@ -213,27 +199,6 @@
         "default": true,
         "description": "启用画像自动注入",
         "hint": "在每次LLM请求前自动注入画像到system_prompt"
-      }
-    }
-  },
-
-  "enhancement": {
-    "type": "object",
-    "description": "记忆增强",
-    "hint": "重排序",
-    "items": {
-      "enable_rerank": {
-        "type": "bool",
-        "default": false,
-        "description": "启用重排序",
-        "hint": "对检索结果进行重排序以提高相关性"
-      },
-      "rerank_provider": {
-        "type": "string",
-        "default": "",
-        "description": "重排序模型 Provider",
-        "hint": "选择用于重排序的模型，留空则使用默认 Provider",
-        "_special": "select_provider"
       }
     }
   },

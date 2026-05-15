@@ -14,7 +14,6 @@ from .adapter import L2MemoryAdapter
 
 if TYPE_CHECKING:
     from iris_memory.llm.manager import LLMManager
-    from iris_memory.enhancement import EnhancedMemoryRetriever
 
 logger = get_logger("l2_memory.retriever")
 
@@ -28,9 +27,7 @@ class MemoryRetriever:
         - 记忆检索（支持群聊隔离）
         - 从总结写入记忆
         - 访问频率更新
-        - 图增强检索（阶段 8 实现）
-        - Token 预算控制（阶段 8 实现）
-        - 重排序（阶段 8 实现）
+        - Token 预算控制
 
     Examples:
         >>> retriever = MemoryRetriever(component_manager)
@@ -46,12 +43,11 @@ class MemoryRetriever:
 
         Args:
             component_manager: 组件管理器实例
-            llm_manager: LLM 调用管理器实例（可选，用于重排序）
+            llm_manager: LLM 调用管理器实例（可选）
         """
         self._manager = component_manager
         self._llm_manager = llm_manager
         self._adapter: Optional[L2MemoryAdapter] = None
-        self._enhanced_retriever: Optional["EnhancedMemoryRetriever"] = None
 
     def _get_adapter(self) -> Optional[L2MemoryAdapter]:
         """获取 L2 适配器
@@ -87,28 +83,22 @@ class MemoryRetriever:
         """
         config = get_config()
 
-        # 获取适配器
         adapter = self._get_adapter()
         if not adapter:
             logger.debug("L2 记忆库不可用，返回空结果")
             return []
 
-        # 获取 top_k 配置
         if top_k is None:
             top_k = config.get("l2_memory.top_k")
 
-        # 检查群聊隔离配置
         enable_group_isolation = config.get(
             "isolation_config.enable_group_memory_isolation"
         )
         if not enable_group_isolation:
-            # 关闭群聊隔离，不传递 group_id
             group_id = None
 
-        # 执行检索
         results = await adapter.retrieve(query, group_id, top_k)
 
-        # 相似度阈值过滤
         relevance_threshold = config.get("l2_memory.relevance_threshold", 0.3)
         if relevance_threshold > 0:
             filtered = [r for r in results if r.score >= relevance_threshold]
@@ -139,12 +129,6 @@ class MemoryRetriever:
 
         Returns:
             记忆 ID，失败时返回 None
-
-        Examples:
-            >>> memory_id = await retriever.add_from_summary(
-            ...     "用户今天提到了喜欢吃苹果",
-            ...     metadata={"group_id": "group_123", "confidence": 0.9}
-            ... )
         """
         adapter = self._get_adapter()
         if not adapter:
@@ -177,31 +161,12 @@ class MemoryRetriever:
 
         return await adapter.update_access(memory_id)
 
-    def _get_enhanced_retriever(self) -> Optional["EnhancedMemoryRetriever"]:
-        """获取增强检索器
-
-        Returns:
-            EnhancedMemoryRetriever 实例，不可用时返回 None
-        """
-        if self._enhanced_retriever is None:
-            try:
-                from iris_memory.enhancement import EnhancedMemoryRetriever
-
-                self._enhanced_retriever = EnhancedMemoryRetriever(
-                    component_manager=self._manager, llm_manager=self._llm_manager
-                )
-            except ImportError:
-                logger.warning("增强检索模块不可用")
-
-        return self._enhanced_retriever
-
     async def retrieve_for_context(
         self, query: str, group_id: Optional[str] = None, max_tokens: int = 2000
     ) -> str:
         """检索记忆并格式化为上下文文本
 
-        检索记忆并格式化为适用于 LLM 上下文的文本。
-        支持增强检索（图增强、Token 预算控制、重排序）。
+        检索记忆并格式化为适用于 LLM 上下文的文本，带 Token 预算控制。
 
         Args:
             query: 查询文本
@@ -210,50 +175,49 @@ class MemoryRetriever:
 
         Returns:
             格式化的上下文文本
-
-        Examples:
-            >>> context = await retriever.retrieve_for_context(
-            ...     "用户喜欢吃什么",
-            ...     group_id="group_123"
-            ... )
-            >>> print(context)
-            ## 相关记忆
-            1. 用户喜欢吃苹果
-            2. 用户昨天吃了香蕉
         """
-        config = get_config()
-
-        # 检查是否启用增强检索
-        enable_graph = config.get("l2_memory.enable_graph_enhancement", False)
-        enable_rerank = config.get("enhancement.enable_rerank", False)
-
-        # 如果启用了图增强或重排序，使用增强检索器
-        if enable_graph or enable_rerank:
-            enhanced_retriever = self._get_enhanced_retriever()
-            if enhanced_retriever:
-                return await enhanced_retriever.retrieve_with_enhancement(
-                    query=query,
-                    group_id=group_id,
-                    max_tokens=max_tokens,
-                    enable_graph=enable_graph,
-                    enable_rerank=enable_rerank,
-                )
-
-        # 否则使用基础检索
         results = await self.retrieve(query, group_id)
 
         if not results:
             return ""
 
-        # 格式化为上下文文本（带 Token 预算控制）
-        from iris_memory.enhancement import TokenBudgetController
+        trimmed_results = self._trim_by_token_budget(results, max_tokens)
 
-        budget_controller = TokenBudgetController(max_tokens=max_tokens)
-        trimmed_results, _ = budget_controller.trim_memories(results)
-
-        # 格式化输出
         context_lines = ["## 相关记忆"]
         for i, result in enumerate(trimmed_results, 1):
             context_lines.append(f"{i}. {result.entry.content}")
 
         return "\n".join(context_lines)
+
+    @staticmethod
+    def _trim_by_token_budget(
+        memories: List[MemorySearchResult], max_tokens: int
+    ) -> List[MemorySearchResult]:
+        """按 Token 预算裁剪记忆列表
+
+        使用字符估算（平均 2 字符/token）从前往后逐条添加，
+        直到超出预算。
+
+        Args:
+            memories: 记忆检索结果列表
+            max_tokens: 最大 Token 预算
+
+        Returns:
+            裁剪后的记忆列表
+        """
+        trimmed: List[MemorySearchResult] = []
+        total_tokens = 0
+
+        for memory in memories:
+            content = memory.entry.content
+            memory_tokens = len(content) // 2 + 1 if content else 0
+
+            if total_tokens + memory_tokens > max_tokens:
+                if not trimmed:
+                    trimmed.append(memory)
+                break
+
+            trimmed.append(memory)
+            total_tokens += memory_tokens
+
+        return trimmed

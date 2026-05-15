@@ -59,7 +59,7 @@ class ImageCacheManager(Component):
         """初始化缓存管理器"""
         config = get_config()
 
-        if not config.get("image_parsing.enable"):
+        if not config.get("l1_buffer.enable_image_parsing"):
             self._is_available = False
             logger.info("图片解析未启用，缓存管理器不初始化")
             return
@@ -228,7 +228,7 @@ class ImageCacheManager(Component):
 
         config = get_config()
         if retention_days is None:
-            retention_days = config.get("image_parsing.cache_retention_days", 7)
+            retention_days = config.get("l1_buffer.image_parsing_cache_retention_days", 7)
 
         cutoff_time = datetime.now() - timedelta(days=retention_days)
         cleaned_count = 0

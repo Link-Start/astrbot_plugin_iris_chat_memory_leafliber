@@ -133,7 +133,7 @@ def create_components(context: "Context", star: "Star") -> Tuple[Component, ...]
         logger.debug("已添加 ProfileStorage 组件")
 
     # 阶段10: 图片限额管理器
-    if config.get("image_parsing.enable"):
+    if config.get("l1_buffer.enable_image_parsing"):
         from iris_memory.image import ImageQuotaManager, ImageCacheManager
 
         components.append(ImageQuotaManager(star))
@@ -242,7 +242,7 @@ def _start_scheduled_tasks_immediate(component_manager: ComponentManager) -> Non
 
     config = get_config()
 
-    if config.get("image_parsing.enable"):
+    if config.get("l1_buffer.enable_image_parsing"):
         cache_cleanup_task = ImageCacheCleanupTask(component_manager)
         interval_hours = config.get("image_cache_cleanup_interval_hours", 24)
         scheduler.register_periodic_task(

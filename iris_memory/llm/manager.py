@@ -401,8 +401,7 @@ class LLMManager(Component):
             "l2_summarizer": "l2_memory.summary_provider",
             "l3_kg_extraction": "l3_kg.extraction_provider",
             "scheduled_tasks": "scheduled_tasks.provider",
-            "enhancement_rerank": "enhancement.rerank_provider",
-            "image_parsing": "image_parsing.provider",
+            "image_parsing": "l1_buffer.image_parsing_provider",
             "profile_analysis": "profile.analysis_provider",
             "l2_query_rewrite": "l2_query_rewrite_provider",
         }

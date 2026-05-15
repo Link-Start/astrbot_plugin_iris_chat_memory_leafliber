@@ -19,6 +19,14 @@ class L1BufferConfig:
     enable: bool = True
     summary_provider: str = ""
     inject_queue_length: int = 50
+    enable_image_parsing: bool = False
+    image_parsing_provider: str = ""
+    image_parsing_mode: Literal["all", "related"] = "related"
+    image_parsing_daily_quota: int = 200
+    image_parsing_max_parse_per_request: int = 5
+    image_parsing_max_concurrent_parse: int = 3
+    image_parsing_cache_retention_days: int = 7
+    image_parsing_skip_on_passive_trigger: bool = True
 
 
 @dataclass
@@ -27,7 +35,6 @@ class L2MemoryConfig:
 
     enable: bool = True
     summary_provider: str = ""
-    enable_graph_enhancement: bool = False
     embedding_model: str = "BAAI/bge-small-zh-v1.5"
     top_k: int = 10
     max_entries: int = 10000
@@ -49,20 +56,6 @@ class L3KGConfig:
 
 
 @dataclass
-class ImageParsingConfig:
-    """图片解析配置"""
-
-    enable: bool = False
-    provider: str = ""
-    parsing_mode: Literal["all", "related"] = "related"
-    daily_quota: int = 200
-    max_parse_per_request: int = 5
-    max_concurrent_parse: int = 3
-    cache_retention_days: int = 7
-    skip_on_passive_trigger: bool = True
-
-
-@dataclass
 class ProfileConfig:
     """画像系统配置"""
 
@@ -70,14 +63,6 @@ class ProfileConfig:
     analysis_provider: str = ""
     analysis_mode: Literal["all", "related"] = "all"
     enable_auto_injection: bool = True
-
-
-@dataclass
-class EnhancementConfig:
-    """记忆增强配置"""
-
-    enable_rerank: bool = False
-    rerank_provider: str = ""
 
 
 @dataclass
@@ -224,9 +209,7 @@ class Defaults:
     l1_buffer: L1BufferConfig = field(default_factory=L1BufferConfig)
     l2_memory: L2MemoryConfig = field(default_factory=L2MemoryConfig)
     l3_kg: L3KGConfig = field(default_factory=L3KGConfig)
-    image_parsing: ImageParsingConfig = field(default_factory=ImageParsingConfig)
     profile: ProfileConfig = field(default_factory=ProfileConfig)
-    enhancement: EnhancementConfig = field(default_factory=EnhancementConfig)
     isolation_config: IsolationConfig = field(default_factory=IsolationConfig)
     scheduled_tasks: ScheduledTasksConfig = field(default_factory=ScheduledTasksConfig)
     context_control: ContextControlConfig = field(default_factory=ContextControlConfig)

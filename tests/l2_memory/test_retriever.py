@@ -38,8 +38,6 @@ class TestMemoryRetriever:
                 "l2_memory.top_k": 10,
                 "isolation_config.enable_group_memory_isolation": False,
                 "l2_memory.relevance_threshold": 0.3,
-                "l2_memory.enable_graph_enhancement": False,
-                "enhancement.enable_rerank": False,
                 "token_budget_max_tokens": 2000,
             }.get(key, default)
         )

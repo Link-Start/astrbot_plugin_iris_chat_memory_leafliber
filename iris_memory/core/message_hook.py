@@ -294,7 +294,7 @@ async def _queue_images_to_l1_buffer(
     )
 
     config = get_config()
-    if not config.get("image_parsing.enable"):
+    if not config.get("l1_buffer.enable_image_parsing"):
         return
 
     adapter = get_adapter(event)
@@ -422,10 +422,10 @@ async def _parse_images_if_enabled(
     from iris_memory.image import ImageParser, ImageParseStatus, ImageParseCache
 
     config = get_config()
-    if not config.get("image_parsing.enable"):
+    if not config.get("l1_buffer.enable_image_parsing"):
         return
 
-    mode = config.get("image_parsing.parsing_mode", "related")
+    mode = config.get("l1_buffer.image_parsing_mode", "related")
 
     if mode == "related":
         return
@@ -451,7 +451,7 @@ async def _parse_images_if_enabled(
         logger.warning("LLM Manager 不可用，跳过图片解析")
         return
 
-    max_parse = config.get("image_parsing.max_parse_per_request", 5)
+    max_parse = config.get("l1_buffer.image_parsing_max_parse_per_request", 5)
     pending_images = l1_buffer.get_images(group_id, limit=max_parse, only_pending=True)
 
     if not pending_images:
@@ -487,7 +487,7 @@ async def _parse_images_if_enabled(
             logger.warning("图片解析配额使用失败")
             return
 
-    provider = config.get("image_parsing.provider", "")
+    provider = config.get("l1_buffer.image_parsing_provider", "")
 
     from iris_memory.image.recorder_bridge import get_recorder_bridge
 
