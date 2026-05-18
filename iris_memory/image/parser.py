@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING
 import asyncio
 
+import re
+
 from iris_memory.core import get_logger
 from .models import ImageInfo, ParseResult
 from .recorder_bridge import MessageRecorderBridge
@@ -132,6 +134,14 @@ class ImageParser:
                 provider_id=self._provider if self._provider else None,
             )
 
+            if self._is_unable_to_describe(response):
+                logger.info(f"LLM 无法识别图片内容，视为解析失败：{response[:80]}")
+                return ParseResult(
+                    image_info=image_info,
+                    success=False,
+                    error_message="LLM 无法识别图片内容",
+                )
+
             return ParseResult(image_info=image_info, content=response, success=True)
 
         except Exception as e:
@@ -168,3 +178,35 @@ class ImageParser:
             解析提示词
         """
         return "简要描述图片内容，重点写文字和关键物体，不超过80字。"
+
+    _UNABLE_PATTERNS = re.compile(
+        r"无法[查查看].*图|不能.*[查查看].*图|"
+        r"没有.*图片|未.*上传|图片.*失败|"
+        r"无法.*分析|不能.*分析|"
+        r"无法.*识别|不能.*识别|"
+        r"无法.*获取|不能.*获取|"
+        r"抱歉.*图|sorry.*image",
+        re.IGNORECASE,
+    )
+
+    def _is_unable_to_describe(self, content: str) -> bool:
+        """检测 LLM 返回的内容是否表示无法描述图片
+
+        当图片加载失败或链接过期时，LLM 不会抛异常，
+        而是返回"抱歉，我无法查看或分析图片"之类的文本。
+        这些内容不应作为图片描述写入 L1 Buffer。
+
+        Args:
+            content: LLM 返回的文本
+
+        Returns:
+            是否为"无法描述"类回复
+        """
+        if not content:
+            return False
+
+        stripped = content.strip()
+        if len(stripped) < 10:
+            return False
+
+        return bool(self._UNABLE_PATTERNS.search(stripped))

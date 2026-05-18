@@ -526,6 +526,8 @@ async def _parse_images_if_enabled(
             l1_buffer.mark_image_parsed(
                 group_id, img_item.image_hash, ImageParseStatus.FAILED
             )
+            placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+            l1_buffer.replace_image_placeholder(group_id, placeholder, "")
             continue
 
         if not result.content:
@@ -533,6 +535,8 @@ async def _parse_images_if_enabled(
             l1_buffer.mark_image_parsed(
                 group_id, img_item.image_hash, ImageParseStatus.FAILED
             )
+            placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+            l1_buffer.replace_image_placeholder(group_id, placeholder, "")
             continue
 
         if cache_manager and cache_manager.is_available:
