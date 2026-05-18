@@ -14,7 +14,7 @@ from .models import (
     GroupProfile,
     UpdateTier,
     merge_list_field,
-    should_overwrite_field,
+    merge_custom_fields,
     ProfileConfig,
 )
 
@@ -116,10 +116,12 @@ class GroupProfileManager:
                 updated = True
 
         if custom_fields:
-            for key, value in custom_fields.items():
-                if key not in profile.custom_fields or not profile.custom_fields[key]:
-                    profile.custom_fields[key] = value
-                    updated = True
+            merged_fields, fields_changed = merge_custom_fields(
+                profile.custom_fields, custom_fields, confidence=confidence
+            )
+            if fields_changed:
+                profile.custom_fields = merged_fields
+                updated = True
 
         tracker = profile.get_update_tracker()
         if tier == UpdateTier.MID:
@@ -201,15 +203,12 @@ class GroupProfileManager:
                 updated = True
 
         if custom_fields:
-            for key, value in custom_fields.items():
-                if key not in profile.custom_fields or not profile.custom_fields[key]:
-                    profile.custom_fields[key] = value
-                    updated = True
-                elif should_overwrite_field(
-                    profile.custom_fields[key], value, 0.5, confidence
-                ):
-                    profile.custom_fields[key] = value
-                    updated = True
+            merged_fields, fields_changed = merge_custom_fields(
+                profile.custom_fields, custom_fields, confidence=confidence
+            )
+            if fields_changed:
+                profile.custom_fields = merged_fields
+                updated = True
 
         tracker = profile.get_update_tracker()
         tracker.record_long_update()

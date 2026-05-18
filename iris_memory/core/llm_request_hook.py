@@ -813,6 +813,11 @@ def _format_profiles_for_injection(
         user_parts.append(f"重要事件: {', '.join(user_profile.important_events)}")
     if user_profile.taboo_topics:
         user_parts.append(f"禁忌: {', '.join(user_profile.taboo_topics)}")
+    if user_profile.custom_fields:
+        custom_str = ", ".join(
+            f"{k}: {v}" for k, v in user_profile.custom_fields.items()
+        )
+        user_parts.append(custom_str)
 
     if len(user_parts) > 1:
         sections.append("\n".join(user_parts))
@@ -826,6 +831,11 @@ def _format_profiles_for_injection(
         group_parts.append(f"核心特征: {', '.join(group_profile.long_term_tags)}")
     if group_profile.blacklist_topics:
         group_parts.append(f"禁忌: {', '.join(group_profile.blacklist_topics)}")
+    if group_profile.custom_fields:
+        custom_str = ", ".join(
+            f"{k}: {v}" for k, v in group_profile.custom_fields.items()
+        )
+        group_parts.append(custom_str)
 
     if len(group_parts) > 1:
         sections.append("\n".join(group_parts))

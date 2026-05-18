@@ -6,9 +6,10 @@ Iris Chat Memory - 画像数据模型
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Union
+from typing import List, Optional, Dict, Union, Tuple
 from datetime import datetime
 from enum import Enum
+from difflib import SequenceMatcher
 
 
 class UpdateTier(Enum):
@@ -494,6 +495,114 @@ def should_overwrite_field(
     if existing_confidence < 0.3:
         return True
     return False
+
+
+def _find_similar_key(
+    existing: Dict[str, str],
+    new_key: str,
+    threshold: float = 0.55,
+) -> Optional[str]:
+    """在已有字段中查找与新 key 语义相似的 key
+
+    使用 SequenceMatcher 计算字符级相似度。
+    同时检查子串包含关系，应对中文短语的语义重叠。
+
+    Args:
+        existing: 已有字段字典
+        new_key: 新字段名
+        threshold: 相似度阈值，高于此值视为相似
+
+    Returns:
+        最相似的已有 key，不存在时返回 None
+    """
+    if not existing or not new_key:
+        return None
+
+    best_key: Optional[str] = None
+    best_score: float = threshold
+
+    for existing_key in existing:
+        if existing_key == new_key:
+            return existing_key
+
+        if new_key in existing_key or existing_key in new_key:
+            shorter = min(len(new_key), len(existing_key))
+            longer = max(len(new_key), len(existing_key))
+            score = shorter / longer
+            if score > best_score:
+                best_score = score
+                best_key = existing_key
+                continue
+
+        ratio = SequenceMatcher(None, new_key, existing_key).ratio()
+        if ratio > best_score:
+            best_score = ratio
+            best_key = existing_key
+
+    return best_key
+
+
+def merge_custom_fields(
+    existing: Dict[str, str],
+    new_fields: Dict[str, str],
+    max_fields: int = 10,
+    similarity_threshold: float = 0.55,
+    confidence: float = 0.7,
+) -> Tuple[Dict[str, str], bool]:
+    """智能合并自定义字段
+
+    解决两个核心问题：
+    1. 字段无限增长：超过 max_fields 时截断最旧的字段
+    2. 高相似度字段：新 key 与已有 key 相似时合并到已有 key
+
+    合并策略：
+    - 精确匹配已有 key → 按置信度决定是否覆盖值
+    - 相似匹配已有 key → 合并到已有 key（值取更详细的）
+    - 无匹配 → 新增字段
+    - 超过上限 → 截断最旧字段
+
+    Args:
+        existing: 已有字段字典
+        new_fields: 新字段字典
+        max_fields: 最大字段数量
+        similarity_threshold: key 相似度阈值
+        confidence: 本次更新置信度
+
+    Returns:
+        (合并后的字典, 是否有变更)
+    """
+    if not new_fields:
+        return existing, False
+
+    merged = dict(existing)
+    changed = False
+
+    for new_key, new_value in new_fields.items():
+        if not new_key or not new_value:
+            continue
+
+        if new_key in merged:
+            if should_overwrite_field(merged[new_key], new_value, 0.5, confidence):
+                merged[new_key] = new_value
+                changed = True
+            continue
+
+        similar_key = _find_similar_key(merged, new_key, similarity_threshold)
+        if similar_key is not None:
+            if should_overwrite_field(merged[similar_key], new_value, 0.5, confidence):
+                merged[similar_key] = new_value
+                changed = True
+            continue
+
+        merged[new_key] = new_value
+        changed = True
+
+    if len(merged) > max_fields:
+        keys_to_keep = list(merged.keys())[-max_fields:]
+        merged = {k: merged[k] for k in keys_to_keep}
+        changed = True
+
+    return merged, changed
 
 
 class ProfileConfig:
