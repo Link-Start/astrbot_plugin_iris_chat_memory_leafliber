@@ -590,6 +590,19 @@
                           <div v-else class="text-medium-emphasis text-body-2">暂无禁忌话题</div>
                         </v-card-text>
                       </v-card>
+
+                      <v-card v-if="profileStore.currentUserProfile.custom_fields && Object.keys(profileStore.currentUserProfile.custom_fields).length > 0" variant="outlined" class="info-card mt-4">
+                        <v-card-title class="text-subtitle-2 pb-0 d-flex align-center">
+                          <v-icon icon="mdi-tag-multiple" color="secondary" class="mr-2" />
+                          自定义字段
+                        </v-card-title>
+                        <v-card-text>
+                          <div v-for="(value, key) in profileStore.currentUserProfile.custom_fields" :key="key" class="d-flex align-center mb-2">
+                            <span class="text-body-2 font-weight-medium mr-2">{{ key }}</span>
+                            <span class="text-body-2 text-medium-emphasis">{{ value }}</span>
+                          </div>
+                        </v-card-text>
+                      </v-card>
                     </div>
 
                     <div v-else class="text-center text-medium-emphasis py-8">

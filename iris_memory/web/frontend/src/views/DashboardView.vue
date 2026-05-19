@@ -382,10 +382,6 @@ const l1MaxCapacity = computed(() => statsStore.memoryStats?.l1?.max_capacity)
 const l1MaxQueueLength = computed(() => statsStore.memoryStats?.l1?.max_queue_length ?? 0)
 
 const l1UsageColor = computed(() => {
-  if (!l1MaxCapacity.value) return 'primary'
-  const usage = l1MaxQueueLength.value / l1MaxCapacity.value
-  if (usage >= 0.9) return 'error'
-  if (usage >= 0.7) return 'warning'
   return 'primary'
 })
 

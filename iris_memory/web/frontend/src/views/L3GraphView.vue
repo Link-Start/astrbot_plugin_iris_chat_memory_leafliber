@@ -656,6 +656,9 @@ const searchKeyword = ref('')
 const currentZoom = ref(1)
 const currentTranslate = ref({ x: 0, y: 0 })
 
+const persistentNodePositions = ref(new Map<string, { x: number; y: number }>())
+const dragState = ref<{ nodeId: string; offsetX: number; offsetY: number } | null>(null)
+
 const nodesSearchKeyword = ref('')
 const edgesSearchKeyword = ref('')
 const selectedNodeIds = ref<string[]>([])
@@ -917,6 +920,7 @@ const zoomOut = () => {
 const resetZoom = () => {
   currentZoom.value = 1
   currentTranslate.value = { x: 0, y: 0 }
+  persistentNodePositions.value.clear()
   updateTransform()
 }
 
@@ -955,12 +959,21 @@ const renderGraph = () => {
   const radius = Math.min(width, height) / 3
 
   nodes.forEach((node, i) => {
-    const angle = (2 * Math.PI * i) / nodes.length
-    nodePositions.set(node.id, {
-      x: centerX + radius * Math.cos(angle),
-      y: centerY + radius * Math.sin(angle)
-    })
+    const existing = persistentNodePositions.value.get(node.id)
+    if (existing) {
+      nodePositions.set(node.id, { ...existing })
+    } else {
+      const angle = (2 * Math.PI * i) / nodes.length
+      nodePositions.set(node.id, {
+        x: centerX + radius * Math.cos(angle),
+        y: centerY + radius * Math.sin(angle)
+      })
+    }
   })
+
+  for (const [id, pos] of nodePositions) {
+    persistentNodePositions.value.set(id, { ...pos })
+  }
 
   const edgesLayer = mainGroup.value.querySelector('.edges-layer') as SVGGElement
   const edgeLabelsLayer = mainGroup.value.querySelector('.edge-labels-layer') as SVGGElement
@@ -989,6 +1002,8 @@ const renderGraph = () => {
     line.setAttribute('stroke-opacity', '0.5')
     line.setAttribute('marker-end', 'url(#arrowhead)')
     line.classList.add('graph-edge')
+    line.dataset.source = edge.source
+    line.dataset.target = edge.target
     line.style.cursor = 'pointer'
 
     const sourceNode = nodeMap.get(edge.source)
@@ -1027,7 +1042,6 @@ const renderGraph = () => {
     edgesLayer.appendChild(line)
 
     const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text')
-    
     labelText.setAttribute('x', String(midX))
     labelText.setAttribute('y', String(midY))
     labelText.setAttribute('text-anchor', 'middle')
@@ -1035,6 +1049,9 @@ const renderGraph = () => {
     labelText.setAttribute('fill', 'currentColor')
     labelText.setAttribute('font-size', '10')
     labelText.setAttribute('font-weight', '500')
+    labelText.classList.add('edge-label')
+    labelText.dataset.source = edge.source
+    labelText.dataset.target = edge.target
     labelText.textContent = getRelationLabel(edge.relation)
     labelText.style.pointerEvents = 'none'
 
@@ -1047,7 +1064,8 @@ const renderGraph = () => {
 
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
     g.classList.add('graph-node')
-    g.style.cursor = 'pointer'
+    g.dataset.nodeId = node.id
+    g.style.cursor = 'grab'
 
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
     circle.setAttribute('cx', String(pos.x))
@@ -1069,6 +1087,7 @@ const renderGraph = () => {
     g.appendChild(text)
 
     g.addEventListener('click', (event: MouseEvent) => {
+      if (dragState.value) return
       selectedNode.value = node
       closeEdgePopup()
       const containerRect = graphContainer.value?.getBoundingClientRect()
@@ -1088,8 +1107,95 @@ const renderGraph = () => {
       circle.setAttribute('r', '20')
     })
 
+    g.addEventListener('mousedown', (event: MouseEvent) => {
+      if (event.button !== 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      closePopup()
+      closeEdgePopup()
+
+      const svgRect = svgElement.value!.getBoundingClientRect()
+      const svgX = (event.clientX - svgRect.left - currentTranslate.value.x) / currentZoom.value
+      const svgY = (event.clientY - svgRect.top - currentTranslate.value.y) / currentZoom.value
+
+      dragState.value = {
+        nodeId: node.id,
+        offsetX: pos.x - svgX,
+        offsetY: pos.y - svgY
+      }
+      g.style.cursor = 'grabbing'
+    })
+
     nodesLayer.appendChild(g)
   })
+}
+
+const handleDragMove = (event: MouseEvent) => {
+  if (!dragState.value || !svgElement.value || !mainGroup.value) return
+
+  const svgRect = svgElement.value.getBoundingClientRect()
+  const svgX = (event.clientX - svgRect.left - currentTranslate.value.x) / currentZoom.value
+  const svgY = (event.clientY - svgRect.top - currentTranslate.value.y) / currentZoom.value
+
+  const newX = svgX + dragState.value.offsetX
+  const newY = svgY + dragState.value.offsetY
+
+  persistentNodePositions.value.set(dragState.value.nodeId, { x: newX, y: newY })
+
+  const nodesLayer = mainGroup.value.querySelector('.nodes-layer') as SVGGElement
+  const edgesLayer = mainGroup.value.querySelector('.edges-layer') as SVGGElement
+  const edgeLabelsLayer = mainGroup.value.querySelector('.edge-labels-layer') as SVGGElement
+
+  const nodeG = nodesLayer.querySelector(`[data-node-id="${dragState.value.nodeId}"]`) as SVGGElement
+  if (nodeG) {
+    const circle = nodeG.querySelector('circle')!
+    const text = nodeG.querySelector('text')!
+    circle.setAttribute('cx', String(newX))
+    circle.setAttribute('cy', String(newY))
+    text.setAttribute('x', String(newX))
+    text.setAttribute('y', String(newY + 35))
+  }
+
+  const edges = memoryStore.l3Graph.edges
+  edges.forEach(edge => {
+    const isSource = edge.source === dragState.value!.nodeId
+    const isTarget = edge.target === dragState.value!.nodeId
+    if (!isSource && !isTarget) return
+
+    const sourcePos = persistentNodePositions.value.get(edge.source)
+    const targetPos = persistentNodePositions.value.get(edge.target)
+    if (!sourcePos || !targetPos) return
+
+    const line = edgesLayer.querySelector(`line[data-source="${edge.source}"][data-target="${edge.target}"]`) as SVGLineElement
+    if (line) {
+      if (isSource) {
+        line.setAttribute('x1', String(newX))
+        line.setAttribute('y1', String(newY))
+      }
+      if (isTarget) {
+        line.setAttribute('x2', String(newX))
+        line.setAttribute('y2', String(newY))
+      }
+    }
+
+    const midX = (sourcePos.x + targetPos.x) / 2
+    const midY = (sourcePos.y + targetPos.y) / 2
+    const label = edgeLabelsLayer.querySelector(`text[data-source="${edge.source}"][data-target="${edge.target}"]`) as SVGTextElement
+    if (label) {
+      label.setAttribute('x', String(midX))
+      label.setAttribute('y', String(midY))
+    }
+  })
+}
+
+const handleDragEnd = () => {
+  if (!dragState.value) return
+  const nodesLayer = mainGroup.value?.querySelector('.nodes-layer') as SVGGElement
+  const nodeG = nodesLayer?.querySelector(`[data-node-id="${dragState.value.nodeId}"]`) as SVGGElement
+  if (nodeG) {
+    nodeG.style.cursor = 'grab'
+  }
+  dragState.value = null
 }
 
 watch(() => memoryStore.l3Graph, () => {
@@ -1120,11 +1226,15 @@ onMounted(() => {
   loadGraph()
   window.addEventListener('iris:refresh', handleRefresh)
   window.addEventListener('resize', renderGraph)
+  window.addEventListener('mousemove', handleDragMove)
+  window.addEventListener('mouseup', handleDragEnd)
 })
 
 onUnmounted(() => {
   window.removeEventListener('iris:refresh', handleRefresh)
   window.removeEventListener('resize', renderGraph)
+  window.removeEventListener('mousemove', handleDragMove)
+  window.removeEventListener('mouseup', handleDragEnd)
 })
 </script>
 

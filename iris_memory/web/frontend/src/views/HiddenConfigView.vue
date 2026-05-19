@@ -447,12 +447,12 @@ onUnmounted(() => {
 .sticky-bottom-bar {
   position: fixed;
   bottom: 0;
-  left: 0;
+  left: var(--v-layout-left, 0px);
   right: 0;
   z-index: 100;
   padding: 0 16px 16px;
   pointer-events: none;
-  transition: all 0.2s;
+  transition: left 0.2s cubic-bezier(0.4, 0, 0.2, 1), all 0.2s;
 }
 
 .sticky-bottom-bar > .v-card {

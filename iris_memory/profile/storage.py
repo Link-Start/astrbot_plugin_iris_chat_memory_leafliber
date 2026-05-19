@@ -316,8 +316,6 @@ class ProfileStorage(Component):
             ]
             profiles = await asyncio.gather(*tasks, return_exceptions=True)
 
-            effective_group_id = self._get_effective_group_id()
-
             groups = []
             for group_id, profile in zip(group_ids, profiles):
                 if isinstance(profile, Exception):
@@ -325,10 +323,7 @@ class ProfileStorage(Component):
                     continue
                 if profile and isinstance(profile, GroupProfile):
                     member_count = 0
-                    lookup_group_id = (
-                        effective_group_id if effective_group_id else group_id
-                    )
-                    user_index_key = f"user_index:{persona_id}:{lookup_group_id}"
+                    user_index_key = f"user_index:{persona_id}:{group_id}"
                     user_ids = await self._storage.get_kv_data(user_index_key, [])
                     if user_ids:
                         member_count = len(user_ids)
