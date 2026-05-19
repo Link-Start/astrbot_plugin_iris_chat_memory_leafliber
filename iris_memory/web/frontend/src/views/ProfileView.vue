@@ -67,8 +67,8 @@
 
                       <v-list-item-title>{{ group.group_name || group.group_id }}</v-list-item-title>
                       <v-list-item-subtitle>
-                        <v-icon icon="mdi-account-multiple" size="small" class="mr-1" />
-                        {{ group.member_count ?? '?' }} 成员
+                        <v-icon icon="mdi-identifier" size="small" class="mr-1" />
+                        {{ group.group_id }}
                       </v-list-item-subtitle>
                     </v-list-item>
                   </v-list>

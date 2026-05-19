@@ -171,7 +171,6 @@ export interface UserProfile {
 export interface GroupListItem {
   group_id: string
   group_name?: string
-  member_count?: number
 }
 
 // 用户列表项

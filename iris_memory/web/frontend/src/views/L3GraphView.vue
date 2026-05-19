@@ -1055,7 +1055,7 @@ const renderGraph = () => {
     labelText.textContent = getRelationLabel(edge.relation)
     labelText.style.pointerEvents = 'none'
 
-    edgesLayer.appendChild(labelText)
+    edgeLabelsLayer.appendChild(labelText)
   })
 
   nodes.forEach(node => {
