@@ -1,59 +1,19 @@
-# Iris Memory Web 模块
+# Iris Chat Memory - Web 模块
 
-## 📋 概述
+为 Iris Chat Memory 插件提供 Web 可视化管理界面。
 
-为 Iris Chat Memory 插件提供现代化的 Web 可视化界面，支持记忆管理、画像编辑和统计图表展示。
+## 架构
 
-## 🏗️ 架构
+- **后端**：通过 `context.register_web_api()` 注册 API，由 AstrBot Dashboard 统一托管
+- **前端**：Vue.js 3 + Vuetify 3 + TypeScript SPA，构建为单文件输出到 `pages/iris/`
+- **认证**：由 AstrBot Dashboard 统一处理，无需额外配置
+- **路由**：Hash 模式（`createWebHashHistory`），兼容 AstrBot Plugin Pages
 
-- **后端**：Quart (异步 Flask-like 框架)
-- **前端**：Vue.js 3 + Vuetify 3 + TypeScript
-- **认证**：复用 AstrBot Dashboard JWT
-- **端口**：独立端口 9967（可配置）
+## 快速开始
 
-## 🚀 快速开始
+### 使用 Web 界面
 
-### 后端部署
-
-后端已集成到插件中，插件加载时自动启动独立 HTTP 服务器：
-
-**配置方式**（在 AstrBot 管理界面配置）：
-- `web.enable`: 是否启用 Web 服务器（默认 `true`）
-- `web.host`: 监听地址（默认 `0.0.0.0`）
-- `web.port`: 独立端口（默认 `9967`）
-
-**高级安全配置**（隐藏配置，在 `data/iris_memory/hidden_config.json` 中修改）：
-- `web_ssl_cert`: SSL 证书路径（可选，启用 HTTPS）
-- `web_ssl_key`: SSL 私钥路径（可选，启用 HTTPS）
-- `web_cors_origins`: CORS 允许的源（默认 `*`）
-- `web_enable_csrf_protection`: 启用 CSRF 保护（默认 `true`）
-- `web_rate_limit_max_requests`: 速率限制最大请求数（默认 `20`）
-- `web_rate_limit_window_seconds`: 速率限制时间窗口（默认 `60`）
-
-**修改隐藏配置示例**：
-```bash
-# 编辑隐藏配置文件
-vim data/iris_memory/hidden_config.json
-
-# 添加或修改配置项
-{
-  "web_ssl_cert": "/etc/letsencrypt/live/example.com/fullchain.pem",
-  "web_ssl_key": "/etc/letsencrypt/live/example.com/privkey.pem",
-  "web_cors_origins": "https://example.com",
-  "web_rate_limit_max_requests": 50
-}
-
-# 重启 AstrBot 使配置生效
-```
-
-**启动后访问**：
-- API: `http://localhost:9967/api/iris/memory/l2/search`
-- 前端: `http://localhost:9967/iris`
-
-**端口说明**：
-- Web 服务器使用独立端口（默认 9967），与 AstrBot 主端口（6185）分离
-- 独立端口设计避免了 AstrBot StarContext 无法暴露 Quart app 实例的问题
-- 支持多插件并行，不会产生端口冲突
+插件安装后，Web 界面自动注册到 AstrBot Dashboard。在 AstrBot 管理面板的插件页面中即可访问。
 
 ### 前端开发
 
@@ -78,323 +38,180 @@ npm run dev
 npm run build
 ```
 
-构建产物会输出到 `dist/` 目录，由 Quart 自动托管。
+构建产物通过 `vite-plugin-singlefile` 输出为单文件到 `pages/iris/index.html`，由 AstrBot 自动托管。
 
-#### 4. 访问 Web 界面
-
-构建完成后，访问：`http://localhost:9967/iris`（或配置的端口）
-
-## 📁 项目结构
+## 项目结构
 
 ```
 iris_memory/web/
-├── __init__.py              # Web模块入口，注册路由
-├── auth.py                  # JWT认证中间件
-├── routes/                  # API路由
-│   ├── memory.py           # 记忆API（L1/L2/L3）
-│   ├── profile.py          # 画像API
-│   └── stats.py            # 统计API
-└── frontend/                # 前端项目
+├── __init__.py                  # Web 模块入口，注册所有路由
+├── routes/                      # 后端 API 路由
+│   ├── __init__.py              # 路由导出
+│   ├── memory.py                # 记忆 API（L1/L2/L3 查询、搜索、编辑、删除）
+│   ├── profile.py               # 画像 API（用户/群聊画像的查询、编辑、删除）
+│   ├── stats.py                 # 统计 API（Token、记忆、图谱、系统状态）
+│   ├── data_routes.py           # 数据导入导出 API（L2/L3/画像/全量）
+│   ├── manage_routes.py         # 管理操作 API（清空、删除、任务触发）
+│   └── hidden_config_routes.py  # 隐藏配置 API（查询、更新、重置）
+└── frontend/                    # Vue.js 3 前端项目
     ├── src/
-    │   ├── api/             # API封装
-    │   ├── views/           # 页面组件
-    │   ├── stores/          # Pinia状态管理
-    │   ├── router/          # Vue Router配置
-    │   ├── App.vue          # 根组件
-    │   └── main.ts          # 入口文件
+    │   ├── api/                 # API 请求封装
+    │   │   ├── index.ts         # API 入口
+    │   │   ├── request.ts       # 请求工具
+    │   │   ├── memory.ts        # 记忆 API
+    │   │   ├── profile.ts       # 画像 API
+    │   │   ├── stats.ts         # 统计 API
+    │   │   ├── data.ts          # 数据导入导出 API
+    │   │   ├── manage.ts        # 管理操作 API
+    │   │   └── hiddenConfig.ts  # 隐藏配置 API
+    │   ├── views/               # 页面组件
+    │   │   ├── DashboardView.vue      # 仪表盘（系统状态总览）
+    │   │   ├── L1BufferView.vue       # L1 消息缓冲查看
+    │   │   ├── L2MemoryView.vue       # L2 记忆库搜索与管理
+    │   │   ├── L3GraphView.vue        # L3 知识图谱可视化
+    │   │   ├── ProfileView.vue        # 画像查看与编辑
+    │   │   ├── DataManageView.vue     # 数据导入导出
+    │   │   └── HiddenConfigView.vue   # 隐藏配置热修改
+    │   ├── components/          # 通用组件
+    │   │   └── ComponentDisabled.vue  # 组件不可用提示
+    │   ├── composables/         # 组合式函数
+    │   │   └── useComponentState.ts   # 组件状态管理
+    │   ├── stores/              # Pinia 状态管理
+    │   │   ├── index.ts
+    │   │   ├── app.ts           # 应用全局状态
+    │   │   ├── memory.ts        # 记忆数据状态
+    │   │   ├── profile.ts       # 画像数据状态
+    │   │   └── stats.ts         # 统计数据状态
+    │   ├── router/              # Vue Router 配置
+    │   │   └── index.ts         # 路由定义（Hash 模式）
+    │   ├── types/               # TypeScript 类型定义
+    │   │   └── index.ts
+    │   ├── App.vue              # 根组件
+    │   ├── main.ts              # 入口文件
+    │   ├── icons.ts             # 图标注册
+    │   ├── MdiSvgIcon.ts        # MDI SVG 图标组件
+    │   └── astrbot-bridge.d.ts  # AstrBot 桥接类型声明
+    ├── index.html               # HTML 入口
     ├── package.json
-    ├── vite.config.ts
-    └── tsconfig.json
+    ├── vite.config.ts           # Vite 配置（单文件输出）
+    ├── tsconfig.json
+    └── tsconfig.node.json
 ```
 
-## 🔐 认证机制
+## API 文档
 
-### JWT 认证
-
-- **安全策略**：完整JWT签名验证（防止Token伪造）
-- **密钥来源**：AstrBot 配置文件 `data/cmd_config.json`
-- **适用版本**：AstrBot > 3.5.17（已修复CVE-2025-55449）
-- **配置路径**：支持环境变量 `ASTR_BOT_CONFIG_PATH` 自定义路径
-
-### 认证流程
-
-1. 用户登录 AstrBot Dashboard (`http://localhost:6185`)
-2. JWT Token 存储在 Cookie 中
-3. 前端访问 Iris Memory API (`http://localhost:9967/api/iris/*`)
-4. 浏览器自动携带 Cookie
-5. 后端验证 JWT 签名和用户身份
-
-**注意**：由于独立端口部署，需要确保浏览器支持跨端口 Cookie 携带（SameSite=None）。
-
-### 访问控制
-
-所有 API 都需要认证：
-
-```python
-@memory_bp.route('/l2/search', methods=['POST'])
-@dashboard_auth.require_auth
-async def search_l2_memory():
-    # 已认证，可访问
-    pass
-```
-
-## 🛡️ 安全功能
-
-### 1. 速率限制
-
-防止暴力破解和 API 滥用：
-
-- **限制规则**：每个 IP 每分钟最多 20 次请求
-- **响应头**：`X-RateLimit-Remaining` 显示剩余配额
-- **超限响应**：HTTP 429 + 错误信息
-
-**生产环境建议**：使用 Redis 实现分布式速率限制
-
-### 2. HTTPS 支持
-
-保护数据传输安全：
-
-**配置方式**：
-```json
-{
-  "web": {
-    "ssl_cert": "/path/to/cert.pem",
-    "ssl_key": "/path/to/key.pem"
-  }
-}
-```
-
-**证书获取**：
-- Let's Encrypt（免费）
-- 自签名证书（开发环境）
-- 商业证书
-
-### 3. CSRF 保护
-
-防止跨站请求伪造攻击：
-
-- **自动验证**：POST/PUT/DELETE 请求检查 CSRF Token
-- **Token 传递**：前端需在 Header 中携带 `X-CSRF-Token`
-- **Cookie 配合**：前端需设置 `csrf_token` Cookie
-
-**前端示例**：
-```javascript
-// 从 Cookie 读取 CSRF Token
-const csrfToken = document.cookie
-  .split('; ')
-  .find(row => row.startsWith('csrf_token='))
-  ?.split('=')[1];
-
-// 在请求中携带
-axios.post('/api/iris/memory/l2/search', data, {
-  headers: { 'X-CSRF-Token': csrfToken }
-});
-```
-
-### 4. CORS 配置
-
-控制跨域访问：
-
-**配置方式**（隐藏配置）：
-```json
-{
-  "web_cors_origins": "https://example.com,https://app.example.com"
-}
-```
-
-**开发环境**：`"*"` 允许所有源  
-**生产环境**：限制为具体的域名
-
-### 5. 错误处理
-
-完善的错误响应：
-
-| 状态码 | 代码 | 说明 |
-|--------|------|------|
-| 401 | UNAUTHORIZED | 未登录 |
-| 403 | FORBIDDEN | 无权限访问 |
-| 429 | RATE_LIMIT_EXCEEDED | 请求过于频繁 |
-| 500 | AUTH_CONFIG_ERROR | 服务器认证配置错误 |
-
-## 📊 API 文档
+所有 API 路径前缀为 `/{plugin_name}/`，其中 `plugin_name` = `astrbot_plugin_iris_chat_memory`。
 
 ### Memory API
 
-#### POST /api/iris/memory/l2/search
-
-搜索 L2 记忆库
-
-**请求体**：
-```json
-{
-  "query": "搜索关键词",
-  "group_id": "群聊ID（可选）",
-  "top_k": 10
-}
-```
-
-**响应**：
-```json
-{
-  "success": true,
-  "results": [
-    {
-      "content": "记忆内容",
-      "score": 0.95,
-      "metadata": {},
-      "timestamp": "2026-03-29T12:00:00"
-    }
-  ]
-}
-```
-
-#### GET /api/iris/memory/l1/list
-
-获取 L1 缓冲列表
-
-**查询参数**：
-- `group_id`: 群聊ID（可选）
-
-#### GET /api/iris/memory/l3/graph
-
-获取 L3 知识图谱数据
+| 路径 | 方法 | 说明 |
+|------|------|------|
+| `/{prefix}/memory/l2/search` | POST | 搜索 L2 记忆 |
+| `/{prefix}/memory/l2/latest` | GET | 获取最新 L2 记忆 |
+| `/{prefix}/memory/l2/stats` | GET | 获取 L2 统计 |
+| `/{prefix}/memory/l2/delete` | POST | 删除 L2 记忆条目 |
+| `/{prefix}/memory/l2/update` | POST | 更新 L2 记忆条目 |
+| `/{prefix}/memory/l1/list` | GET | 获取 L1 缓冲列表 |
+| `/{prefix}/memory/l1/queues` | GET | 获取 L1 队列列表 |
+| `/{prefix}/memory/l3/graph` | GET | 获取 L3 图谱数据（路径扩展） |
+| `/{prefix}/memory/l3/search/nodes` | GET | 搜索 L3 节点 |
+| `/{prefix}/memory/l3/search/edges` | GET | 搜索 L3 边 |
+| `/{prefix}/memory/l3/nodes` | GET | 获取 L3 节点列表 |
+| `/{prefix}/memory/l3/edges` | GET | 获取 L3 关系列表 |
+| `/{prefix}/memory/l3/nodes/delete` | POST | 删除 L3 节点 |
+| `/{prefix}/memory/l3/edges/delete` | POST | 删除 L3 关系 |
 
 ### Profile API
 
-#### GET /api/iris/profile/group/:id
-
-获取群聊画像
-
-#### PUT /api/iris/profile/group/:id
-
-更新群聊画像
-
-#### GET /api/iris/profile/user/:id
-
-获取用户画像
+| 路径 | 方法 | 说明 |
+|------|------|------|
+| `/{prefix}/profile/group` | GET | 获取群聊画像 |
+| `/{prefix}/profile/group/update` | POST | 更新群聊画像 |
+| `/{prefix}/profile/group/delete` | POST | 删除群聊画像 |
+| `/{prefix}/profile/user` | GET | 获取用户画像 |
+| `/{prefix}/profile/user/update` | POST | 更新用户画像 |
+| `/{prefix}/profile/user/delete` | POST | 删除用户画像 |
+| `/{prefix}/profile/groups` | GET | 获取群聊列表 |
+| `/{prefix}/profile/users` | GET | 获取用户列表 |
 
 ### Stats API
 
-#### GET /api/iris/stats/token
+| 路径 | 方法 | 说明 |
+|------|------|------|
+| `/{prefix}/stats/token` | GET | 获取 Token 使用统计 |
+| `/{prefix}/stats/memory` | GET | 获取记忆统计（L1/L2/L3） |
+| `/{prefix}/stats/kg` | GET | 获取知识图谱统计 |
+| `/{prefix}/stats/system` | GET | 获取系统状态（组件状态、运行时间） |
+| `/{prefix}/stats/all` | GET | 获取所有统计（合并以上全部） |
 
-获取 Token 使用统计
+### Data API（导入导出）
 
-#### GET /api/iris/stats/memory
+| 路径 | 方法 | 说明 |
+|------|------|------|
+| `/{prefix}/data/l2/export` | GET | 导出 L2 记忆（JSON 文件下载） |
+| `/{prefix}/data/l2/import` | POST | 导入 L2 记忆 |
+| `/{prefix}/data/l3/export` | GET | 导出 L3 知识图谱 |
+| `/{prefix}/data/l3/import` | POST | 导入 L3 知识图谱 |
+| `/{prefix}/data/profile/export` | GET | 导出画像 |
+| `/{prefix}/data/profile/import` | POST | 导入画像 |
+| `/{prefix}/data/all/export` | GET | 全量导出（L2 + L3 + 画像） |
+| `/{prefix}/data/all/import` | POST | 全量导入 |
 
-获取记忆统计
+### Manage API（管理操作）
 
-#### GET /api/iris/stats/kg
+| 路径 | 方法 | 说明 |
+|------|------|------|
+| `/{prefix}/manage/l1/clear` | POST | 清空 L1 缓冲 |
+| `/{prefix}/manage/l2/delete` | POST | 删除 L2 记忆（按 scope） |
+| `/{prefix}/manage/l3/delete` | POST | 删除 L3 图谱（按 scope） |
+| `/{prefix}/manage/l3/merge-duplicates` | POST | 合并 L3 重复节点 |
+| `/{prefix}/manage/profile/delete` | POST | 删除画像（按 scope） |
+| `/{prefix}/manage/tasks/trigger` | POST | 手动触发定时任务 |
+| `/{prefix}/manage/tasks/status` | GET | 获取任务运行状态 |
 
-获取知识图谱统计
+### Hidden Config API（隐藏配置）
 
-## 🧪 测试
+| 路径 | 方法 | 说明 |
+|------|------|------|
+| `/{prefix}/hidden-config` | GET | 获取所有隐藏配置（含默认值、类型、分组） |
+| `/{prefix}/hidden-config/update` | POST | 批量更新隐藏配置 |
+| `/{prefix}/hidden-config/delete` | POST | 删除单个隐藏配置项（恢复默认值） |
+| `/{prefix}/hidden-config/reset` | POST | 重置所有隐藏配置为默认值 |
 
-### 后端测试
+## 前端页面
 
-```bash
-# 运行后端API测试
-pytest tests/web/
-```
+| 路由 | 页面 | 功能 |
+|------|------|------|
+| `/dashboard` | DashboardView | 系统状态总览（组件状态、Token 统计、记忆统计） |
+| `/l1-buffer` | L1BufferView | L1 消息缓冲查看（队列列表、消息浏览） |
+| `/l2-memory` | L2MemoryView | L2 记忆库搜索与管理（搜索、浏览、编辑、删除） |
+| `/l3-graph` | L3GraphView | L3 知识图谱可视化（节点/边浏览、路径扩展） |
+| `/profile` | ProfileView | 画像查看与编辑（用户画像、群聊画像） |
+| `/data-manage` | DataManageView | 数据导入导出（L2/L3/画像/全量） |
+| `/hidden-config` | HiddenConfigView | 隐藏配置热修改（分组展示、实时更新） |
 
-### 前端测试
-
-```bash
-cd frontend
-npm run test
-```
-
-## 🔧 故障排查
-
-### JWT 认证失败
-
-1. **确认 AstrBot 版本** > 3.5.17
-2. **检查配置文件**：`data/cmd_config.json` 中是否存在 `jwt_secret`
-3. **重新登录**：AstrBot Dashboard (`http://localhost:6185`)
-4. **清除 Cookie**：浏览器清除后重新登录
-5. **检查环境变量**：确认 `ASTR_BOT_CONFIG_PATH` 是否正确（如已设置）
-
-### 速率限制触发
-
-**现象**：频繁收到 HTTP 429 错误
-
-**解决方案**：
-1. 降低请求频率
-2. 检查是否有异常客户端
-3. 生产环境使用 Redis 实现分布式限制
-
-### HTTPS 配置失败
-
-**检查项**：
-1. 证书文件路径是否正确
-2. 证书格式是否为 PEM
-3. 私钥是否匹配证书
-4. 文件权限是否正确（可读）
-
-### CORS 错误
-
-**现象**：浏览器控制台显示跨域错误
-
-**解决方案**：
-1. 检查 `web.cors_origins` 配置
-2. 确认请求源是否在允许列表中
-3. 开发环境临时使用 `"*"`
-
-### CSRF Token 验证失败
-
-**现象**：POST 请求返回 403
-
-**解决方案**：
-1. 检查前端是否设置 `csrf_token` Cookie
-2. 确认请求 Header 包含 `X-CSRF-Token`
-3. 刷新页面重新获取 Token
-
-### 端口冲突
-
-如果 9967 端口被占用：
-1. 修改配置：在 AstrBot 管理界面将 `web.port` 改为其他端口
-2. 或暂时禁用 Web 服务器：`web.enable = false`
-
-### 跨域 Cookie 问题
-
-如果浏览器不携带 Cookie：
-1. **确认 AstrBot 版本** > 3.5.17
-2. **检查浏览器设置**：允许第三方 Cookie
-3. **使用 HTTPS**：某些浏览器要求 HTTPS 才能跨端口携带 Cookie
-4. **配置 SameSite**：确保 Cookie 设置为 `SameSite=None; Secure`
-
-### 前端构建失败
-
-确保已安装 Node.js 18+ 和 npm：
-
-```bash
-node --version
-npm --version
-```
-
-### API 503 错误
-
-组件未初始化或不可用：
-
-1. 检查组件状态：访问 `/api/iris/stats/system`
-2. 查看日志：确认组件是否正常启动
-3. 检查配置：确认相关功能已启用
-
-## 📝 开发指南
+## 开发指南
 
 ### 添加新 API
 
 1. 在 `routes/` 目录创建新路由文件
-2. 使用 `@dashboard_auth.require_auth` 装饰器保护路由
-3. 在 `routes/__init__.py` 中导出 Blueprint
-4. 在 `web/__init__.py` 中注册路由
+2. 定义处理函数和 `register_xxx_routes(context)` 注册函数
+3. 在 `routes/__init__.py` 中导出注册函数
+4. 在 `web/__init__.py` 的 `register_all_routes()` 中调用注册函数
 
 ### 添加前端页面
 
 1. 在 `frontend/src/views/` 创建 Vue 组件
 2. 在 `frontend/src/router/index.ts` 添加路由配置
 3. 在 `frontend/src/api/` 创建对应的 API 封装
-4. 在 `frontend/src/stores/` 创建 Pinia Store
+4. 在 `frontend/src/stores/` 创建 Pinia Store（如需要）
+5. 运行 `npm run build` 构建到 `pages/iris/`
 
-## 📄 许可证
+### 构建部署
 
-MIT License
+```bash
+cd iris_memory/web/frontend
+npm run build
+```
+
+构建产物自动输出到 `pages/iris/index.html`（单文件模式），AstrBot 自动托管该页面。
