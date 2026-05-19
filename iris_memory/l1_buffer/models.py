@@ -187,6 +187,21 @@ class SegmentedMessageQueue:
         self.segment_3 = new_seg3
         self.segment_2 = deque()
 
+    def clear_segment_2(self) -> list[ContextMessage]:
+        """清空 L1-2 段并更新 Token 计数
+
+        当总结连续失败时调用，清除可能包含审核不通过内容的消息，
+        打破反复总结失败的循环。
+
+        Returns:
+            被清除的消息列表
+        """
+        removed = list(self.segment_2)
+        removed_tokens = sum(m.token_count for m in removed)
+        self.segment_2.clear()
+        self.total_tokens = max(0, self.total_tokens - removed_tokens)
+        return removed
+
     def clear(self) -> None:
         """清空所有段的消息并重置 Token 计数"""
         self.segment_1.clear()

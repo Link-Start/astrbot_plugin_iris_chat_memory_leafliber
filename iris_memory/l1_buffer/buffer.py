@@ -74,6 +74,7 @@ class L1Buffer(Component):
         self._component_manager: Optional["ComponentManager"] = None
         self._provider: str = ""
         self._summarizing_locks: Dict[str, asyncio.Lock] = {}
+        self._summary_fail_counts: Dict[str, int] = {}
         logger.debug("L1Buffer 实例已创建")
 
     @property
@@ -108,6 +109,7 @@ class L1Buffer(Component):
     async def shutdown(self) -> None:
         self.clear_all()
         self._summarizing_locks.clear()
+        self._summary_fail_counts.clear()
         self._reset_state()
         logger.info("L1 缓冲组件已关闭")
 
@@ -338,8 +340,23 @@ class L1Buffer(Component):
                     await self._update_profile_after_summary(
                         group_id, target_messages, summary
                     )
+
+                    self._summary_fail_counts[queue_key] = 0
                 else:
                     logger.warning(f"总结返回空，队列 {queue_key}")
+
+                    fail_count = self._summary_fail_counts.get(queue_key, 0) + 1
+                    self._summary_fail_counts[queue_key] = fail_count
+
+                    if fail_count >= 2:
+                        logger.warning(
+                            f"队列 {queue_key} 总结连续失败 {fail_count} 次，"
+                            f"清除 L1-2 段（可能包含审核不通过的消息）"
+                        )
+                        removed = queue.clear_segment_2()
+                        self._clear_images_for_summarized_messages(queue_key, removed)
+                        self._summary_fail_counts[queue_key] = 0
+                        return
 
                 queue.rotate_after_summary()
                 self._clear_images_for_summarized_messages(queue_key, target_messages)
@@ -352,6 +369,19 @@ class L1Buffer(Component):
 
             except Exception as e:
                 logger.error(f"总结队列 {queue_key} 失败：{e}", exc_info=True)
+
+                fail_count = self._summary_fail_counts.get(queue_key, 0) + 1
+                self._summary_fail_counts[queue_key] = fail_count
+
+                if fail_count >= 2:
+                    logger.warning(
+                        f"队列 {queue_key} 总结连续异常 {fail_count} 次，"
+                        f"清除 L1-2 段（可能包含审核不通过的消息）"
+                    )
+                    if queue_key in self._queues:
+                        removed = queue.clear_segment_2()
+                        self._clear_images_for_summarized_messages(queue_key, removed)
+                    self._summary_fail_counts[queue_key] = 0
 
     async def _update_profile_after_summary(
         self, group_id: str, messages: list[ContextMessage], summary: str
