@@ -12,7 +12,7 @@ const vuetify = createVuetify({
     defaultSet: 'mdi',
     sets: {
       mdi: {
-        component: MdiSvgIcon
+        component: MdiSvgIcon as any
       }
     }
   },

@@ -4,9 +4,9 @@ let readyPromise: Promise<any> | null = null
 
 function ensureReady(): Promise<any> {
   if (!readyPromise) {
-    readyPromise = bridge.ready()
+    readyPromise = bridge.ready()!
   }
-  return readyPromise
+  return readyPromise!
 }
 
 async function apiGet<T = any>(endpoint: string, params?: Record<string, any>): Promise<T> {

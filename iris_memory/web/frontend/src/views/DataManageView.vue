@@ -653,7 +653,7 @@ const handleTriggerTask = async (task: TaskName) => {
 
 const loadTasksStatus = async () => {
   try {
-    tasksStatus.value = await getTasksStatus()
+    tasksStatus.value = await getTasksStatus() as TasksStatusMap
   } catch {
     // ignore
   }

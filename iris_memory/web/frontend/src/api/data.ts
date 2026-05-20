@@ -12,7 +12,7 @@ function checkSuccess(response: ApiBaseResponse, errorMsg: string): void {
 }
 
 export async function exportL2Memory(groupId?: string): Promise<void> {
-  const params = groupId ? { group_id: groupId } : {}
+  const params: Record<string, string> = groupId ? { group_id: groupId } : {}
   const timestamp = new Date().toISOString().slice(0, 10)
   await apiDownload('data/l2/export', params, `iris_l2_memory_${timestamp}.json`)
 }

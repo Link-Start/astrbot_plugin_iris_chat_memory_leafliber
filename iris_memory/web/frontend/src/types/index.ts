@@ -89,6 +89,19 @@ export interface KGGraph {
   edges: KGEdge[]
 }
 
+export interface L3SearchNodeResult {
+  id: string
+  label: string
+  name: string
+  confidence: number
+}
+
+export interface L3SearchEdgeResult {
+  source: { id: string; name: string; label: string }
+  target: { id: string; name: string; label: string }
+  relation: string
+}
+
 // L3 节点详情（列表页用）
 export interface L3NodeDetail {
   id: string

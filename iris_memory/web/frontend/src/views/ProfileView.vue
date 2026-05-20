@@ -67,7 +67,7 @@
 
                       <v-list-item-title>{{ group.group_name || group.group_id }}</v-list-item-title>
                       <v-list-item-subtitle>
-                        <v-icon icon="mdi-identifier" size="small" class="mr-1" />
+                        <v-icon icon="mdi-hashtag" size="small" class="mr-1" />
                         {{ group.group_id }}
                       </v-list-item-subtitle>
                     </v-list-item>
@@ -805,7 +805,7 @@ const startEditGroupField = (field: string) => {
   editFieldName.value = field
   editFieldLabel.value = FIELD_LABELS[field] || field
   const profile = profileStore.currentGroupProfile as GroupProfile | null
-  editFieldValue.value = String((profile as Record<string, unknown>)?.[field] ?? '')
+  editFieldValue.value = String((profile as unknown as Record<string, unknown>)?.[field] ?? '')
   showEditDialog.value = true
 }
 
@@ -814,7 +814,7 @@ const startEditUserField = (field: string) => {
   editFieldName.value = field
   editFieldLabel.value = FIELD_LABELS[field] || field
   const profile = profileStore.currentUserProfile as UserProfile | null
-  editFieldValue.value = String((profile as Record<string, unknown>)?.[field] ?? '')
+  editFieldValue.value = String((profile as unknown as Record<string, unknown>)?.[field] ?? '')
   showEditDialog.value = true
 }
 
@@ -852,7 +852,7 @@ const submitAddTag = async () => {
   try {
     if (addTagType.value === 'group' && selectedGroupId.value) {
       const profile = profileStore.currentGroupProfile as GroupProfile | null
-      const current = (profile as Record<string, string[] | undefined>)?.[addTagField.value] ?? []
+      const current = (profile as unknown as Record<string, string[] | undefined>)?.[addTagField.value] ?? []
       if (current.includes(val)) {
         notify('该项已存在', 'warning')
         return
@@ -863,7 +863,7 @@ const submitAddTag = async () => {
       notify('已添加')
     } else if (addTagType.value === 'user' && selectedUserId.value) {
       const profile = profileStore.currentUserProfile as UserProfile | null
-      const current = (profile as Record<string, string[] | undefined>)?.[addTagField.value] ?? []
+      const current = (profile as unknown as Record<string, string[] | undefined>)?.[addTagField.value] ?? []
       if (current.includes(val)) {
         notify('该项已存在', 'warning')
         return
@@ -881,7 +881,7 @@ const submitAddTag = async () => {
 
 const removeTagFromGroup = async (field: string, tag: string) => {
   if (!selectedGroupId.value || !profileStore.currentGroupProfile) return
-  const current = (profileStore.currentGroupProfile as Record<string, string[] | undefined>)[field] ?? []
+  const current = (profileStore.currentGroupProfile as unknown as Record<string, string[] | undefined>)[field] ?? []
   const updated = current.filter(t => t !== tag)
   try {
     await profileStore.updateGroupProfile(selectedGroupId.value, {
@@ -895,7 +895,7 @@ const removeTagFromGroup = async (field: string, tag: string) => {
 
 const removeTagFromUser = async (field: string, tag: string) => {
   if (!selectedUserId.value || !profileStore.currentUserProfile) return
-  const current = (profileStore.currentUserProfile as Record<string, string[] | undefined>)[field] ?? []
+  const current = (profileStore.currentUserProfile as unknown as Record<string, string[] | undefined>)[field] ?? []
   const updated = current.filter(t => t !== tag)
   try {
     await profileStore.updateUserProfile(selectedUserId.value, {

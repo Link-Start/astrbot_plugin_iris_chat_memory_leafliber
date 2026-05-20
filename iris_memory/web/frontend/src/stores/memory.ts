@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { L1Message, L2Memory, KGGraph, KGNode, L1QueueItem, L3NodeDetail, L3EdgeDetail, L2SortField, L2SortOrder } from '@/types'
-import type { L3SearchNodeResult, L3SearchEdgeResult } from '@/api/memory'
+import type { L1Message, L2Memory, KGGraph, KGNode, L1QueueItem, L3NodeDetail, L3EdgeDetail, L2SortField, L2SortOrder, L3SearchNodeResult, L3SearchEdgeResult } from '@/types'
 import * as memoryApi from '@/api/memory'
 
 export const useMemoryStore = defineStore('memory', () => {
