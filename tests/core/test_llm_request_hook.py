@@ -443,7 +443,7 @@ class TestPreprocessLLMRequest:
 
         text = _get_extra_parts_text(req)
         assert "<iris:l1_context>" in text
-        assert "张三:" in text
+        assert "张三(user1):" in text
         assert "你好" in text
         assert "Bot: 你好！" in text
 
@@ -552,7 +552,7 @@ class TestPreprocessLLMRequest:
 
         text = _get_extra_parts_text(req)
         assert "<iris:l1_context>" in text
-        assert "李四: ↩️回复张三「你好啊」" in text
+        assert "李四(user456): ↩️回复张三「你好啊」" in text
         assert "我也觉得" in text
 
     @pytest.mark.asyncio
@@ -642,7 +642,7 @@ class TestPreprocessLLMRequest:
 
         text = _get_extra_parts_text(req)
         assert "<iris:l1_context>" in text
-        assert "李四: ↩️回复张三「你好啊」" in text
+        assert "李四(user456): ↩️回复张三(user123)「你好啊」" in text
         assert "是的" in text
 
     @pytest.mark.asyncio
@@ -684,7 +684,7 @@ class TestPreprocessLLMRequest:
 
         text = _get_extra_parts_text(req)
         assert "<iris:l1_context>" in text
-        assert "李四: ↩️回复了某条消息" in text
+        assert "李四(user456): ↩️回复了某条消息" in text
 
 
 class TestExtraUserContentPartsInjection:

@@ -287,6 +287,7 @@ async def _collect_l1_context(
         lines.append("【近期群聊记录】")
         lines.append(
             "以下是群里最近的对话，帮助你了解当前话题。"
+            "消息按从旧到新排列，越靠下越接近当前对话。"
             "其中 [图] 标记为对话中发送的图片的辅助描述，"
             "仅用于辅助理解对话内容："
         )
@@ -294,11 +295,14 @@ async def _collect_l1_context(
         lines.append("【近期对话记录】")
         lines.append(
             "以下是你们最近的对话。"
+            "消息按从旧到新排列，越靠下越接近当前对话。"
             "其中 [图] 标记为对话中发送的图片的辅助描述，"
             "仅用于辅助理解对话内容："
         )
 
-    msg_id_map: dict[str, tuple[str, str]] = {}
+    lines.append("← 较早")
+
+    msg_id_map: dict[str, tuple[str, str, str]] = {}
     for msg in messages:
         if msg.metadata:
             mid = msg.metadata.get("message_id")
@@ -306,9 +310,10 @@ async def _collect_l1_context(
                 uname = (
                     msg.metadata.get("user_name", "") if msg.role == "user" else "Bot"
                 )
-                msg_id_map[str(mid)] = (msg.content, uname)
+                uid = msg.source if msg.role == "user" and msg.source else ""
+                msg_id_map[str(mid)] = (msg.content, uname, uid)
 
-    for idx, msg in enumerate(messages, 1):
+    for idx, msg in enumerate(messages):
         content = msg.content
         role = msg.role
 
@@ -321,22 +326,28 @@ async def _collect_l1_context(
 
         if role == "user":
             user_name = msg.metadata.get("user_name") if msg.metadata else None
+            user_id = msg.source if msg.source else None
             reply_content = msg.metadata.get("reply_content") if msg.metadata else None
             reply_user_name = (
                 msg.metadata.get("reply_user_name") if msg.metadata else None
             )
+            reply_user_id = msg.metadata.get("reply_user_id") if msg.metadata else None
 
             if not reply_content and msg.metadata:
                 reply_mid = msg.metadata.get("reply_message_id")
                 if reply_mid and str(reply_mid) in msg_id_map:
-                    ref_content, ref_name = msg_id_map[str(reply_mid)]
+                    ref_content, ref_name, ref_uid = msg_id_map[str(reply_mid)]
                     reply_content = ref_content
                     if not reply_user_name and ref_name:
                         reply_user_name = ref_name
+                    if not reply_user_id and ref_uid:
+                        reply_user_id = ref_uid
 
             reply_tag = ""
             if reply_content:
                 ref_sender = reply_user_name or "某人"
+                if reply_user_id and ref_sender != reply_user_id:
+                    ref_sender = f"{ref_sender}({reply_user_id})"
                 if len(reply_content) > 80:
                     logger.debug(
                         f"L1 回复内容截断：群聊 {group_id}，"
@@ -348,10 +359,14 @@ async def _collect_l1_context(
                 reply_tag = " ↩️回复了某条消息"
 
             sender = user_name or "对方"
+            if user_id and user_id != sender:
+                sender = f"{sender}({user_id})"
 
-            lines.append(f"{idx}. {sender}:{reply_tag} {content}")
+            lines.append(f"{sender}:{reply_tag} {content}")
         elif role == "assistant":
-            lines.append(f"{idx}. Bot: {content}")
+            lines.append(f"Bot: {content}")
+
+    lines.append("→ 较近（紧邻当前消息）")
 
     try:
         req._l1_context_count = len(messages)
