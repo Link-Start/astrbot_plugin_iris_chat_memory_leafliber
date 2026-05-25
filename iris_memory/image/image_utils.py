@@ -134,11 +134,17 @@ def is_similar_image(hash1: str, hash2: str, threshold: int = 10) -> bool:
     return hamming_distance(hash1, hash2) <= threshold
 
 
-async def check_invalid_image(image_data: bytes) -> Tuple[bool, str]:
+async def check_invalid_image(
+    image_data: bytes,
+    min_size: int = 16,
+    std_threshold: float = 5.0,
+) -> Tuple[bool, str]:
     """检查图片是否为无效图（纯色/过小）
 
     Args:
         image_data: 图片二进制数据
+        min_size: 最小图片尺寸（像素），小于此值视为无效
+        std_threshold: 纯色检测标准差阈值，低于此值视为纯色
 
     Returns:
         (是否无效, 原因描述)
@@ -152,14 +158,14 @@ async def check_invalid_image(image_data: bytes) -> Tuple[bool, str]:
 
         img = Image.open(io.BytesIO(image_data))
 
-        if img.width < 16 or img.height < 16:
+        if img.width < min_size or img.height < min_size:
             return True, f"图片过小：{img.width}x{img.height}"
 
         gray = img.convert("L")
         pixels = np.array(gray, dtype=np.float64)
 
         std_dev = np.std(pixels)
-        if std_dev < 5.0:
+        if std_dev < std_threshold:
             return True, f"图片接近纯色：标准差={std_dev:.1f}"
 
         return False, ""

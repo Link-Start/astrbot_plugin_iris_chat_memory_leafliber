@@ -13,20 +13,27 @@ from typing import Literal, Optional, Dict
 
 
 @dataclass
+class ImageParsingConfig:
+    """图片解析配置"""
+
+    enable: bool = False
+    provider: str = ""
+    mode: Literal["all", "related"] = "related"
+    daily_quota: int = 200
+    max_parse_per_request: int = 5
+    max_concurrent_parse: int = 3
+    cache_retention_days: int = 7
+    skip_on_passive_trigger: bool = True
+
+
+@dataclass
 class L1BufferConfig:
     """L1 消息上下文缓冲配置（用户可见选项）"""
 
     enable: bool = True
     summary_provider: str = ""
     inject_queue_length: int = 50
-    enable_image_parsing: bool = False
-    image_parsing_provider: str = ""
-    image_parsing_mode: Literal["all", "related"] = "related"
-    image_parsing_daily_quota: int = 200
-    image_parsing_max_parse_per_request: int = 5
-    image_parsing_max_concurrent_parse: int = 3
-    image_parsing_cache_retention_days: int = 7
-    image_parsing_skip_on_passive_trigger: bool = True
+    image_parsing: ImageParsingConfig = field(default_factory=ImageParsingConfig)
 
 
 @dataclass
@@ -34,12 +41,11 @@ class L2MemoryConfig:
     """L2 记忆库配置"""
 
     enable: bool = True
-    summary_provider: str = ""
     embedding_source: Literal["provider", "local"] = "provider"
     embedding_provider: str = ""
     embedding_model: str = "BAAI/bge-small-zh-v1.5"
     top_k: int = 10
-    max_entries: int = 10000
+    max_entries: int = 10000  # TODO: 预留位，尚未接入 L2 容量检查
     timeout_ms: int = 4000
     relevance_threshold: float = 0.3
 
@@ -49,8 +55,9 @@ class L3KGConfig:
     """L3 知识图谱配置"""
 
     enable: bool = True
-    max_nodes: int = 50000
-    max_edges: int = 100000
+    extraction_provider: str = ""
+    max_nodes: int = 50000  # TODO: 预留位，尚未接入 L3 容量检查
+    max_edges: int = 100000  # TODO: 预留位，尚未接入 L3 容量检查
     timeout_ms: int = 1500
     expansion_depth: int = 2
     enable_type_whitelist: bool = True
@@ -63,7 +70,6 @@ class ProfileConfig:
 
     enable: bool = True
     analysis_provider: str = ""
-    analysis_mode: Literal["all", "related"] = "all"
     enable_auto_injection: bool = True
 
 
@@ -103,105 +109,246 @@ class HiddenConfig:
 
     这些配置项不会在 WebUI 中展示，用于控制内部行为。
     支持运行时热修改，并自动持久化到 data/iris_memory/hidden_config.json
+
+    每个字段通过 metadata 声明 description 和 group，
+    供 Web 前端自动渲染，增删字段时无需手动同步路由代码。
     """
 
     # Token 预算控制
-    token_budget_max_tokens: int = 2000
-
-    # L1 缓冲内部参数
-    l1_segment_1_length: int = 10  # L1-1 最新段消息数
-    l1_segment_3_length: int = 10  # L1-3 缓冲段消息数
-    l1_max_queue_tokens: int = 4000  # 队列最大 Token 数，超限触发总结
-    l1_max_single_message_tokens: int = 500  # 单条消息最大 Token 数，超限丢弃
-    l1_inject_max_content_chars: int = 200  # 注入时单条消息最大字符数，0 不截断
-    l1_max_memories_per_summary: int = 10  # 每次总结写入 L2 的最大记忆条数
-
-    # 遗忘权重算法参数
-    forgetting_lambda: float = 0.1  # 近因性衰减系数
-    forgetting_threshold: float = 0.3  # 遗忘阈值
-    forgetting_immediate_eviction_threshold: float = 0.1  # 极端低分直接淘汰阈值
-
-    # 调试配置
-    debug_mode: bool = False  # 启用调试模式
-    verbose_logging: bool = False  # 详细日志输出
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-    enable_context_logging: bool = False  # 启用 LLM 上下文日志输出
-
-    # 性能调优
-    chromadb_batch_size: int = 100  # ChromaDB 批量写入大小
-    l2_similarity_threshold: float = 0.90  # L2 去重相似度阈值
-    kuzu_query_timeout_ms: int = 5000  # KuzuDB 查询超时
-
-    # L3 知识图谱参数
-    entity_extraction_temperature: float = 0.3  # 实体提取温度
-    type_merge_threshold: float = 0.8  # 类型合并相似度阈值
-    node_confidence_threshold: float = 0.3  # 节点最低置信度
-    edge_weight_decay_rate: float = 0.01  # 边权重衰减率
-    forgetting_lambda_kg: float = 0.01  # 知识图谱遗忘系数
-    forgetting_threshold_kg: float = 0.2  # 知识图谱遗忘阈值
-    kg_retention_days: int = 30  # 知识图谱保留天数
-
-    # LLM 调用管理参数
-    call_log_max_entries: int = 100  # 调用日志最大保留条数
-
-    # 梦境任务参数
-    dream_task_interval_hours: int = 24
-    dream_consolidation_similarity_threshold: float = 0.85
-    dream_consolidation_batch_size: int = 10
-    dream_consolidation_scan_budget: int = 500
-    dream_consolidation_query_batch_size: int = 50
-    dream_consolidation_max_group_size: int = 5
-    dream_temporal_anchor_batch_size: int = 50
-    dream_contradiction_similarity_floor: float = 0.55
-    dream_contradiction_similarity_ceiling: float = 0.85
-    dream_contradiction_max_groups: int = 20
-    dream_pattern_sample_size: int = 30
-    dream_pattern_min_confidence: str = "medium"
-    dream_knowledge_extract_min_unprocessed: int = 10
-    dream_knowledge_extract_batch_size: int = 20
-    eviction_batch_size: int = 100
-    image_cache_cleanup_interval_hours: int = 24
-
-    # Tool 配置参数
-    tool_memory_max_content_length: int = 500  # 记忆内容最大长度
-    tool_correction_require_confirmation: bool = False  # 修正需确认
-    tool_timeout_ms: int = 2000  # Tool调用超时
-    tool_read_max_results: int = 10  # 读取记忆最大返回数
-
-    # 画像系统参数
-    profile_analysis_interval_hours: int = 24  # 分析任务间隔（小时）
-    profile_max_messages_for_analysis: int = 50  # 分析时最大消息数
-    profile_enable_version_control: bool = True  # 启用版本控制
-    profile_mid_update_interval_summaries: int = 5  # 中期更新：每隔N次总结触发
-    profile_mid_update_interval_hours: float = 24.0  # 中期更新：最短间隔（小时）
-    profile_long_update_interval_hours: float = (
-        168.0  # 长期更新：最短间隔（小时，默认7天）
+    token_budget_max_tokens: int = field(
+        default=2000,
+        metadata={"description": "Token 预算上限", "group": "Token 预算"},
     )
 
-    # 图片解析参数
-    image_parsing_timeout_ms: int = 30000  # 图片解析超时（毫秒）
-    image_parsing_max_size_kb: int = 4096  # 最大图片大小（KB）
-    image_parsing_supported_formats: str = "jpg,jpeg,png,gif,webp"  # 支持的图片格式
-    image_parsing_fallback_on_error: bool = True  # 解析失败时是否入队原始消息
-    image_phash_enable: bool = True  # 启用 pHash 感知哈希去重
-    image_phash_threshold: int = 10  # pHash 汉明距离阈值（越小越严格）
-    image_filter_enable: bool = True  # 启用无效图过滤（纯色/过小）
-    image_filter_min_size: int = 16  # 最小图片尺寸（像素）
-    image_filter_std_threshold: float = 5.0  # 纯色检测标准差阈值
+    # L1 缓冲内部参数
+    l1_segment_1_length: int = field(
+        default=10,
+        metadata={"description": "L1-1 最新段消息数（始终注入上下文）", "group": "L1 缓冲"},
+    )
+    l1_segment_3_length: int = field(
+        default=10,
+        metadata={"description": "L1-3 缓冲段消息数（辅助总结理解）", "group": "L1 缓冲"},
+    )
+    l1_max_queue_tokens: int = field(
+        default=4000,
+        metadata={"description": "队列最大 Token 数，超限触发总结", "group": "L1 缓冲"},
+    )
+    l1_max_single_message_tokens: int = field(
+        default=500,
+        metadata={"description": "单条消息最大 Token 数，超限丢弃", "group": "L1 缓冲"},
+    )
+    l1_inject_max_content_chars: int = field(
+        default=200,
+        metadata={"description": "注入时单条消息最大字符数，0 不截断", "group": "L1 缓冲"},
+    )
+    l1_max_memories_per_summary: int = field(
+        default=10,
+        metadata={"description": "每次总结写入 L2 的最大记忆条数", "group": "L1 缓冲"},
+    )
+
+    # 遗忘权重算法参数
+    forgetting_lambda: float = field(
+        default=0.1,
+        metadata={"description": "近因性衰减系数", "group": "遗忘算法"},
+    )
+    forgetting_threshold: float = field(
+        default=0.3,
+        metadata={"description": "遗忘阈值", "group": "遗忘算法"},
+    )
+    forgetting_immediate_eviction_threshold: float = field(
+        default=0.1,
+        metadata={"description": "极端低分直接淘汰阈值", "group": "遗忘算法"},
+    )
+
+    enable_context_logging: bool = field(
+        default=False,
+        metadata={"description": "启用 LLM 上下文日志输出", "group": "LLM 调用管理"},
+    )
+
+    l2_similarity_threshold: float = field(
+        default=0.90,
+        metadata={"description": "L2 去重相似度阈值", "group": "L2 记忆"},
+    )
+
+    # L3 知识图谱参数
+    node_confidence_threshold: float = field(
+        default=0.3,
+        metadata={"description": "节点最低置信度", "group": "L3 知识图谱"},
+    )
+    forgetting_threshold_kg: float = field(
+        default=0.2,
+        metadata={"description": "知识图谱遗忘阈值", "group": "L3 知识图谱"},
+    )
+    kg_retention_days: int = field(
+        default=30,
+        metadata={"description": "知识图谱保留天数", "group": "L3 知识图谱"},
+    )
+
+    # LLM 调用管理参数
+    call_log_max_entries: int = field(
+        default=100,
+        metadata={"description": "调用日志最大保留条数", "group": "LLM 调用管理"},
+    )
+
+    # 梦境任务参数
+    dream_task_interval_hours: int = field(
+        default=24,
+        metadata={"description": "梦境任务间隔(小时)", "group": "梦境任务"},
+    )
+    dream_consolidation_similarity_threshold: float = field(
+        default=0.85,
+        metadata={"description": "合并相似度阈值", "group": "梦境任务"},
+    )
+    dream_consolidation_batch_size: int = field(
+        default=10,
+        metadata={"description": "合并批处理大小", "group": "梦境任务"},
+    )
+    dream_consolidation_scan_budget: int = field(
+        default=500,
+        metadata={"description": "每轮扫描记忆条数上限", "group": "梦境任务"},
+    )
+    dream_consolidation_query_batch_size: int = field(
+        default=50,
+        metadata={"description": "ChromaDB 批量查询大小", "group": "梦境任务"},
+    )
+    dream_consolidation_max_group_size: int = field(
+        default=5,
+        metadata={"description": "单组合并最大条目数", "group": "梦境任务"},
+    )
+    dream_temporal_anchor_batch_size: int = field(
+        default=50,
+        metadata={"description": "时间锚定批处理大小", "group": "梦境任务"},
+    )
+    dream_contradiction_similarity_floor: float = field(
+        default=0.55,
+        metadata={"description": "矛盾检测相似度下限", "group": "梦境任务"},
+    )
+    dream_contradiction_similarity_ceiling: float = field(
+        default=0.85,
+        metadata={"description": "矛盾检测相似度上限", "group": "梦境任务"},
+    )
+    dream_contradiction_max_groups: int = field(
+        default=20,
+        metadata={"description": "矛盾检测最大分组数", "group": "梦境任务"},
+    )
+    dream_pattern_sample_size: int = field(
+        default=30,
+        metadata={"description": "模式发现采样数", "group": "梦境任务"},
+    )
+    dream_pattern_min_confidence: str = field(
+        default="medium",
+        metadata={"description": "模式发现最低置信度", "group": "梦境任务"},
+    )
+    dream_knowledge_extract_min_unprocessed: int = field(
+        default=10,
+        metadata={"description": "最小未处理记忆数量阈值", "group": "梦境任务"},
+    )
+    dream_knowledge_extract_batch_size: int = field(
+        default=20,
+        metadata={"description": "每批处理记忆数", "group": "梦境任务"},
+    )
+    eviction_batch_size: int = field(
+        default=100,
+        metadata={"description": "淘汰批处理大小", "group": "梦境任务"},
+    )
+    image_cache_cleanup_interval_hours: int = field(
+        default=24,
+        metadata={"description": "图片缓存清理任务间隔(小时)", "group": "梦境任务"},
+    )
+
+    # L3 知识图谱提取 - 相关记忆检索权重
+    kg_extraction_semantic_weight: float = field(
+        default=0.5,
+        metadata={"description": "语义相似记忆权重", "group": "L3 知识图谱"},
+    )
+    kg_extraction_same_group_weight: float = field(
+        default=0.3,
+        metadata={"description": "同群聊记忆权重", "group": "L3 知识图谱"},
+    )
+    kg_extraction_same_user_weight: float = field(
+        default=0.2,
+        metadata={"description": "同用户记忆权重", "group": "L3 知识图谱"},
+    )
+
+    # 画像系统参数
+    profile_max_messages_for_analysis: int = field(
+        default=50,
+        metadata={"description": "分析时最大消息数", "group": "画像系统"},
+    )
+    profile_mid_update_interval_summaries: int = field(
+        default=5,
+        metadata={"description": "中期更新: 每隔N次总结触发", "group": "画像系统"},
+    )
+    profile_mid_update_interval_hours: float = field(
+        default=24.0,
+        metadata={"description": "中期更新: 最短间隔(小时)", "group": "画像系统"},
+    )
+    profile_long_update_interval_hours: float = field(
+        default=168.0,
+        metadata={"description": "长期更新: 最短间隔(小时)", "group": "画像系统"},
+    )
+
+    # 图片去重参数
+    image_phash_enable: bool = field(
+        default=True,
+        metadata={"description": "启用 pHash 感知哈希去重", "group": "图片处理"},
+    )
+    image_phash_threshold: int = field(
+        default=10,
+        metadata={"description": "pHash 汉明距离阈值", "group": "图片处理"},
+    )
+
+    # 无效图过滤参数
+    image_filter_enable: bool = field(
+        default=True,
+        metadata={"description": "启用无效图过滤(纯色/过小)", "group": "图片处理"},
+    )
+    image_filter_min_size: int = field(
+        default=16,
+        metadata={"description": "最小图片尺寸(像素)", "group": "图片处理"},
+    )
+    image_filter_std_threshold: float = field(
+        default=5.0,
+        metadata={"description": "纯色检测标准差阈值", "group": "图片处理"},
+    )
 
     # 输入清理参数
-    input_sanitizer_enable: bool = True  # 启用 Prompt 注入过滤
-    input_sanitizer_max_length: int = 10000  # 输入最大长度
+    input_sanitizer_enable: bool = field(
+        default=True,
+        metadata={"description": "启用 Prompt 注入过滤", "group": "输入清理"},
+    )
+    input_sanitizer_max_length: int = field(
+        default=10000,
+        metadata={"description": "输入最大长度", "group": "输入清理"},
+    )
 
     # 遗忘确认参数
-    forgetting_llm_confirm_enable: bool = False  # 启用 LLM 最终兜底确认遗忘
-    forgetting_llm_confirm_provider: str = ""  # 确认使用的 Provider（空则使用默认）
-    forgetting_llm_confirm_threshold: float = 0.15  # 评分低于此值才触发 LLM 确认
+    forgetting_llm_confirm_enable: bool = field(
+        default=False,
+        metadata={"description": "启用 LLM 最终兜底确认遗忘", "group": "遗忘确认"},
+    )
+    forgetting_llm_confirm_provider: str = field(
+        default="",
+        metadata={"description": "确认使用的 Provider(空则使用默认)", "group": "遗忘确认"},
+    )
+    forgetting_llm_confirm_threshold: float = field(
+        default=0.15,
+        metadata={"description": "评分低于此值才触发 LLM 确认", "group": "遗忘确认"},
+    )
 
     # L2 查询改写参数
-    l2_query_rewrite_enable: bool = True  # 启用 L2 检索查询改写
-    l2_query_rewrite_provider: str = ""  # 查询改写使用的 Provider（空则使用默认）
-    l2_query_rewrite_timeout_ms: int = 3000  # 查询改写超时（毫秒）
+    l2_query_rewrite_enable: bool = field(
+        default=True,
+        metadata={"description": "启用 L2 检索查询改写", "group": "L2 查询改写"},
+    )
+    l2_query_rewrite_provider: str = field(
+        default="",
+        metadata={"description": "查询改写使用的 Provider(空则使用默认)", "group": "L2 查询改写"},
+    )
+    l2_query_rewrite_timeout_ms: int = field(
+        default=3000,
+        metadata={"description": "查询改写超时(ms)", "group": "L2 查询改写"},
+    )
 
 
 @dataclass
@@ -249,6 +396,14 @@ class Defaults:
             section_config = getattr(self, section, None)
             if section_config is not None:
                 return getattr(section_config, key, None)
+        elif len(parts) == 3:
+            # 嵌套配置项(三层键名：section.subsection.key)
+            section, subsection, key = parts
+            section_config = getattr(self, section, None)
+            if section_config is not None:
+                subsection_config = getattr(section_config, subsection, None)
+                if subsection_config is not None:
+                    return getattr(subsection_config, key, None)
 
         return None
 

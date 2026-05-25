@@ -63,7 +63,7 @@ class ImageQuotaManager(Component):
         """初始化配额管理器"""
         config = get_config()
 
-        if not config.get("l1_buffer.enable_image_parsing"):
+        if not config.get("l1_buffer.image_parsing.enable"):
             self._is_available = False
             logger.info("图片解析未启用")
             return
@@ -100,7 +100,7 @@ class ImageQuotaManager(Component):
     async def _create_initial_status(self) -> None:
         """创建初始配额状态"""
         config = get_config()
-        total = config.get("l1_buffer.image_parsing_daily_quota", 200)
+        total = config.get("l1_buffer.image_parsing.daily_quota", 200)
         today = date.today().isoformat()
 
         self._quota_status = QuotaStatus(
@@ -202,7 +202,7 @@ class ImageQuotaManager(Component):
             today = date.today().isoformat()
 
             self._quota_status.reset(
-                today, config.get("l1_buffer.image_parsing_daily_quota", 200)
+                today, config.get("l1_buffer.image_parsing.daily_quota", 200)
             )
             await self._save_quota_status()
             logger.info(f"配额已重置：{today}")

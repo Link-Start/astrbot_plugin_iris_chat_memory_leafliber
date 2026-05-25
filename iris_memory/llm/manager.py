@@ -398,10 +398,14 @@ class LLMManager(Component):
 
         module_config_map = {
             "l1_summarizer": "l1_buffer.summary_provider",
-            "l2_summarizer": "l2_memory.summary_provider",
             "l3_kg_extraction": "l3_kg.extraction_provider",
             "scheduled_tasks": "scheduled_tasks.provider",
-            "image_parsing": "l1_buffer.image_parsing_provider",
+            "dream_consolidation": "scheduled_tasks.provider",
+            "dream_temporal_anchor": "scheduled_tasks.provider",
+            "dream_contradiction": "scheduled_tasks.provider",
+            "dream_pattern_discovery": "scheduled_tasks.provider",
+            "dream_pruning_confirm": "scheduled_tasks.provider",
+            "image_parsing": "l1_buffer.image_parsing.provider",
             "profile_analysis": "profile.analysis_provider",
             "l2_query_rewrite": "l2_query_rewrite_provider",
         }

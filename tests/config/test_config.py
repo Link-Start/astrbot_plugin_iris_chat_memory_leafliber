@@ -9,11 +9,9 @@ from iris_memory.config.defaults import Defaults, HiddenConfig
 
 class TestConfig:
     def test_get_flat_key(self, tmp_path: Path):
-        astrbot_config = Mock()
-        astrbot_config.__getitem__ = Mock(
-            return_value={"enable": True, "max_tokens": 1000}
-        )
-        astrbot_config.__contains__ = Mock(return_value=True)
+        astrbot_config = {
+            "l1_buffer": {"enable": True, "max_tokens": 1000},
+        }
 
         hidden_manager = HiddenConfigManager(
             tmp_path / "hidden_config.json", HiddenConfig()
@@ -25,9 +23,7 @@ class TestConfig:
         assert config.get("l1_buffer.enable") == True
 
     def test_get_with_default(self, tmp_path: Path):
-        astrbot_config = Mock()
-        astrbot_config.__getitem__ = Mock(return_value={})
-        astrbot_config.__contains__ = Mock(return_value=True)
+        astrbot_config = {}
 
         hidden_manager = HiddenConfigManager(
             tmp_path / "hidden_config.json", HiddenConfig()
@@ -39,9 +35,7 @@ class TestConfig:
         assert config.get("nonexistent", "default") == "default"
 
     def test_set_hidden_config(self, tmp_path: Path):
-        astrbot_config = Mock()
-        astrbot_config.__getitem__ = Mock(return_value={})
-        astrbot_config.__contains__ = Mock(return_value=True)
+        astrbot_config = {}
 
         hidden_manager = HiddenConfigManager(
             tmp_path / "hidden_config.json", HiddenConfig()
@@ -55,9 +49,9 @@ class TestConfig:
         assert config.get("debug_mode") == True
 
     def test_config_priority(self, tmp_path: Path):
-        astrbot_config = Mock()
-        astrbot_config.__getitem__ = Mock(return_value={"test_key": "user_value"})
-        astrbot_config.__contains__ = Mock(return_value=True)
+        astrbot_config = {
+            "test_section": {"test_key": "user_value"},
+        }
 
         hidden_manager = HiddenConfigManager(
             tmp_path / "hidden_config.json", HiddenConfig()
@@ -72,9 +66,7 @@ class TestConfig:
         assert config.get("test_section.test_key") == "user_value"
 
     def test_data_dir_property(self, tmp_path: Path):
-        astrbot_config = Mock()
-        astrbot_config.__getitem__ = Mock(return_value={})
-        astrbot_config.__contains__ = Mock(return_value=True)
+        astrbot_config = {}
 
         hidden_manager = HiddenConfigManager(
             tmp_path / "hidden_config.json", HiddenConfig()
@@ -86,9 +78,7 @@ class TestConfig:
         assert config.data_dir == tmp_path
 
     def test_on_config_change(self, tmp_path: Path):
-        astrbot_config = Mock()
-        astrbot_config.__getitem__ = Mock(return_value={})
-        astrbot_config.__contains__ = Mock(return_value=True)
+        astrbot_config = {}
 
         hidden_manager = HiddenConfigManager(
             tmp_path / "hidden_config.json", HiddenConfig()
@@ -133,9 +123,9 @@ class TestHiddenConfigManager:
 
 
 def test_global_config(tmp_path: Path):
-    astrbot_config = Mock()
-    astrbot_config.__getitem__ = Mock(return_value={"enable": True})
-    astrbot_config.__contains__ = Mock(return_value=True)
+    astrbot_config = {
+        "l1_buffer": {"enable": True},
+    }
 
     init_config(astrbot_config, tmp_path)
 

@@ -299,10 +299,11 @@ async def _queue_images_to_l1_buffer(
     from iris_memory.image.image_utils import (
         compute_image_hash,
         is_similar_image,
+        check_invalid_image,
     )
 
     config = get_config()
-    if not config.get("l1_buffer.enable_image_parsing"):
+    if not config.get("l1_buffer.image_parsing.enable"):
         return
 
     adapter = get_adapter(event)
@@ -324,6 +325,9 @@ async def _queue_images_to_l1_buffer(
 
     use_phash = config.get("image_phash_enable")
     phash_threshold = config.get("image_phash_threshold")
+    use_filter = config.get("image_filter_enable")
+    filter_min_size = config.get("image_filter_min_size", 16)
+    filter_std_threshold = config.get("image_filter_std_threshold", 5.0)
 
     cache_manager = component_manager.get_available_component("image_cache")
 
@@ -352,6 +356,25 @@ async def _queue_images_to_l1_buffer(
             if is_dup:
                 continue
             existing_hashes.append(image_hash)
+
+        if use_filter:
+            try:
+                import httpx
+
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.get(image_info.url or "")
+                    image_data = resp.content
+
+                is_invalid, reason = await check_invalid_image(
+                    image_data,
+                    min_size=filter_min_size,
+                    std_threshold=filter_std_threshold,
+                )
+                if is_invalid:
+                    logger.debug(f"无效图过滤：跳过 {image_hash[:16]}... ({reason})")
+                    continue
+            except Exception as e:
+                logger.debug(f"无效图检查失败，跳过过滤：{e}")
 
         hash_prefix = image_hash[:12]
 
@@ -430,10 +453,10 @@ async def _parse_images_if_enabled(
     from iris_memory.image import ImageParser, ImageParseStatus, ImageParseCache
 
     config = get_config()
-    if not config.get("l1_buffer.enable_image_parsing"):
+    if not config.get("l1_buffer.image_parsing.enable"):
         return
 
-    mode = config.get("l1_buffer.image_parsing_mode", "related")
+    mode = config.get("l1_buffer.image_parsing.mode", "related")
 
     if mode == "related":
         return
@@ -459,7 +482,7 @@ async def _parse_images_if_enabled(
         logger.warning("LLM Manager 不可用，跳过图片解析")
         return
 
-    max_parse = config.get("l1_buffer.image_parsing_max_parse_per_request", 5)
+    max_parse = config.get("l1_buffer.image_parsing.max_parse_per_request", 5)
     pending_images = l1_buffer.get_images(group_id, limit=max_parse, only_pending=True)
 
     if not pending_images:
@@ -495,7 +518,7 @@ async def _parse_images_if_enabled(
             logger.warning("图片解析配额使用失败")
             return
 
-    provider = config.get("l1_buffer.image_parsing_provider", "")
+    provider = config.get("l1_buffer.image_parsing.provider", "")
 
     from iris_memory.image.recorder_bridge import get_recorder_bridge
 

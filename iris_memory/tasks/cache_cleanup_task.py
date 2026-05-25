@@ -45,7 +45,7 @@ class ImageCacheCleanupTask:
         """执行图片缓存清理任务"""
         config = get_config()
 
-        if not config.get("l1_buffer.enable_image_parsing"):
+        if not config.get("l1_buffer.image_parsing.enable"):
             logger.debug("图片解析未启用，跳过缓存清理")
             return
 
@@ -56,7 +56,7 @@ class ImageCacheCleanupTask:
             logger.debug("图片缓存管理器不可用，跳过清理")
             return
 
-        retention_days = config.get("l1_buffer.image_parsing_cache_retention_days", 7)
+        retention_days = config.get("l1_buffer.image_parsing.cache_retention_days", 7)
 
         try:
             cleaned_count = await cache_manager.cleanup_expired(retention_days)

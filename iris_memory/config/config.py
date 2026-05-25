@@ -128,9 +128,8 @@ class Config:
         """
         parts = flat_key.split(".")
 
-        if len(parts) == 2:
-            section, key = parts
-            user_value = self._get_user_config(section, key)
+        if len(parts) >= 2:
+            user_value = self._get_user_config(flat_key)
             if user_value is not _UNSET:
                 return user_value
 
@@ -145,25 +144,30 @@ class Config:
 
         return default
 
-    def _get_user_config(self, section: str, key: str) -> Optional[object]:
-        """从 AstrBotConfig 获取用户配置(嵌套访问)
+    def _get_user_config(self, flat_key: str) -> Optional[object]:
+        """从 AstrBotConfig 获取用户配置(支持多层嵌套访问)
 
         Args:
-            section: 配置分组名，如 "l1_buffer"
-            key: 配置键名，如 "enable"
+            flat_key: 扁平化键名，如 "l1_buffer.enable" 或 "l1_buffer.image_parsing.enable"
 
         Returns:
-            配置值，找不到返回 None
+            配置值，找不到返回 _UNSET
         """
         try:
-            if section in self._user_config:
-                section_config = self._user_config[section]
-                if isinstance(section_config, dict) and key in section_config:
-                    return section_config[key]
-        except Exception as e:
-            logger.warning(f"读取用户配置失败 {section}.{key}: {e}")
+            parts = flat_key.split(".")
+            if len(parts) < 2:
+                return _UNSET
 
-        return _UNSET
+            current = self._user_config
+            for part in parts:
+                if isinstance(current, dict) and part in current:
+                    current = current[part]
+                else:
+                    return _UNSET
+            return current
+        except Exception as e:
+            logger.warning(f"读取用户配置失败 {flat_key}: {e}")
+            return _UNSET
 
     def set_hidden(self, key: str, value: object) -> None:
         """热修改隐藏配置
@@ -265,9 +269,8 @@ class Config:
         parts = flat_key.split(".")
 
         # 检查用户配置
-        if len(parts) == 2:
-            section, key = parts
-            if self._get_user_config(section, key) is not None:
+        if len(parts) >= 2:
+            if self._get_user_config(flat_key) is not None:
                 return True
 
         # 检查隐藏配置

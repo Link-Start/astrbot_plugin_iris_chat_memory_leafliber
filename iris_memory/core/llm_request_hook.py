@@ -689,7 +689,7 @@ async def _collect_l3_knowledge_graph(
         if not all_nodes:
             return ""
 
-        l3_max_tokens = cast(int, config.get("l3_kg.max_inject_tokens", 400))
+        l3_max_tokens = cast(int, config.get("l3_kg.max_inject_tokens", 600))
 
         graph_text = retriever.format_for_context(
             list(all_nodes.values()),
@@ -927,15 +927,15 @@ async def _parse_images_if_related_mode(
     import asyncio
 
     config = get_config()
-    if not config.get("l1_buffer.enable_image_parsing"):
+    if not config.get("l1_buffer.image_parsing.enable"):
         return
 
-    if config.get("l1_buffer.image_parsing_skip_on_passive_trigger", True):
+    if config.get("l1_buffer.image_parsing.skip_on_passive_trigger", True):
         if _is_passive_trigger(event):
             logger.info("被动触发（sampling/主动回复），跳过图片解析以节省 token")
             return
 
-    mode = config.get("l1_buffer.image_parsing_mode", "related")
+    mode = config.get("l1_buffer.image_parsing.mode", "related")
 
     if mode == "all":
         return
@@ -961,8 +961,8 @@ async def _parse_images_if_related_mode(
         logger.warning("LLM Manager 不可用，跳过图片解析")
         return
 
-    max_parse = config.get("l1_buffer.image_parsing_max_parse_per_request", 5)
-    max_concurrent = config.get("l1_buffer.image_parsing_max_concurrent_parse", 3)
+    max_parse = config.get("l1_buffer.image_parsing.max_parse_per_request", 5)
+    max_concurrent = config.get("l1_buffer.image_parsing.max_concurrent_parse", 3)
 
     pending_images = l1_buffer.get_images(group_id, limit=max_parse, only_pending=True)
 
@@ -1008,7 +1008,7 @@ async def _parse_images_if_related_mode(
             logger.warning("图片解析配额使用失败")
             return
 
-    provider = config.get("l1_buffer.image_parsing_provider", "")
+    provider = config.get("l1_buffer.image_parsing.provider", "")
 
     from iris_memory.image.recorder_bridge import get_recorder_bridge
 

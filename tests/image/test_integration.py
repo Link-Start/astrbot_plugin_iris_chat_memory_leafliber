@@ -120,9 +120,9 @@ class TestImageParsingIntegration:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.enable_image_parsing": True,
-                    "l1_buffer.image_parsing_mode": "all",
-                    "l1_buffer.image_parsing_provider": "",
+                    "l1_buffer.image_parsing.enable": True,
+                    "l1_buffer.image_parsing.mode": "all",
+                    "l1_buffer.image_parsing.provider": "",
                 }.get(key, default)
             )
             mock_get_config.return_value = mock_config
@@ -160,8 +160,8 @@ class TestImageParsingIntegration:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.enable_image_parsing": True,
-                    "l1_buffer.image_parsing_mode": "related",
+                    "l1_buffer.image_parsing.enable": True,
+                    "l1_buffer.image_parsing.mode": "related",
                 }.get(key, default)
             )
             mock_get_config.return_value = mock_config
@@ -191,7 +191,7 @@ class TestImageParsingIntegration:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.enable_image_parsing": False,
+                    "l1_buffer.image_parsing.enable": False,
                 }.get(key, default)
             )
             mock_get_config.return_value = mock_config
@@ -224,8 +224,8 @@ class TestImageParsingIntegration:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.enable_image_parsing": True,
-                    "l1_buffer.image_parsing_mode": "all",
+                    "l1_buffer.image_parsing.enable": True,
+                    "l1_buffer.image_parsing.mode": "all",
                 }.get(key, default)
             )
             mock_get_config.return_value = mock_config
@@ -260,8 +260,8 @@ class TestImageParsingIntegration:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.enable_image_parsing": True,
-                    "l1_buffer.image_parsing_mode": "all",
+                    "l1_buffer.image_parsing.enable": True,
+                    "l1_buffer.image_parsing.mode": "all",
                 }.get(key, default)
             )
             mock_get_config.return_value = mock_config
@@ -292,8 +292,8 @@ class TestImageParsingIntegration:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.enable_image_parsing": True,
-                    "l1_buffer.image_parsing_mode": "all",
+                    "l1_buffer.image_parsing.enable": True,
+                    "l1_buffer.image_parsing.mode": "all",
                 }.get(key, default)
             )
             mock_get_config.return_value = mock_config
@@ -339,9 +339,9 @@ class TestImageParsingIntegration:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.enable_image_parsing": True,
-                    "l1_buffer.image_parsing_mode": "all",
-                    "l1_buffer.image_parsing_provider": "",
+                    "l1_buffer.image_parsing.enable": True,
+                    "l1_buffer.image_parsing.mode": "all",
+                    "l1_buffer.image_parsing.provider": "",
                 }.get(key, default)
             )
             mock_get_config.return_value = mock_config
@@ -377,8 +377,8 @@ class TestImageParsingIntegration:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.enable_image_parsing": True,
-                    "l1_buffer.image_parsing_mode": "all",
+                    "l1_buffer.image_parsing.enable": True,
+                    "l1_buffer.image_parsing.mode": "all",
                 }.get(key, default)
             )
             mock_get_config.return_value = mock_config
@@ -415,8 +415,8 @@ class TestImageParsingIntegration:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.enable_image_parsing": True,
-                    "l1_buffer.image_parsing_mode": "all",
+                    "l1_buffer.image_parsing.enable": True,
+                    "l1_buffer.image_parsing.mode": "all",
                 }.get(key, default)
             )
             mock_get_config.return_value = mock_config
@@ -449,9 +449,9 @@ class TestImageParsingIntegration:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
-                    "l1_buffer.enable_image_parsing": True,
-                    "l1_buffer.image_parsing_mode": "all",
-                    "l1_buffer.image_parsing_provider": "custom_vision_provider",
+                    "l1_buffer.image_parsing.enable": True,
+                    "l1_buffer.image_parsing.mode": "all",
+                    "l1_buffer.image_parsing.provider": "custom_vision_provider",
                 }.get(key, default)
             )
             mock_get_config.return_value = mock_config
