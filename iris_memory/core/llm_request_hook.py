@@ -642,6 +642,22 @@ async def _collect_l3_knowledge_graph(
                 if node_id:
                     memory_node_ids.append(node_id)
 
+            if not memory_node_ids:
+                l2_memory_ids = [r.entry.id for r in l2_results]
+                if l2_memory_ids:
+                    try:
+                        memory_node_ids = (
+                            await kg_adapter.get_node_ids_by_source_memory_ids(
+                                l2_memory_ids
+                            )
+                        )
+                        if memory_node_ids:
+                            logger.debug(
+                                f"通过来源记忆反向查找找到 {len(memory_node_ids)} 个图谱节点"
+                            )
+                    except Exception as e:
+                        logger.debug(f"来源记忆反向查找失败: {e}")
+
         if memory_node_ids:
             nodes, edges = await retriever.retrieve_with_expansion(
                 memory_node_ids=memory_node_ids, group_id=group_id

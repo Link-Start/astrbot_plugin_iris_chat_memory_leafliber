@@ -715,6 +715,55 @@ class L3KGAdapter(Component):
             logger.error(f"搜索节点失败：{e}")
             return []
 
+    async def get_node_ids_by_source_memory_ids(
+        self, memory_ids: list[str]
+    ) -> list[str]:
+        """根据来源记忆 ID 反向查找图谱节点 ID
+
+        L3 节点的 source_memory_id 记录了创建该节点的 L2 记忆 ID，
+        合并节点的 properties.source_memory_ids 累积了所有来源记忆 ID。
+        通过反向查询建立 L2 记忆 → L3 节点的关联。
+
+        Args:
+            memory_ids: L2 记忆 ID 列表
+
+        Returns:
+            匹配的图谱节点 ID 列表
+        """
+        if not self._is_available or not memory_ids:
+            return []
+
+        try:
+            result = self._conn.execute(
+                "MATCH (e:Entity) WHERE e.source_memory_id IN $memory_ids RETURN e.id",
+                {"memory_ids": memory_ids},
+            )
+
+            node_ids: set[str] = set()
+            for row in result:
+                node_ids.add(row[0])
+
+            for mid in memory_ids:
+                try:
+                    result2 = self._conn.execute(
+                        "MATCH (e:Entity) WHERE e.properties['source_memory_ids'] CONTAINS $mid RETURN e.id",
+                        {"mid": mid},
+                    )
+                    for row in result2:
+                        node_ids.add(row[0])
+                except Exception:
+                    pass
+
+            if node_ids:
+                logger.debug(
+                    f"根据来源记忆 ID 反向查找找到 {len(node_ids)} 个图谱节点"
+                )
+
+            return list(node_ids)
+        except Exception as e:
+            logger.error(f"根据来源记忆 ID 查找节点失败: {e}")
+            return []
+
     async def search_edges(self, keyword: str, limit: int = 20) -> list[dict]:
         """搜索边
 
