@@ -35,6 +35,8 @@ class L2MemoryConfig:
 
     enable: bool = True
     summary_provider: str = ""
+    embedding_source: Literal["provider", "local"] = "provider"
+    embedding_provider: str = ""
     embedding_model: str = "BAAI/bge-small-zh-v1.5"
     top_k: int = 10
     max_entries: int = 10000

@@ -11,6 +11,7 @@ Iris Chat Memory - L2 记忆库 ChromaDB 适配器
 """
 
 import asyncio
+import concurrent.futures
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
@@ -88,6 +89,38 @@ SUPPORTED_EMBEDDING_MODELS = {
 }
 
 
+class AstrBotEmbeddingFunction:
+    """将 AstrBot EmbeddingProvider 适配为 ChromaDB 的 EmbeddingFunction
+
+    ChromaDB 的 EmbeddingFunction 接口是同步的 __call__(texts)，
+    而 AstrBot 的 EmbeddingProvider.get_embeddings() 是异步的。
+    通过线程池桥接解决。
+    """
+
+    def __init__(self, provider, provider_id: str):
+        self._provider = provider
+        self._provider_id = provider_id
+        model_name = getattr(provider, "model_name", None)
+        if not model_name and hasattr(provider, "meta"):
+            model_name = getattr(provider.meta, "model_name", None)
+        self._model_name = model_name or provider_id
+
+    def __call__(self, texts: list[str]) -> list[list[float]]:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(
+                    asyncio.run, self._provider.get_embeddings(texts)
+                )
+                return future.result(timeout=30)
+        else:
+            return loop.run_until_complete(self._provider.get_embeddings(texts))
+
+    def embed_query(self, query: str) -> list[float]:
+        results = self([query])
+        return results[0]
+
+
 def _create_embedding_function(model_name: str):
     """根据模型名创建嵌入函数
 
@@ -162,19 +195,22 @@ class L2MemoryAdapter(Component):
         _persona_id: 当前人格 ID
     """
 
-    def __init__(self, persona_id: str = "default"):
+    def __init__(self, persona_id: str = "default", context=None):
         """初始化适配器
 
         Args:
             persona_id: 人格 ID，用于隔离不同人格的记忆
+            context: AstrBot Context 对象，用于获取 Embedding Provider
         """
         super().__init__()
         self._client = None
         self._collection = None
         self._embedding_func = None
-        self._actual_embedding_model: str = "all-MiniLM-L6-v2"
+        self._actual_embedding_model: str = ""
+        self._embedding_source: str = "provider"
         self._persist_dir: Optional[Path] = None
         self._persona_id = persona_id
+        self._context = context
         self._similarity_threshold = 0.90
         self._distance_space: str = "l2"
         self._init_mode = InitMode.BACKGROUND
@@ -214,22 +250,28 @@ class L2MemoryAdapter(Component):
             loop = asyncio.get_event_loop()
             self._client = await loop.run_in_executor(None, self._create_client)
 
-            # 创建嵌入函数（支持配置中文模型）
-            embedding_model = config.get(
-                "l2_memory.embedding_model", "BAAI/bge-small-zh-v1.5"
-            )
-            (
-                self._embedding_func,
-                self._actual_embedding_model,
-            ) = await loop.run_in_executor(
-                None, lambda: _create_embedding_function(embedding_model)
+            self._embedding_source = config.get(
+                "l2_memory.embedding_source", "provider"
             )
 
-            if self._actual_embedding_model != embedding_model:
-                logger.warning(
-                    f"嵌入模型回退：配置 {embedding_model}，"
-                    f"实际使用 {self._actual_embedding_model}"
+            if self._embedding_source == "provider":
+                (
+                    self._embedding_func,
+                    self._actual_embedding_model,
+                ) = await self._create_provider_embedding(config)
+            else:
+                embedding_model = config.get(
+                    "l2_memory.embedding_model", "BAAI/bge-small-zh-v1.5"
                 )
+                (
+                    self._embedding_func,
+                    self._actual_embedding_model,
+                ) = await loop.run_in_executor(
+                    None, lambda: _create_embedding_function(embedding_model)
+                )
+
+            if not self._actual_embedding_model:
+                self._actual_embedding_model = "unknown"
 
             # 获取或创建 collection（传入嵌入函数，新集合使用余弦距离）
             collection_name = f"memory_{self._persona_id}"
@@ -317,6 +359,7 @@ class L2MemoryAdapter(Component):
             logger.info(
                 f"L2 记忆库初始化成功，collection: {collection_name}，"
                 f"距离空间: {self._distance_space}，"
+                f"嵌入来源: {self._embedding_source}，"
                 f"嵌入模型: {self._actual_embedding_model}，"
                 f"当前条目数: {self._collection.count()}"
             )
@@ -462,6 +505,99 @@ class L2MemoryAdapter(Component):
         """
         return _chromadb.PersistentClient(path=str(self._persist_dir))
 
+    async def _create_provider_embedding(self, config) -> tuple:
+        """创建基于 AstrBot EmbeddingProvider 的嵌入函数
+
+        Args:
+            config: 配置实例
+
+        Returns:
+            (embedding_function, model_identifier) 元组
+        """
+        provider_id = config.get("l2_memory.embedding_provider", "")
+        provider = None
+
+        if provider_id:
+            provider = self._get_embedding_provider_by_id(provider_id)
+            if not provider:
+                logger.warning(
+                    f"指定的 Embedding Provider '{provider_id}' 不可用"
+                )
+
+        if not provider:
+            provider = self._get_first_embedding_provider()
+
+        if not provider:
+            logger.warning(
+                "未找到可用的 AstrBot Embedding Provider，"
+                "降级到本地 sentence-transformers 模型"
+            )
+            embedding_model = config.get(
+                "l2_memory.embedding_model", "BAAI/bge-small-zh-v1.5"
+            )
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None, lambda: _create_embedding_function(embedding_model)
+            )
+
+        model_name = getattr(provider, "model_name", None)
+        if not model_name and hasattr(provider, "meta"):
+            model_name = getattr(provider.meta, "model_name", None)
+        model_name = model_name or provider_id
+
+        logger.info(
+            f"使用 AstrBot Embedding Provider: {provider_id}，模型: {model_name}"
+        )
+
+        func = AstrBotEmbeddingFunction(provider, provider_id)
+        return func, f"provider:{provider_id}/{model_name}"
+
+    def _get_embedding_provider_by_id(self, provider_id: str):
+        """通过 ID 获取 Embedding Provider 实例
+
+        Args:
+            provider_id: Provider ID
+
+        Returns:
+            Provider 实例，不可用时返回 None
+        """
+        try:
+            if hasattr(self._context, "get_provider_by_id"):
+                provider = self._context.get_provider_by_id(provider_id)
+                if provider and hasattr(provider, "get_embeddings"):
+                    return provider
+
+            if hasattr(self._context, "provider_manager"):
+                pm = self._context.provider_manager
+                if hasattr(pm, "inst_map"):
+                    p = pm.inst_map.get(provider_id)
+                    if p and hasattr(p, "get_embeddings"):
+                        return p
+        except Exception as e:
+            logger.debug(f"通过 ID 获取 Embedding Provider 失败: {e}")
+        return None
+
+    def _get_first_embedding_provider(self):
+        """获取第一个可用的 Embedding Provider
+
+        Returns:
+            Provider 实例，不可用时返回 None
+        """
+        try:
+            if hasattr(self._context, "provider_manager"):
+                pm = self._context.provider_manager
+                if hasattr(pm, "embedding_provider_insts"):
+                    providers = pm.embedding_provider_insts
+                    if providers:
+                        return providers[0]
+                if hasattr(pm, "inst_map"):
+                    for pid, p in pm.inst_map.items():
+                        if hasattr(p, "get_embeddings"):
+                            return p
+        except Exception as e:
+            logger.debug(f"获取 Embedding Provider 失败: {e}")
+        return None
+
     async def shutdown(self) -> None:
         """关闭适配器
 
@@ -470,7 +606,8 @@ class L2MemoryAdapter(Component):
         self._client = None
         self._collection = None
         self._embedding_func = None
-        self._actual_embedding_model = "all-MiniLM-L6-v2"
+        self._actual_embedding_model = ""
+        self._embedding_source = "provider"
         self._reset_state()
         logger.info("L2 记忆库已关闭")
 

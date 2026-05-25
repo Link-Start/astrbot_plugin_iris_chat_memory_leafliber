@@ -109,7 +109,7 @@ def create_components(context: "Context", star: "Star") -> Tuple[Component, ...]
             # 如果都没有，使用默认值
             persona_id = persona_id or "default"
 
-        components.append(L2MemoryAdapter(persona_id=persona_id))
+        components.append(L2MemoryAdapter(persona_id=persona_id, context=context))
         logger.debug(f"已添加 L2MemoryAdapter 组件，persona_id: {persona_id}")
 
     # 阶段4: L3 知识图谱

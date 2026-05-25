@@ -5,7 +5,7 @@ Iris Chat Memory - L2 记忆库模块
 """
 
 from .models import MemoryEntry, MemorySearchResult
-from .adapter import L2MemoryAdapter, SUPPORTED_EMBEDDING_MODELS
+from .adapter import L2MemoryAdapter, SUPPORTED_EMBEDDING_MODELS, AstrBotEmbeddingFunction
 from .retriever import MemoryRetriever
 from .io import (
     MemoryExporter,
@@ -24,6 +24,7 @@ __all__ = [
     # 核心组件
     "L2MemoryAdapter",
     "SUPPORTED_EMBEDDING_MODELS",
+    "AstrBotEmbeddingFunction",
     "MemoryRetriever",
     # 导入导出
     "MemoryExporter",
