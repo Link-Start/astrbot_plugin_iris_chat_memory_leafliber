@@ -14,7 +14,6 @@ from iris_memory.l3_kg import (
     L3KGAdapter,
 )
 from iris_memory.config import init_config
-from iris_memory.tasks.forgetting_task import ForgettingTask
 from iris_memory.utils.forgetting import should_evict_kg_node
 
 
@@ -120,41 +119,11 @@ class TestAdapterEviction:
         assert stats["node_count"] == 1
 
 
-class TestForgettingTaskL3:
-    """ForgettingTask L3 淘汰逻辑测试"""
-
-    @pytest.fixture
-    def mock_component_manager(self):
-        manager = MagicMock()
-        return manager
-
-    @pytest.fixture
-    def forgetting_task(self, mock_component_manager):
-        return ForgettingTask(mock_component_manager)
+class TestForgettingUtils:
+    """遗忘工具函数测试"""
 
     @pytest.mark.asyncio
-    async def test_evict_l3_nodes_adapter_unavailable(
-        self, forgetting_task, mock_component_manager
-    ):
-        mock_adapter = MagicMock()
-        mock_adapter.is_available = False
-        mock_component_manager.get_component = MagicMock(return_value=mock_adapter)
-
-        await forgetting_task._evict_l3_nodes()
-
-    @pytest.mark.asyncio
-    async def test_evict_l3_nodes_empty_graph(
-        self, forgetting_task, mock_component_manager
-    ):
-        mock_adapter = MagicMock()
-        mock_adapter.is_available = True
-        mock_adapter.get_all_nodes = AsyncMock(return_value=[])
-        mock_component_manager.get_component = MagicMock(return_value=mock_adapter)
-
-        await forgetting_task._evict_l3_nodes()
-
-    @pytest.mark.asyncio
-    async def test_should_evict_node_low_score(self, forgetting_task):
+    async def test_should_evict_node_low_score(self):
         result = should_evict_kg_node(
             last_access_time=(datetime.now() - timedelta(days=60)).isoformat(),
             access_count=0,
@@ -167,7 +136,7 @@ class TestForgettingTaskL3:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_should_evict_node_high_score(self, forgetting_task):
+    async def test_should_evict_node_high_score(self):
         result = should_evict_kg_node(
             last_access_time=datetime.now().isoformat(),
             access_count=50,

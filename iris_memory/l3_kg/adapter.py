@@ -644,13 +644,16 @@ class L3KGAdapter(Component):
             return []
 
         try:
-            result = self._conn.execute(f"""
+            result = self._conn.execute(
+                """
                 MATCH (e:Entity)
                 RETURN e.id, e.label, e.name, e.content, e.confidence,
                        e.access_count, e.last_access_time, e.created_time,
                        e.source_memory_id, e.group_id, e.properties
-                LIMIT {limit}
-            """)
+                LIMIT $limit
+            """,
+                {"limit": limit},
+            )
 
             nodes = []
             for row in result:
@@ -755,9 +758,7 @@ class L3KGAdapter(Component):
                     pass
 
             if node_ids:
-                logger.debug(
-                    f"根据来源记忆 ID 反向查找找到 {len(node_ids)} 个图谱节点"
-                )
+                logger.debug(f"根据来源记忆 ID 反向查找找到 {len(node_ids)} 个图谱节点")
 
             return list(node_ids)
         except Exception as e:
@@ -814,13 +815,16 @@ class L3KGAdapter(Component):
             return []
 
         try:
-            result = self._conn.execute(f"""
+            result = self._conn.execute(
+                """
                 MATCH (a:Entity)-[r:Related]->(b:Entity)
                 RETURN a.id, a.label, a.name, b.id, b.label, b.name,
                        r.relation_type, r.confidence, r.weight,
                        r.access_count, r.created_time
-                LIMIT {limit}
-            """)
+                LIMIT $limit
+            """,
+                {"limit": limit},
+            )
 
             edges = []
             for row in result:
@@ -935,27 +939,33 @@ class L3KGAdapter(Component):
                 remaining = max_nodes - len(nodes_map)
 
                 if current_depth == 1:
-                    query = f"""
-                        MATCH (start:Entity {{id: $node_id}})-[r:Related]-(neighbor:Entity)
+                    query = """
+                        MATCH (start:Entity {id: $node_id})-[r:Related]-(neighbor:Entity)
                         WHERE NOT neighbor.id IN $visited
                         RETURN DISTINCT neighbor.id, neighbor.label, neighbor.name, neighbor.content, neighbor.confidence
-                        LIMIT {remaining}
+                        LIMIT $limit
                     """
                     result = self._conn.execute(
-                        query, {"node_id": node_id, "visited": list(all_visited)}
+                        query,
+                        {
+                            "node_id": node_id,
+                            "visited": list(all_visited),
+                            "limit": remaining,
+                        },
                     )
                 else:
-                    query = f"""
+                    query = """
                         MATCH (start:Entity)-[r:Related]-(neighbor:Entity)
                         WHERE start.id IN $current_ids AND NOT neighbor.id IN $visited
                         RETURN DISTINCT neighbor.id, neighbor.label, neighbor.name, neighbor.content, neighbor.confidence
-                        LIMIT {remaining}
+                        LIMIT $limit
                     """
                     result = self._conn.execute(
                         query,
                         {
                             "current_ids": node_ids_to_query,
                             "visited": list(all_visited),
+                            "limit": remaining,
                         },
                     )
 
@@ -1000,13 +1010,13 @@ class L3KGAdapter(Component):
                 node_ids = list(nodes_map.keys())
 
                 edges_result = self._conn.execute(
-                    f"""
+                    """
                     MATCH (a:Entity)-[r:Related]->(b:Entity)
                     WHERE a.id IN $node_ids AND b.id IN $node_ids
                     RETURN a.id, b.id, r.relation_type, r.confidence
-                    LIMIT {max_edges}
+                    LIMIT $limit
                 """,
-                    {"node_ids": node_ids},
+                    {"node_ids": node_ids, "limit": max_edges},
                 )
 
                 for row in edges_result:
@@ -1057,6 +1067,35 @@ class L3KGAdapter(Component):
         except Exception as e:
             logger.error(f"获取节点连接数失败：{e}")
             return {}
+
+    async def update_node_properties(self, node_id: str, properties: dict) -> bool:
+        """更新节点扩展属性
+
+        Args:
+            node_id: 节点 ID
+            properties: 新的属性字典（完整替换）
+
+        Returns:
+            是否更新成功
+        """
+        if not self._is_available:
+            return False
+
+        try:
+            import asyncio
+
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: self._conn.execute(
+                    "MATCH (e:Entity {id: $id}) SET e.properties = $props",
+                    {"id": node_id, "props": properties},
+                ),
+            )
+            return True
+        except Exception as e:
+            logger.error(f"更新节点属性失败：{e}")
+            return False
 
     async def evict_nodes(self, node_ids: list[str]) -> int:
         """淘汰节点及关联边（用于定时任务）

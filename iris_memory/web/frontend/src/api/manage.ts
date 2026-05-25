@@ -57,7 +57,7 @@ export async function deleteProfile(
   return response
 }
 
-export type TaskName = 'forgetting' | 'merge' | 'kg_extraction' | 'cache_cleanup'
+export type TaskName = 'dream' | 'cache_cleanup'
 
 export async function triggerTask(task: TaskName): Promise<{ message: string }> {
   const response = await apiPost<any>('manage/tasks/trigger', {

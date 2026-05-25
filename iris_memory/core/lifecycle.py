@@ -262,7 +262,7 @@ async def _start_scheduled_tasks_deferred(component_manager: ComponentManager) -
         component_manager: 组件管理器实例
     """
     from iris_memory.config import get_config
-    from iris_memory.tasks import ForgettingTask, MergeTask, KGExtractionTask
+    from iris_memory.dream import DreamTask
 
     scheduler = component_manager.get_component("scheduler")
     if not scheduler or not scheduler.is_available:
@@ -272,41 +272,17 @@ async def _start_scheduled_tasks_deferred(component_manager: ComponentManager) -
     config = get_config()
 
     l2_available = component_manager.check_component("l2_memory") == "available"
-    l3_available = component_manager.check_component("l3_kg") == "available"
 
-    if l2_available and config.get("scheduled_tasks.enable_forgetting"):
-        forgetting_task = ForgettingTask(component_manager)
-        interval_hours = config.get("forgetting_task_interval_hours")
+    if l2_available and config.get("scheduled_tasks.enable_dream"):
+        dream_task = DreamTask(component_manager)
+        interval_hours = config.get("dream_task_interval_hours")
         scheduler.register_periodic_task(
-            task_name="forgetting",
-            coro_func=forgetting_task.execute,
+            task_name="dream",
+            coro_func=dream_task.execute,
             interval_hours=interval_hours,
         )
-    elif config.get("scheduled_tasks.enable_forgetting") and not l2_available:
-        logger.warning("L2 记忆库不可用，跳过遗忘任务注册")
-
-    if l2_available and config.get("scheduled_tasks.enable_merging"):
-        merge_task = MergeTask(component_manager)
-        interval_hours = config.get("merge_task_interval_hours")
-        scheduler.register_periodic_task(
-            task_name="merge",
-            coro_func=merge_task.execute,
-            interval_hours=interval_hours,
-        )
-    elif config.get("scheduled_tasks.enable_merging") and not l2_available:
-        logger.warning("L2 记忆库不可用，跳过合并任务注册")
-
-    if l3_available and config.get("l3_kg.enable"):
-        kg_extraction_task = KGExtractionTask(component_manager)
-        interval_minutes = config.get("kg_extraction_interval_minutes")
-        interval_hours = interval_minutes / 60.0
-        scheduler.register_periodic_task(
-            task_name="kg_extraction",
-            coro_func=kg_extraction_task.execute,
-            interval_hours=interval_hours,
-        )
-    elif config.get("l3_kg.enable") and not l3_available:
-        logger.warning("L3 知识图谱不可用，跳过 KG 提取任务注册")
+    elif config.get("scheduled_tasks.enable_dream") and not l2_available:
+        logger.warning("L2 记忆库不可用，跳过梦境任务注册")
 
 
 async def shutdown_components(component_manager: Optional[ComponentManager]) -> None:

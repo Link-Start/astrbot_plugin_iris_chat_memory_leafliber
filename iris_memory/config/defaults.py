@@ -76,11 +76,16 @@ class IsolationConfig:
 
 @dataclass
 class ScheduledTasksConfig:
-    """定时任务配置"""
+    """梦境任务配置"""
 
     provider: str = ""
-    enable_forgetting: bool = True  # 启用定时遗忘清洗任务
-    enable_merging: bool = True
+    enable_dream: bool = True
+    dream_enable_consolidation: bool = True
+    dream_enable_temporal_anchor: bool = True
+    dream_enable_contradiction: bool = True
+    dream_enable_pattern_discovery: bool = True
+    dream_enable_knowledge_extract: bool = True
+    dream_enable_pruning: bool = True
 
 
 @dataclass
@@ -137,25 +142,23 @@ class HiddenConfig:
     # LLM 调用管理参数
     call_log_max_entries: int = 100  # 调用日志最大保留条数
 
-    # 定时任务参数
-    forgetting_task_interval_hours: int = 6  # 遗忘清洗任务间隔（小时）
-    merge_task_interval_hours: int = 24  # 合并任务间隔（小时）
-    merge_similarity_threshold: float = 0.85  # 合并相似度阈值
-    merge_batch_size: int = 10  # 合并批处理大小
-    merge_scan_budget: int = 500  # 每轮扫描记忆条数上限
-    merge_query_batch_size: int = 50  # ChromaDB 批量查询大小
-    merge_max_group_size: int = 5  # 单组合并最大条目数
-    eviction_batch_size: int = 100  # 淘汰批处理大小
-    image_cache_cleanup_interval_hours: int = 24  # 图片缓存清理任务间隔（小时）
-
-    # L3 知识图谱提取任务参数
-    kg_extraction_interval_minutes: int = 30  # 提取任务检测间隔（分钟）
-    kg_extraction_min_unprocessed: int = 10  # 最小未处理记忆数量阈值
-    kg_extraction_batch_size: int = 20  # 每批处理记忆数
-    kg_extraction_max_related: int = 5  # 每条记忆最多关联的相关记忆数
-    kg_extraction_semantic_weight: float = 0.5  # 语义相似记忆权重
-    kg_extraction_same_group_weight: float = 0.3  # 同群聊记忆权重
-    kg_extraction_same_user_weight: float = 0.2  # 同用户记忆权重
+    # 梦境任务参数
+    dream_task_interval_hours: int = 24
+    dream_consolidation_similarity_threshold: float = 0.85
+    dream_consolidation_batch_size: int = 10
+    dream_consolidation_scan_budget: int = 500
+    dream_consolidation_query_batch_size: int = 50
+    dream_consolidation_max_group_size: int = 5
+    dream_temporal_anchor_batch_size: int = 50
+    dream_contradiction_similarity_floor: float = 0.55
+    dream_contradiction_similarity_ceiling: float = 0.85
+    dream_contradiction_max_groups: int = 20
+    dream_pattern_sample_size: int = 30
+    dream_pattern_min_confidence: str = "medium"
+    dream_knowledge_extract_min_unprocessed: int = 10
+    dream_knowledge_extract_batch_size: int = 20
+    eviction_batch_size: int = 100
+    image_cache_cleanup_interval_hours: int = 24
 
     # Tool 配置参数
     tool_memory_max_content_length: int = 500  # 记忆内容最大长度

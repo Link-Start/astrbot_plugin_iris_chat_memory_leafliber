@@ -231,27 +231,57 @@
 
   "scheduled_tasks": {
     "type": "object",
-    "description": "定时任务",
-    "hint": "定期执行记忆维护任务",
+    "description": "梦境任务",
+    "hint": "记忆的离线深度加工，包含6个阶段：合并重复、时间锚定、矛盾消解、模式挖掘、知识提取、遗忘清洗",
     "items": {
       "provider": {
         "type": "string",
         "default": "",
-        "description": "定时任务模型 Provider",
-        "hint": "选择用于执行定时任务的模型，留空则使用默认 Provider",
+        "description": "梦境任务模型 Provider",
+        "hint": "选择用于执行梦境任务的模型，留空则使用默认 Provider",
         "_special": "select_provider"
       },
-      "enable_forgetting": {
+      "enable_dream": {
         "type": "bool",
         "default": true,
-        "description": "启用遗忘清洗任务",
-        "hint": "定期清理过期记忆和标记低置信度记忆"
+        "description": "启用梦境任务",
+        "hint": "定期执行记忆的离线深度加工"
       },
-      "enable_merging": {
+      "dream_enable_consolidation": {
         "type": "bool",
         "default": true,
-        "description": "启用合并任务",
-        "hint": "合并碎片化相似记忆"
+        "description": "阶段1：合并重复项",
+        "hint": "归拢同一话题的碎片记忆"
+      },
+      "dream_enable_temporal_anchor": {
+        "type": "bool",
+        "default": true,
+        "description": "阶段2：时间锚定",
+        "hint": "将相对时间表达（昨天、上周等）转换为绝对日期"
+      },
+      "dream_enable_contradiction": {
+        "type": "bool",
+        "default": true,
+        "description": "阶段3：矛盾消解",
+        "hint": "检测并解决记忆间的逻辑冲突"
+      },
+      "dream_enable_pattern_discovery": {
+        "type": "bool",
+        "default": true,
+        "description": "阶段4：模式挖掘",
+        "hint": "发现隐含的行为规律和偏好模式"
+      },
+      "dream_enable_knowledge_extract": {
+        "type": "bool",
+        "default": true,
+        "description": "阶段5：知识提取",
+        "hint": "从L2记忆提取实体和关系写入L3知识图谱"
+      },
+      "dream_enable_pruning": {
+        "type": "bool",
+        "default": true,
+        "description": "阶段6：遗忘清洗",
+        "hint": "淘汰低价值记忆和图谱节点"
       }
     }
   },

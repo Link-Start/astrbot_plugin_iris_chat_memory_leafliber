@@ -328,7 +328,7 @@ export interface FullImportResult {
 // 管理操作类型
 // ============================================
 
-export type TaskName = 'forgetting' | 'merge' | 'kg_extraction' | 'cache_cleanup'
+export type TaskName = 'dream' | 'cache_cleanup'
 
 export interface TaskStatus {
   running: boolean
@@ -337,8 +337,6 @@ export interface TaskStatus {
 export type TasksStatusMap = Record<TaskName, TaskStatus>
 
 export const TASK_DISPLAY_NAMES: Record<TaskName, string> = {
-  forgetting: '记忆遗忘',
-  merge: '记忆合并',
-  kg_extraction: '知识图谱提取',
+  dream: '梦境任务',
   cache_cleanup: '缓存清理'
 }

@@ -222,9 +222,7 @@ async def trigger_task():
             return jsonify({"success": False, "error": "必须提供 task 参数"}), 400
 
         valid_tasks = {
-            "forgetting": "iris_memory.tasks.forgetting_task",
-            "merge": "iris_memory.tasks.merge_task",
-            "kg_extraction": "iris_memory.tasks.kg_extraction_task",
+            "dream": "iris_memory.dream",
             "cache_cleanup": "iris_memory.tasks.cache_cleanup_task",
         }
 
@@ -236,21 +234,19 @@ async def trigger_task():
                 }
             ), 400
 
+        if scheduler.is_task_running(task_name):
+            return jsonify(
+                {
+                    "success": False,
+                    "error": f"任务 {task_name} 正在执行中，请稍后再试",
+                }
+            ), 409
+
         async def _run_task():
-            if task_name == "forgetting":
-                from iris_memory.tasks import ForgettingTask
+            if task_name == "dream":
+                from iris_memory.dream import DreamTask
 
-                task = ForgettingTask(manager)
-                await task.execute()
-            elif task_name == "merge":
-                from iris_memory.tasks import MergeTask
-
-                task = MergeTask(manager)
-                await task.execute()
-            elif task_name == "kg_extraction":
-                from iris_memory.tasks import KGExtractionTask
-
-                task = KGExtractionTask(manager)
+                task = DreamTask(manager)
                 await task.execute()
             elif task_name == "cache_cleanup":
                 from iris_memory.tasks import ImageCacheCleanupTask
@@ -277,7 +273,7 @@ async def get_tasks_status():
         if not scheduler or not scheduler.is_available:
             return jsonify({"success": False, "error": "任务调度器不可用"}), 503
 
-        task_names = ["forgetting", "merge", "kg_extraction", "cache_cleanup"]
+        task_names = ["dream", "cache_cleanup"]
         tasks_status = {}
         for name in task_names:
             tasks_status[name] = {

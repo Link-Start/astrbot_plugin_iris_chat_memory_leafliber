@@ -296,8 +296,8 @@
       <v-col cols="12">
         <v-card color="surface" variant="flat">
           <v-card-title class="d-flex align-center">
-            <v-icon icon="mdi-clock-outline" color="info" class="mr-2" />
-            定时任务
+            <v-icon icon="mdi-weather-night" color="info" class="mr-2" />
+            梦境任务
           </v-card-title>
           <v-card-text>
             <v-row>
