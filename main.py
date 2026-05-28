@@ -85,13 +85,6 @@ def _detect_passive_trigger(event: AstrMessageEvent, req, context: Context) -> N
         logger.debug(f"被动触发检测异常（不影响正常流程）：{e}")
 
 
-@register(
-    "astrbot_plugin_iris_chat_memory",
-    "Leafiber",
-    "Iris Chat Memory",
-    "1.0.0",
-    "https://github.com/Leafliber/astrbot_plugin_iris_chat_memory",
-)
 class IrisChatMemoryPlugin(Star):
     """AstrBot 分层记忆插件主类
 
