@@ -44,9 +44,11 @@ def _ensure_chromadb():
 
             _chromadb = chromadb
             _embedding_functions = embedding_functions
-        except ImportError as e:
-            logger.error(f"ChromaDB 未安装：{e}")
-            raise
+        except ImportError:
+            raise ImportError(
+                "chromadb 未安装。请在 AstrBot 管理面板的插件依赖中添加 chromadb，"
+                "或在插件目录执行 pip install chromadb"
+            )
 
 
 SUPPORTED_EMBEDDING_MODELS = {
@@ -128,14 +130,29 @@ def _create_embedding_function(model_name: str):
         model_name: HuggingFace 模型名或 'all-MiniLM-L6-v2'
 
     Returns:
-        (embedding_function, actual_model_name) 元组
-    """
-    import os
+        (embedding_function, actual_model_name, dimensions) 元组
 
+    Raises:
+        ImportError: sentence-transformers 未安装且模型不是默认模型
+    """
     if model_name == "all-MiniLM-L6-v2":
-        return _embedding_functions.DefaultEmbeddingFunction(), "all-MiniLM-L6-v2"
+        return (
+            _embedding_functions.DefaultEmbeddingFunction(),
+            "all-MiniLM-L6-v2",
+            384,
+        )
+
+    try:
+        from sentence_transformers import SentenceTransformer  # noqa: F401
+    except ImportError:
+        raise ImportError(
+            "sentence-transformers 未安装。"
+            "请在 AstrBot 管理面板安装插件依赖，"
+            "或将嵌入来源切换为 Provider 模式"
+        )
 
     model_info = SUPPORTED_EMBEDDING_MODELS.get(model_name)
+    dim = model_info["dimensions"] if model_info else 0
     if model_info:
         logger.info(
             f"加载嵌入模型：{model_name} "
@@ -146,11 +163,13 @@ def _create_embedding_function(model_name: str):
     else:
         logger.info(f"加载自定义嵌入模型：{model_name}")
 
+    import os
+
     try:
         func = _embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name=model_name
         )
-        return func, model_name
+        return func, model_name, dim
     except Exception as first_err:
         logger.warning(f"加载嵌入模型 {model_name} 失败：{first_err}，尝试离线模式...")
 
@@ -161,18 +180,18 @@ def _create_embedding_function(model_name: str):
             model_name=model_name
         )
         logger.info(f"离线模式加载嵌入模型 {model_name} 成功")
-        return func, model_name
+        return func, model_name, dim
     except Exception as offline_err:
-        logger.warning(
-            f"离线加载嵌入模型 {model_name} 也失败：{offline_err}，回退到默认模型"
+        raise ImportError(
+            f"加载嵌入模型 {model_name} 失败"
+            f"（在线：{first_err}，离线：{offline_err}）。"
+            f"请确保模型已下载，或切换为 Provider 模式"
         )
     finally:
         if old_offline is not None:
             os.environ["HF_HUB_OFFLINE"] = old_offline
         else:
             os.environ.pop("HF_HUB_OFFLINE", None)
-
-    return _embedding_functions.DefaultEmbeddingFunction(), "all-MiniLM-L6-v2"
 
 
 class L2MemoryAdapter(Component):
@@ -207,6 +226,7 @@ class L2MemoryAdapter(Component):
         self._collection = None
         self._embedding_func = None
         self._actual_embedding_model: str = ""
+        self._embedding_dimensions: int = 0
         self._embedding_source: str = "provider"
         self._persist_dir: Optional[Path] = None
         self._persona_id = persona_id
@@ -254,21 +274,43 @@ class L2MemoryAdapter(Component):
                 "l2_memory.embedding_source", "provider"
             )
 
-            if self._embedding_source == "provider":
-                (
-                    self._embedding_func,
-                    self._actual_embedding_model,
-                ) = await self._create_provider_embedding(config)
-            else:
-                embedding_model = config.get(
-                    "l2_memory.embedding_model", "BAAI/bge-small-zh-v1.5"
+            try:
+                if self._embedding_source == "provider":
+                    (
+                        self._embedding_func,
+                        self._actual_embedding_model,
+                        self._embedding_dimensions,
+                    ) = await self._create_provider_embedding(config)
+                else:
+                    embedding_model = config.get(
+                        "l2_memory.embedding_model", "BAAI/bge-small-zh-v1.5"
+                    )
+                    (
+                        self._embedding_func,
+                        self._actual_embedding_model,
+                        self._embedding_dimensions,
+                    ) = await loop.run_in_executor(
+                        None, lambda: _create_embedding_function(embedding_model)
+                    )
+            except ImportError as emb_err:
+                logger.error(
+                    f"嵌入模型加载失败，L2 记忆库将不可用：{emb_err}\n"
+                    f"  → 解决方法：在插件配置中将「嵌入模型来源」切换为 Provider，"
+                    f"并在 AstrBot「模型」页面配置一个 Embedding 类型的 Provider"
                 )
-                (
-                    self._embedding_func,
-                    self._actual_embedding_model,
-                ) = await loop.run_in_executor(
-                    None, lambda: _create_embedding_function(embedding_model)
+                self._is_available = False
+                self._init_error = str(emb_err)
+                return
+            except Exception as emb_err:
+                logger.error(
+                    f"嵌入模型加载失败，L2 记忆库将不可用：{emb_err}\n"
+                    f"  → 当前来源：{self._embedding_source}"
+                    f"{'，请检查 Embedding Provider 是否已配置并可用' if self._embedding_source == 'provider' else ''}",
+                    exc_info=True,
                 )
+                self._is_available = False
+                self._init_error = f"嵌入模型加载失败：{emb_err}"
+                return
 
             if not self._actual_embedding_model:
                 self._actual_embedding_model = "unknown"
@@ -311,11 +353,11 @@ class L2MemoryAdapter(Component):
             # 检测实际距离空间（已有集合可能使用 L2）
             self._distance_space = self._collection.metadata.get("hnsw:space", "l2")
 
-            # 标记可用——迁移需要读取数据，必须在迁移前设置
-            self._is_available = True
-
-            # 检测嵌入模型是否变更，自动迁移
+            # 检测嵌入模型是否变更或维度是否变化，自动迁移
             stored_model = self._collection.metadata.get("embedding_model", "")
+            stored_dim = self._collection.metadata.get("embedding_dimensions", 0)
+            if isinstance(stored_dim, str):
+                stored_dim = int(stored_dim)
             needs_migration = False
 
             if ef_conflict:
@@ -329,6 +371,17 @@ class L2MemoryAdapter(Component):
                     f"嵌入模型已变更：{stored_model} -> {self._actual_embedding_model}，"
                     f"开始自动迁移..."
                 )
+            elif (
+                self._embedding_dimensions
+                and stored_dim
+                and self._embedding_dimensions != stored_dim
+            ):
+                needs_migration = True
+                logger.warning(
+                    f"嵌入维度已变更：{stored_dim} -> {self._embedding_dimensions}，"
+                    f"模型标识未变（{self._actual_embedding_model}），"
+                    f"开始自动迁移..."
+                )
             elif not stored_model and self._collection.count() > 0:
                 needs_migration = True
                 logger.info(
@@ -338,42 +391,62 @@ class L2MemoryAdapter(Component):
 
             if needs_migration:
                 migration_ok = await self._migrate_on_model_change(
-                    self._actual_embedding_model, collection_name
+                    self._actual_embedding_model, self._embedding_dimensions,
+                    collection_name
                 )
                 if not migration_ok:
-                    logger.warning(
-                        "自动迁移失败，将使用新模型继续，旧数据检索精度可能下降"
+                    logger.error(
+                        "自动迁移失败，L2 记忆库不可用。"
+                        "旧维度向量与新维度不兼容，继续使用会导致检索结果完全错误。\n"
+                        "  → 解决方法：检查 Embedding Provider 配置是否变更，"
+                        "或手动删除 data/chromadb 目录后重启插件重建记忆库"
                     )
+                    self._is_available = False
+                    self._init_error = "自动迁移失败，旧数据与新嵌入模型不兼容"
+                    return
             else:
+                # 无需迁移，补全元数据
+                patch: dict = {}
                 if not stored_model:
+                    patch["embedding_model"] = self._actual_embedding_model
+                if not stored_dim and self._embedding_dimensions:
+                    patch["embedding_dimensions"] = self._embedding_dimensions
+                if patch:
                     try:
                         self._collection.modify(
-                            metadata={
-                                **self._collection.metadata,
-                                "embedding_model": self._actual_embedding_model,
-                            }
+                            metadata={**self._collection.metadata, **patch}
                         )
                     except Exception:
                         pass
+
+            # 标记可用（迁移成功或无需迁移）
+            self._is_available = True
 
             logger.info(
                 f"L2 记忆库初始化成功，collection: {collection_name}，"
                 f"距离空间: {self._distance_space}，"
                 f"嵌入来源: {self._embedding_source}，"
                 f"嵌入模型: {self._actual_embedding_model}，"
+                f"维度: {self._embedding_dimensions}，"
                 f"当前条目数: {self._collection.count()}"
             )
 
-        except Exception as e:
-            error_msg = f"L2 记忆库初始化失败：{e}"
-            logger.error(error_msg, exc_info=True)
+        except ImportError as e:
+            logger.error(
+                f"L2 记忆库初始化失败：{e}\n"
+                f"  → 解决方法：请在 AstrBot 管理面板的插件依赖中安装缺少的依赖包"
+            )
             self._is_available = False
-            self._init_error = error_msg
+            self._init_error = str(e)
+        except Exception as e:
+            logger.error(f"L2 记忆库初始化失败：{e}", exc_info=True)
+            self._is_available = False
+            self._init_error = f"L2 记忆库初始化失败：{e}"
 
     async def _migrate_on_model_change(
-        self, new_model: str, collection_name: str
+        self, new_model: str, new_dim: int, collection_name: str
     ) -> bool:
-        """嵌入模型变更时自动迁移数据
+        """嵌入模型或维度变更时自动迁移数据
 
         流程：
         1. 导出所有现有记忆到临时文件
@@ -384,6 +457,7 @@ class L2MemoryAdapter(Component):
 
         Args:
             new_model: 新嵌入模型名
+            new_dim: 新嵌入维度
             collection_name: collection 名称
 
         Returns:
@@ -395,14 +469,21 @@ class L2MemoryAdapter(Component):
         if old_count == 0:
             logger.info("集合为空，无需迁移数据")
             try:
-                self._collection.modify(
-                    metadata={**self._collection.metadata, "embedding_model": new_model}
-                )
+                patch = {
+                    **self._collection.metadata,
+                    "embedding_model": new_model,
+                }
+                if new_dim:
+                    patch["embedding_dimensions"] = new_dim
+                self._collection.modify(metadata=patch)
             except Exception:
                 pass
             return True
 
-        logger.info(f"开始迁移 {old_count} 条记忆（模型变更）")
+        logger.info(
+            f"开始迁移 {old_count} 条记忆"
+            f"（模型: {new_model}，维度: {new_dim}）"
+        )
 
         backup_path = self._persist_dir / f"_migration_backup_{collection_name}.json"
 
@@ -428,16 +509,19 @@ class L2MemoryAdapter(Component):
             logger.info("迁移步骤 2/4：已删除旧 collection")
 
             # 3. 创建新 collection（使用新嵌入模型）
+            new_metadata = {
+                "hnsw:space": "cosine",
+                "persona_id": self._persona_id,
+                "embedding_model": new_model,
+            }
+            if new_dim:
+                new_metadata["embedding_dimensions"] = new_dim
             loop = asyncio.get_event_loop()
             self._collection = await loop.run_in_executor(
                 None,
                 lambda: self._client.get_or_create_collection(
                     name=collection_name,
-                    metadata={
-                        "hnsw:space": "cosine",
-                        "persona_id": self._persona_id,
-                        "embedding_model": new_model,
-                    },
+                    metadata=new_metadata,
                     embedding_function=self._embedding_func,
                 ),
             )
@@ -474,16 +558,19 @@ class L2MemoryAdapter(Component):
             # 尝试恢复：如果备份文件存在且 collection 已被删除，重新创建并导入
             if self._collection is None and backup_path.exists():
                 try:
+                    recovery_metadata = {
+                        "hnsw:space": "cosine",
+                        "persona_id": self._persona_id,
+                        "embedding_model": new_model,
+                    }
+                    if new_dim:
+                        recovery_metadata["embedding_dimensions"] = new_dim
                     loop = asyncio.get_event_loop()
                     self._collection = await loop.run_in_executor(
                         None,
                         lambda: self._client.get_or_create_collection(
                             name=collection_name,
-                            metadata={
-                                "hnsw:space": "cosine",
-                                "persona_id": self._persona_id,
-                                "embedding_model": new_model,
-                            },
+                            metadata=recovery_metadata,
                             embedding_function=self._embedding_func,
                         ),
                     )
@@ -512,7 +599,7 @@ class L2MemoryAdapter(Component):
             config: 配置实例
 
         Returns:
-            (embedding_function, model_identifier) 元组
+            (embedding_function, model_identifier, dimensions) 元组
         """
         provider_id = config.get("l2_memory.embedding_provider", "")
         provider = None
@@ -521,7 +608,8 @@ class L2MemoryAdapter(Component):
             provider = self._get_embedding_provider_by_id(provider_id)
             if not provider:
                 logger.warning(
-                    f"指定的 Embedding Provider '{provider_id}' 不可用"
+                    f"指定的 Embedding Provider '{provider_id}' 不可用，"
+                    f"请检查 ID 是否正确（可在 AstrBot「模型」页面查看）"
                 )
 
         if not provider:
@@ -530,27 +618,38 @@ class L2MemoryAdapter(Component):
         if not provider:
             logger.warning(
                 "未找到可用的 AstrBot Embedding Provider，"
-                "降级到本地 sentence-transformers 模型"
+                "尝试降级到本地 sentence-transformers 模型\n"
+                "  → 建议：在 AstrBot「模型」页面添加 Embedding 类型的 Provider"
             )
             embedding_model = config.get(
                 "l2_memory.embedding_model", "BAAI/bge-small-zh-v1.5"
             )
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(
+            func, model = await loop.run_in_executor(
                 None, lambda: _create_embedding_function(embedding_model)
             )
+            return func, model, SUPPORTED_EMBEDDING_MODELS.get(
+                model, {}
+            ).get("dimensions", 0)
 
         model_name = getattr(provider, "model_name", None)
         if not model_name and hasattr(provider, "meta"):
             model_name = getattr(provider.meta, "model_name", None)
         model_name = model_name or provider_id
 
+        dim = 0
+        try:
+            dim = provider.get_dim()
+        except Exception:
+            pass
+
         logger.info(
-            f"使用 AstrBot Embedding Provider: {provider_id}，模型: {model_name}"
+            f"使用 AstrBot Embedding Provider: {provider_id}，"
+            f"模型: {model_name}，维度: {dim}"
         )
 
         func = AstrBotEmbeddingFunction(provider, provider_id)
-        return func, f"provider:{provider_id}/{model_name}"
+        return func, f"provider:{provider_id}/{model_name}", dim
 
     def _get_embedding_provider_by_id(self, provider_id: str):
         """通过 ID 获取 Embedding Provider 实例

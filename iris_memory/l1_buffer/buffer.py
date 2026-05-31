@@ -75,6 +75,7 @@ class L1Buffer(Component):
         self._provider: str = ""
         self._summarizing_locks: Dict[str, asyncio.Lock] = {}
         self._summary_fail_counts: Dict[str, int] = {}
+        self._background_tasks: set[asyncio.Task] = set()
         logger.debug("L1Buffer 实例已创建")
 
     @property
@@ -107,6 +108,11 @@ class L1Buffer(Component):
         logger.debug("L1Buffer 已获取 ComponentManager 引用")
 
     async def shutdown(self) -> None:
+        for task in self._background_tasks:
+            task.cancel()
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
         self.clear_all()
         self._summarizing_locks.clear()
         self._summary_fail_counts.clear()
@@ -205,7 +211,7 @@ class L1Buffer(Component):
             len(queue.segment_3),
         )
 
-        await self._check_and_summarize(group_id)
+        self._schedule_summarize(group_id)
 
         return True
 
@@ -286,6 +292,16 @@ class L1Buffer(Component):
             return old_size
 
         return 0
+
+    def _schedule_summarize(self, group_id: str) -> None:
+        """将总结检查调度为后台任务，避免阻塞调用方（如 session lock 内的钩子）。
+
+        _check_and_summarize 内部已有 asyncio.Lock 防止并发执行，
+        多次调度是安全的：后续任务会看到锁被持有后立即返回。
+        """
+        task = asyncio.create_task(self._check_and_summarize(group_id))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _check_and_summarize(self, group_id: str) -> None:
         queue_key = self._get_queue_key(group_id)

@@ -279,7 +279,7 @@ class TestL2MemoryAdapter:
         adapter._collection.metadata = {"hnsw:space": "cosine"}
 
         result = await adapter._migrate_on_model_change(
-            "BAAI/bge-small-zh-v1.5", "memory_default"
+            "BAAI/bge-small-zh-v1.5", 512, "memory_default"
         )
 
         assert result == True
@@ -339,7 +339,7 @@ class TestL2MemoryAdapter:
             adapter.delete_collection = AsyncMock(return_value=True)
 
             result = await adapter._migrate_on_model_change(
-                "BAAI/bge-small-zh-v1.5", "memory_default"
+                "BAAI/bge-small-zh-v1.5", 512, "memory_default"
             )
 
             assert result is True
