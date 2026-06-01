@@ -67,7 +67,7 @@
 
                       <v-list-item-title>{{ group.group_name || group.group_id }}</v-list-item-title>
                       <v-list-item-subtitle>
-                        <v-icon icon="mdi-hashtag" size="small" class="mr-1" />
+                        <v-icon icon="mdi-tag" size="small" class="mr-1" />
                         {{ group.group_id }}
                       </v-list-item-subtitle>
                     </v-list-item>
