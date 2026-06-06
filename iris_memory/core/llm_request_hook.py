@@ -25,8 +25,19 @@ req.contexts 和 req.prompt。
 """
 
 from typing import TYPE_CHECKING, List, Optional, cast
+import re
 
 from iris_memory.core import get_logger
+
+_KG_STOPWORDS = frozenset({
+    "什么", "怎么", "如何", "为什么", "这个", "那个", "今天", "昨天", "明天",
+    "喜欢", "觉得", "想要", "可以", "知道", "一下", "一些", "告诉", "请问",
+    "还是", "的话", "不是", "没有", "现在", "已经", "应该", "可能", "因为",
+    "所以", "但是",
+})
+
+_QUOTED_PATTERN = re.compile(r'[""「」『』]([^""「」『』]+)[""「」『』]')
+_CHINESE_WORD_PATTERN = re.compile(r"[一-龥]{2,6}")
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
@@ -558,16 +569,24 @@ async def _collect_l2_memory(
         llm_manager = component_manager.get_component("llm_manager")
         retriever = MemoryRetriever(component_manager, llm_manager)
 
-        context_text = await retriever.retrieve_for_context(
+        l2_results = await retriever.retrieve(
             query=search_query,
             group_id=group_id,
-            max_tokens=config.get("token_budget_max_tokens", 2000),
         )
+
+        context_text = ""
+        if l2_results:
+            max_tokens = config.get("token_budget_max_tokens", 2000)
+            trimmed = MemoryRetriever.trim_by_token_budget(l2_results, max_tokens)
+            context_lines = ["## 相关记忆"]
+            for i, result in enumerate(trimmed, 1):
+                context_lines.append(f"{i}. {result.entry.content}")
+            context_text = "\n".join(context_lines)
 
         if context_text:
             logger.debug(f"已收集检索记忆到群聊 {group_id}")
 
-        return context_text, []
+        return context_text, l2_results
 
     except Exception as e:
         logger.error(f"L2 记忆注入失败: {e}", exc_info=True)
@@ -719,50 +738,16 @@ def _extract_kg_keywords(text: str) -> List[str]:
     Returns:
         关键词列表
     """
-    import re
-
     if not text:
         return []
 
     keywords: List[str] = []
 
-    quoted = re.findall(r'[""「」『』]([^""「」『』]+)[""「」『』]', text)
+    quoted = _QUOTED_PATTERN.findall(text)
     keywords.extend(quoted)
 
-    chinese_words = re.findall(r"[\u4e00-\u9fa5]{2,6}", text)
-    stopwords = {
-        "什么",
-        "怎么",
-        "如何",
-        "为什么",
-        "这个",
-        "那个",
-        "今天",
-        "昨天",
-        "明天",
-        "喜欢",
-        "觉得",
-        "想要",
-        "可以",
-        "知道",
-        "一下",
-        "一些",
-        "告诉",
-        "请问",
-        "还是",
-        "的话",
-        "不是",
-        "没有",
-        "什么",
-        "现在",
-        "已经",
-        "应该",
-        "可能",
-        "因为",
-        "所以",
-        "但是",
-    }
-    filtered = [w for w in chinese_words if w not in stopwords and len(w) >= 2]
+    chinese_words = _CHINESE_WORD_PATTERN.findall(text)
+    filtered = [w for w in chinese_words if w not in _KG_STOPWORDS]
     keywords.extend(filtered)
 
     seen = set()
@@ -773,31 +758,6 @@ def _extract_kg_keywords(text: str) -> List[str]:
             unique.append(k)
 
     return unique[:8]
-
-
-def _format_l2_memories_for_injection(memories: List["MemorySearchResult"]) -> str:
-    """格式化 L2 记忆为注入文本
-
-    格式参考 astrbot_plugin_iris_memory 的 MemoryFormatter._format_natural_style。
-
-    Args:
-        memories: L2 记忆检索结果列表
-
-    Returns:
-        格式化的记忆文本
-    """
-    if not memories:
-        return ""
-
-    lines = [
-        "【你记得的事情】",
-        "以下是你和群友之间的往事，请用自己的话自然提及，不要暴露「记录」「数据」等概念：",
-    ]
-
-    for memory in memories:
-        lines.append(f"- {memory.entry.content}")
-
-    return "\n".join(lines)
 
 
 def _format_profiles_for_injection(
@@ -1113,8 +1073,8 @@ def _log_final_context(req: "ProviderRequest") -> None:
         )
         for i, part in enumerate(req.extra_user_content_parts, 1):
             text = getattr(part, "text", None) or str(part)
-            # if len(text) > 500:
-            #     text = text[:500] + "..."
+            if len(text) > 500:
+                text = text[:500] + "..."
             log_parts.append(f"  [{i}] {text}")
     else:
         log_parts.append("\n[Extra User Content Parts]\n(无)")

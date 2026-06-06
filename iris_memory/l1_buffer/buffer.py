@@ -1052,6 +1052,21 @@ class L1Buffer(Component):
 
         return removed_count
 
+    def get_all_phash_hashes(self) -> list[str]:
+        """获取所有队列中 pHash 格式的图片哈希列表
+
+        用于跨队列 pHash 去重检查。
+
+        Returns:
+            所有以 'ph:' 开头的图片哈希列表
+        """
+        hashes: list[str] = []
+        for img_list in self._image_queues.values():
+            for img in img_list:
+                if img.image_hash.startswith("ph:"):
+                    hashes.append(img.image_hash)
+        return hashes
+
     def get_image_stats(self, group_id: str) -> Optional[Dict[str, Any]]:
         queue_key = self._get_queue_key(group_id)
 

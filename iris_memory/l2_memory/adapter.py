@@ -771,13 +771,8 @@ class L2MemoryAdapter(Component):
         timeout_sec = base_timeout_ms / 1000.0 * max(1, len(queries) // 10 + 1)
 
         try:
-            # 在主线程中计算嵌入（provider 模式避免 asyncio.run 开销）
             vectors = await self._embed(queries)
             vector_matrix = np.array(vectors, dtype=np.float32)
-            # L2 归一化
-            norms = np.linalg.norm(vector_matrix, axis=1, keepdims=True)
-            norms = np.where(norms > 0, norms, 1.0)
-            vector_matrix = vector_matrix / norms
 
             loop = asyncio.get_event_loop()
             results = await asyncio.wait_for(
@@ -828,6 +823,43 @@ class L2MemoryAdapter(Component):
         except Exception as e:
             logger.error(f"更新记忆访问失败：{e}", exc_info=True)
             return False
+
+    async def batch_update_access(self, memory_ids: List[str]) -> int:
+        """批量更新记忆访问计数
+
+        使用单条 SQL 批量递增，避免逐条 SELECT+UPDATE 的 round trip。
+
+        Args:
+            memory_ids: 需要更新访问的记忆 ID 列表
+
+        Returns:
+            成功更新的数量
+        """
+        if not self._is_available or not memory_ids:
+            return 0
+
+        now = datetime.now().isoformat()
+
+        try:
+            with self._db_lock:
+                placeholders = ",".join("?" * len(memory_ids))
+                cursor = self._db.execute(
+                    f"""UPDATE memories
+                        SET metadata = json_set(
+                                json_set(metadata, '$.access_count',
+                                    COALESCE(json_extract(metadata, '$.access_count'), 0) + 1),
+                                '$.last_access_time', ?)
+                        WHERE memory_id IN ({placeholders})""",
+                    (now, *memory_ids),
+                )
+                self._db.commit()
+                updated = cursor.rowcount
+
+            logger.debug(f"批量更新记忆访问：{updated}/{len(memory_ids)}")
+            return updated
+        except Exception as e:
+            logger.error(f"批量更新记忆访问失败：{e}", exc_info=True)
+            return 0
 
     # ========================================================================
     # 内容与元数据更新

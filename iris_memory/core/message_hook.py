@@ -333,10 +333,7 @@ async def _queue_images_to_l1_buffer(
 
     existing_hashes: list[str] = []
     if use_phash:
-        for queue_key, img_list in l1_buffer._image_queues.items():
-            for img in img_list:
-                if img.image_hash.startswith("ph:"):
-                    existing_hashes.append(img.image_hash)
+        existing_hashes = l1_buffer.get_all_phash_hashes()
 
     image_suffixes: list[str] = []
     queued_count = 0

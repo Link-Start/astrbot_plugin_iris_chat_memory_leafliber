@@ -1,6 +1,5 @@
 """保存记忆 LLM Tool"""
 
-import uuid
 from datetime import datetime
 from pydantic import Field
 from pydantic.dataclasses import dataclass
@@ -8,7 +7,6 @@ from astrbot.core.agent.tool import FunctionTool
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
 from iris_memory.core import get_logger, get_component_manager
-from iris_memory.l2_memory import MemoryEntry
 from iris_memory.l2_memory.adapter import L2MemoryAdapter
 
 logger = get_logger("tools")
@@ -96,31 +94,27 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
             manager = get_component_manager()
             l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
 
-            if not l2_adapter or not l2_adapter._is_available:
+            if not l2_adapter or not l2_adapter.is_available:
                 return "L2记忆库当前不可用"
 
-            # 创建记忆条目
-            memory_id = f"mem_{uuid.uuid4().hex[:12]}"
             now = datetime.now().isoformat()
 
-            memory = MemoryEntry(
-                id=memory_id,
-                content=content,
-                metadata={
-                    "user_id": user_id,
-                    "user_name": user_name,
-                    "group_id": group_id,
-                    "timestamp": now,
-                    "access_count": 1,
-                    "last_access_time": now,
-                    "confidence": confidence,
-                    "source": "tool",
-                    "tags": tags,
-                },
-            )
+            metadata = {
+                "user_id": user_id,
+                "user_name": user_name,
+                "group_id": group_id,
+                "timestamp": now,
+                "access_count": 1,
+                "last_access_time": now,
+                "confidence": confidence,
+                "source": "tool",
+                "tags": tags,
+            }
 
-            # 保存到L2
-            await l2_adapter.add_memory(memory)
+            memory_id = await l2_adapter.add_memory(content, metadata)
+
+            if not memory_id:
+                return "保存记忆失败：可能存在重复记忆或写入异常"
 
             logger.info(
                 f"LLM保存记忆: user={user_id}, group={group_id}, "

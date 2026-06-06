@@ -39,7 +39,7 @@ async def test_save_memory_success(tool, mock_context, monkeypatch):
     mock_config.get = Mock(return_value=True)
 
     mock_l2 = Mock()
-    mock_l2._is_available = True
+    mock_l2.is_available = True
     mock_l2.add_memory = AsyncMock(return_value="mem_test123")
 
     mock_manager = Mock()
@@ -77,7 +77,7 @@ async def test_save_memory_l2_unavailable(tool, mock_context, monkeypatch):
     mock_config.get = Mock(return_value=True)
 
     mock_l2 = Mock()
-    mock_l2._is_available = False
+    mock_l2.is_available = False
 
     mock_manager = Mock()
     mock_manager.get_component = Mock(return_value=mock_l2)

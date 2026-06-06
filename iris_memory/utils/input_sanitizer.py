@@ -30,7 +30,7 @@ _INJECTION_PATTERNS = [
     re.compile(
         r"you\s+are\s+now\s+(?:a\s+)?(?:DAN|jailbreak|unrestricted)", re.IGNORECASE
     ),
-    re.compile(r"system\s*:\s*", re.IGNORECASE),
+    re.compile(r"^system\s*:\s*", re.IGNORECASE | re.MULTILINE),
     re.compile(r"<\|im_start\|>", re.IGNORECASE),
     re.compile(r"<\|im_end\|>", re.IGNORECASE),
     re.compile(r"\[INST\]", re.IGNORECASE),

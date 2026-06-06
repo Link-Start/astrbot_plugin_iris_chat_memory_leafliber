@@ -5,7 +5,6 @@ Iris Chat Memory - L2 记忆检索器
 """
 
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
-import asyncio
 
 from iris_memory.core import get_logger, ComponentManager
 from iris_memory.config import get_config
@@ -110,8 +109,8 @@ class MemoryRetriever:
             results = filtered
 
         if results:
-            update_tasks = [adapter.update_access(r.entry.id) for r in results]
-            await asyncio.gather(*update_tasks, return_exceptions=True)
+            memory_ids = [r.entry.id for r in results]
+            await adapter.batch_update_access(memory_ids)
 
         logger.debug(f"检索到 {len(results)} 条记忆")
         return results
@@ -181,7 +180,7 @@ class MemoryRetriever:
         if not results:
             return ""
 
-        trimmed_results = self._trim_by_token_budget(results, max_tokens)
+        trimmed_results = self.trim_by_token_budget(results, max_tokens)
 
         context_lines = ["## 相关记忆"]
         for i, result in enumerate(trimmed_results, 1):
@@ -190,7 +189,7 @@ class MemoryRetriever:
         return "\n".join(context_lines)
 
     @staticmethod
-    def _trim_by_token_budget(
+    def trim_by_token_budget(
         memories: List[MemorySearchResult], max_tokens: int
     ) -> List[MemorySearchResult]:
         """按 Token 预算裁剪记忆列表
