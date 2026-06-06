@@ -37,7 +37,7 @@ class InitMode(Enum):
     """组件初始化模式
 
     EAGER: 同步初始化，阻塞主流程，适用于轻量组件（L1Buffer、LLMManager 等）
-    BACKGROUND: 后台初始化，不阻塞主流程，适用于重型组件（ChromaDB、KuzuDB 等）
+    BACKGROUND: 后台初始化，不阻塞主流程，适用于重型组件（ChromaDB 等）
     """
 
     EAGER = "eager"
@@ -239,7 +239,7 @@ class ComponentInitResult:
         error_message: 错误信息（失败时）
 
     Examples:
-        >>> result = ComponentInitResult("chromadb", True)
+        >>> result = ComponentInitResult("l2_memory", True)
         >>> result.success
         True
     """
@@ -321,7 +321,7 @@ _C = TypeVar("_C", bound="Component")
 class Component(ABC):
     """组件抽象基类
 
-    所有组件（ChromaDB、KuzuDB、画像存储等）需继承此类，
+    所有组件（ChromaDB、画像存储等）需继承此类，
     实现统一的初始化和关闭接口。
 
     Attributes:
@@ -329,10 +329,10 @@ class Component(ABC):
         _init_error: 初始化错误信息
 
     Examples:
-        >>> class ChromaDBComponent(Component):
+        >>> class ExampleComponent(Component):
         ...     @property
         ...     def name(self) -> str:
-        ...         return "chromadb"
+        ...         return "example"
         ...
         ...     async def initialize(self) -> None:
         ...         self._is_available = True

@@ -119,29 +119,10 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
 
             if l3_adapter and l3_adapter._is_available:
                 try:
-                    cypher = (
-                        "MATCH (n:Entity {source_memory_id: $memory_id}) "
-                        "RETURN n.id, n.name, n.content"
+                    node_id = await l3_adapter.update_node_content_by_source_memory(
+                        memory_id, correction
                     )
-                    result_set = l3_adapter._conn.execute(
-                        cypher, {"memory_id": memory_id}
-                    )
-
-                    if result_set.has_next():
-                        node = result_set.get_next()
-                        node_id = node[0]
-
-                        update_cypher = (
-                            "MATCH (n:Entity {id: $node_id}) "
-                            "SET n.content = $correction, "
-                            "    n.corrected = true, "
-                            "    n.correction_time = timestamp(), "
-                            "    n.confidence = 1.0"
-                        )
-                        l3_adapter._conn.execute(
-                            update_cypher,
-                            {"node_id": node_id, "correction": correction},
-                        )
+                    if node_id:
                         kg_message = "已更新知识图谱中的相关节点"
                         logger.info(f"已更新图谱节点: node_id={node_id}")
                     else:

@@ -1,55 +1,32 @@
 """
-Iris Chat Memory - L2 记忆库 ChromaDB 适配器
+Iris Chat Memory - L2 记忆库 FAISS + SQLite 适配器
 
 实现 L2 记忆库的存储和检索功能，支持：
-- ChromaDB 向量存储
+- FAISS 向量索引（IndexFlatIP，余弦相似度）
+- SQLite 元数据存储（文档、元数据、ID 映射）
 - 群聊隔离检索
-- 人格隔离（collection 命名空间）
+- 人格隔离（独立目录）
 - 去重检查
 - 超时保护
 - 自动降级
 """
 
 import asyncio
-import concurrent.futures
+import json
+import sqlite3
+import threading
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 import uuid
+
+import numpy as np
 
 from iris_memory.core import Component, get_logger, InitMode
 from iris_memory.config import get_config
 from .models import MemoryEntry, MemorySearchResult
 
 logger = get_logger("l2_memory.adapter")
-
-# ChromaDB 导入（延迟导入以支持降级）
-_chromadb = None
-_embedding_functions = None
-
-
-def _ensure_chromadb():
-    """确保 ChromaDB 可用
-
-    延迟导入 ChromaDB，支持降级模式。
-
-    Raises:
-        ImportError: ChromaDB 未安装
-    """
-    global _chromadb, _embedding_functions
-    if _chromadb is None:
-        try:
-            import chromadb
-            from chromadb.utils import embedding_functions
-
-            _chromadb = chromadb
-            _embedding_functions = embedding_functions
-        except ImportError:
-            raise ImportError(
-                "chromadb 未安装。请在 AstrBot 管理面板的插件依赖中添加 chromadb，"
-                "或在插件目录执行 pip install chromadb"
-            )
-
 
 SUPPORTED_EMBEDDING_MODELS = {
     "BAAI/bge-small-zh-v1.5": {
@@ -91,140 +68,28 @@ SUPPORTED_EMBEDDING_MODELS = {
 }
 
 
-class AstrBotEmbeddingFunction:
-    """将 AstrBot EmbeddingProvider 适配为 ChromaDB 的 EmbeddingFunction
-
-    ChromaDB 的 EmbeddingFunction 接口是同步的 __call__(texts)，
-    而 AstrBot 的 EmbeddingProvider.get_embeddings() 是异步的。
-    通过线程池桥接解决。
-    """
-
-    def __init__(self, provider, provider_id: str):
-        self._provider = provider
-        self._provider_id = provider_id
-        model_name = getattr(provider, "model_name", None)
-        if not model_name and hasattr(provider, "meta"):
-            model_name = getattr(provider.meta, "model_name", None)
-        self._model_name = model_name or provider_id
-
-    def __call__(self, texts: list[str]) -> list[list[float]]:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(
-                    asyncio.run, self._provider.get_embeddings(texts)
-                )
-                return future.result(timeout=30)
-        else:
-            return loop.run_until_complete(self._provider.get_embeddings(texts))
-
-    def embed_query(self, query: str) -> list[float]:
-        results = self([query])
-        return results[0]
-
-
-def _create_embedding_function(model_name: str):
-    """根据模型名创建嵌入函数
-
-    Args:
-        model_name: HuggingFace 模型名或 'all-MiniLM-L6-v2'
-
-    Returns:
-        (embedding_function, actual_model_name, dimensions) 元组
-
-    Raises:
-        ImportError: sentence-transformers 未安装且模型不是默认模型
-    """
-    if model_name == "all-MiniLM-L6-v2":
-        return (
-            _embedding_functions.DefaultEmbeddingFunction(),
-            "all-MiniLM-L6-v2",
-            384,
-        )
-
-    try:
-        from sentence_transformers import SentenceTransformer  # noqa: F401
-    except ImportError:
-        raise ImportError(
-            "sentence-transformers 未安装。"
-            "请在 AstrBot 管理面板安装插件依赖，"
-            "或将嵌入来源切换为 Provider 模式"
-        )
-
-    model_info = SUPPORTED_EMBEDDING_MODELS.get(model_name)
-    dim = model_info["dimensions"] if model_info else 0
-    if model_info:
-        logger.info(
-            f"加载嵌入模型：{model_name} "
-            f"(维度={model_info['dimensions']}, "
-            f"大小≈{model_info['size_mb']}MB, "
-            f"{model_info['description']})"
-        )
-    else:
-        logger.info(f"加载自定义嵌入模型：{model_name}")
-
-    import os
-
-    try:
-        func = _embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=model_name
-        )
-        return func, model_name, dim
-    except Exception as first_err:
-        logger.warning(f"加载嵌入模型 {model_name} 失败：{first_err}，尝试离线模式...")
-
-    old_offline = os.environ.get("HF_HUB_OFFLINE")
-    try:
-        os.environ["HF_HUB_OFFLINE"] = "1"
-        func = _embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=model_name
-        )
-        logger.info(f"离线模式加载嵌入模型 {model_name} 成功")
-        return func, model_name, dim
-    except Exception as offline_err:
-        raise ImportError(
-            f"加载嵌入模型 {model_name} 失败"
-            f"（在线：{first_err}，离线：{offline_err}）。"
-            f"请确保模型已下载，或切换为 Provider 模式"
-        )
-    finally:
-        if old_offline is not None:
-            os.environ["HF_HUB_OFFLINE"] = old_offline
-        else:
-            os.environ.pop("HF_HUB_OFFLINE", None)
-
-
 class L2MemoryAdapter(Component):
     """L2 记忆库适配器
 
-    使用 ChromaDB 存储和检索记忆向量。
-
-    Features:
-        - 群聊隔离：通过 metadata 中的 group_id 筛选
-        - 人格隔离：使用人格 ID 作为 collection 名称
-        - 去重检查：写入前检查相似度
-        - 超时保护：检索超时后返回空列表
-        - 自动降级：初始化失败时禁用模块
+    使用 FAISS + SQLite 存储和检索记忆向量。
 
     Attributes:
-        _client: ChromaDB 客户端
-        _collection: 当前使用的 collection
-        _embedding_func: 嵌入函数
+        _index: FAISS 向量索引
+        _db: SQLite 连接
+        _embedding_provider: AstrBot Embedding Provider 实例
+        _local_model: sentence-transformers 模型实例
         _persist_dir: 数据持久化目录
         _persona_id: 当前人格 ID
+        _free_list: 已删除的可复用 FAISS 槽位
+        _dirty: 索引是否需要保存
     """
 
     def __init__(self, persona_id: str = "default", context=None):
-        """初始化适配器
-
-        Args:
-            persona_id: 人格 ID，用于隔离不同人格的记忆
-            context: AstrBot Context 对象，用于获取 Embedding Provider
-        """
         super().__init__()
-        self._client = None
-        self._collection = None
-        self._embedding_func = None
+        self._index = None
+        self._db: Optional[sqlite3.Connection] = None
+        self._embedding_provider = None
+        self._local_model = None
         self._actual_embedding_model: str = ""
         self._embedding_dimensions: int = 0
         self._embedding_source: str = "provider"
@@ -232,27 +97,22 @@ class L2MemoryAdapter(Component):
         self._persona_id = persona_id
         self._context = context
         self._similarity_threshold = 0.90
-        self._distance_space: str = "l2"
+        self._free_list: List[int] = []
+        self._dirty = False
+        self._db_lock = threading.Lock()
         self._init_mode = InitMode.BACKGROUND
 
     @property
     def name(self) -> str:
-        """组件名称
-
-        Returns:
-            "l2_memory"
-        """
         return "l2_memory"
 
-    async def initialize(self) -> None:
-        """初始化适配器
+    # ========================================================================
+    # 初始化与关闭
+    # ========================================================================
 
-        创建 ChromaDB 客户端和 collection。
-        如果初始化失败，设置 _is_available = False。
-        """
+    async def initialize(self) -> None:
         config = get_config()
 
-        # 检查是否启用
         if not config.get("l2_memory.enable"):
             logger.info("L2 记忆库未启用，跳过初始化")
             self._is_available = False
@@ -260,38 +120,29 @@ class L2MemoryAdapter(Component):
             return
 
         try:
-            _ensure_chromadb()
+            import faiss  # noqa: F401 -- availability check
+        except ImportError:
+            raise ImportError(
+                "faiss-cpu 未安装。请在 AstrBot 管理面板的插件依赖中添加 faiss-cpu，"
+                "或在插件目录执行 pip install faiss-cpu"
+            )
 
-            self._persist_dir = config.data_dir / "chromadb"
+        try:
+            self._persist_dir = config.data_dir / "faiss" / f"memory_{self._persona_id}"
             self._persist_dir.mkdir(parents=True, exist_ok=True)
 
             self._similarity_threshold = config.get("l2_similarity_threshold", 0.90)
 
-            loop = asyncio.get_event_loop()
-            self._client = await loop.run_in_executor(None, self._create_client)
-
+            # 初始化嵌入源
             self._embedding_source = config.get(
                 "l2_memory.embedding_source", "provider"
             )
 
             try:
                 if self._embedding_source == "provider":
-                    (
-                        self._embedding_func,
-                        self._actual_embedding_model,
-                        self._embedding_dimensions,
-                    ) = await self._create_provider_embedding(config)
+                    self._init_provider_embedding(config)
                 else:
-                    embedding_model = config.get(
-                        "l2_memory.embedding_model", "BAAI/bge-small-zh-v1.5"
-                    )
-                    (
-                        self._embedding_func,
-                        self._actual_embedding_model,
-                        self._embedding_dimensions,
-                    ) = await loop.run_in_executor(
-                        None, lambda: _create_embedding_function(embedding_model)
-                    )
+                    await self._init_local_embedding(config)
             except ImportError as emb_err:
                 logger.error(
                     f"嵌入模型加载失败，L2 记忆库将不可用：{emb_err}\n"
@@ -315,57 +166,17 @@ class L2MemoryAdapter(Component):
             if not self._actual_embedding_model:
                 self._actual_embedding_model = "unknown"
 
-            # 获取或创建 collection（传入嵌入函数，新集合使用余弦距离）
-            collection_name = f"memory_{self._persona_id}"
-            ef_conflict = False
-            try:
-                self._collection = await loop.run_in_executor(
-                    None,
-                    lambda: self._client.get_or_create_collection(
-                        name=collection_name,
-                        metadata={
-                            "hnsw:space": "cosine",
-                            "persona_id": self._persona_id,
-                        },
-                        embedding_function=self._embedding_func,
-                    ),
-                )
-            except ValueError as e:
-                if (
-                    "embedding function" in str(e).lower()
-                    and "conflict" in str(e).lower()
-                ):
-                    ef_conflict = True
-                    logger.warning(f"已有集合的嵌入函数与当前不一致，将进行迁移：{e}")
-                    self._collection = await loop.run_in_executor(
-                        None,
-                        lambda: self._client.get_or_create_collection(
-                            name=collection_name,
-                            metadata={
-                                "hnsw:space": "cosine",
-                                "persona_id": self._persona_id,
-                            },
-                        ),
-                    )
-                else:
-                    raise
+            # 确定维度：优先从 provider 获取，否则用已知模型参数，最后通过试算得到
+            if not self._embedding_dimensions:
+                self._embedding_dimensions = await self._detect_dimensions()
 
-            # 检测实际距离空间（已有集合可能使用 L2）
-            self._distance_space = self._collection.metadata.get("hnsw:space", "l2")
+            # 加载或创建索引
+            meta = self._load_meta()
+            stored_model = meta.get("embedding_model", "")
+            stored_dim = meta.get("embedding_dimensions", 0)
 
-            # 检测嵌入模型是否变更或维度是否变化，自动迁移
-            stored_model = self._collection.metadata.get("embedding_model", "")
-            stored_dim = self._collection.metadata.get("embedding_dimensions", 0)
-            if isinstance(stored_dim, str):
-                stored_dim = int(stored_dim)
             needs_migration = False
-
-            if ef_conflict:
-                needs_migration = True
-                logger.info(
-                    f"嵌入函数冲突，需要迁移到 {self._actual_embedding_model}..."
-                )
-            elif stored_model and stored_model != self._actual_embedding_model:
+            if stored_model and stored_model != self._actual_embedding_model:
                 needs_migration = True
                 logger.warning(
                     f"嵌入模型已变更：{stored_model} -> {self._actual_embedding_model}，"
@@ -379,56 +190,38 @@ class L2MemoryAdapter(Component):
                 needs_migration = True
                 logger.warning(
                     f"嵌入维度已变更：{stored_dim} -> {self._embedding_dimensions}，"
-                    f"模型标识未变（{self._actual_embedding_model}），"
                     f"开始自动迁移..."
-                )
-            elif not stored_model and self._collection.count() > 0:
-                needs_migration = True
-                logger.info(
-                    f"已有集合未记录嵌入模型（旧版本数据），"
-                    f"当前使用 {self._actual_embedding_model}，开始自动迁移..."
                 )
 
             if needs_migration:
-                migration_ok = await self._migrate_on_model_change(
-                    self._actual_embedding_model, self._embedding_dimensions,
-                    collection_name
+                ok = await self._migrate_on_model_change(
+                    self._actual_embedding_model, self._embedding_dimensions
                 )
-                if not migration_ok:
+                if not ok:
                     logger.error(
-                        "自动迁移失败，L2 记忆库不可用。"
-                        "旧维度向量与新维度不兼容，继续使用会导致检索结果完全错误。\n"
+                        "自动迁移失败，L2 记忆库不可用。\n"
                         "  → 解决方法：检查 Embedding Provider 配置是否变更，"
-                        "或手动删除 data/chromadb 目录后重启插件重建记忆库"
+                        "或手动删除 data/faiss 目录后重启插件重建记忆库"
                     )
                     self._is_available = False
                     self._init_error = "自动迁移失败，旧数据与新嵌入模型不兼容"
                     return
             else:
-                # 无需迁移，补全元数据
-                patch: dict = {}
-                if not stored_model:
-                    patch["embedding_model"] = self._actual_embedding_model
-                if not stored_dim and self._embedding_dimensions:
-                    patch["embedding_dimensions"] = self._embedding_dimensions
-                if patch:
-                    try:
-                        self._collection.modify(
-                            metadata={**self._collection.metadata, **patch}
-                        )
-                    except Exception:
-                        pass
+                # 加载已有索引和数据
+                await self._load_existing(stored_dim)
+                # 补全元数据
+                if not stored_model or (not stored_dim and self._embedding_dimensions):
+                    self._save_meta()
 
-            # 标记可用（迁移成功或无需迁移）
             self._is_available = True
 
+            count = self._count_db()
             logger.info(
-                f"L2 记忆库初始化成功，collection: {collection_name}，"
-                f"距离空间: {self._distance_space}，"
+                f"L2 记忆库初始化成功，persona: {self._persona_id}，"
                 f"嵌入来源: {self._embedding_source}，"
                 f"嵌入模型: {self._actual_embedding_model}，"
                 f"维度: {self._embedding_dimensions}，"
-                f"当前条目数: {self._collection.count()}"
+                f"当前条目数: {count}"
             )
 
         except ImportError as e:
@@ -443,164 +236,133 @@ class L2MemoryAdapter(Component):
             self._is_available = False
             self._init_error = f"L2 记忆库初始化失败：{e}"
 
-    async def _migrate_on_model_change(
-        self, new_model: str, new_dim: int, collection_name: str
-    ) -> bool:
-        """嵌入模型或维度变更时自动迁移数据
+    async def _load_existing(self, stored_dim: int) -> None:
+        """加载已有的 FAISS 索引和 SQLite 数据库"""
+        import faiss
 
-        流程：
-        1. 导出所有现有记忆到临时文件
-        2. 删除旧 collection
-        3. 用新嵌入模型创建新 collection
-        4. 从临时文件重新导入记忆（新模型会重新计算向量）
-        5. 清理临时文件
+        db_path = self._persist_dir / "metadata.db"
+        self._db = self._open_db(db_path)
 
-        Args:
-            new_model: 新嵌入模型名
-            new_dim: 新嵌入维度
-            collection_name: collection 名称
+        index_path = self._persist_dir / "index.faiss"
+        if index_path.exists() and self._count_db() > 0:
+            self._index = faiss.read_index(str(index_path))
+            actual_dim = self._index.d
+            if stored_dim and actual_dim != stored_dim:
+                logger.warning(
+                    f"FAISS 索引维度({actual_dim})与元数据记录({stored_dim})不一致，"
+                    f"以索引为准"
+                )
+            self._embedding_dimensions = actual_dim
+        else:
+            self._index = self._create_index(self._embedding_dimensions)
 
-        Returns:
-            迁移是否成功
-        """
-        from .io import MemoryExporter, MemoryImporter
+        # 加载 free-list
+        meta = self._load_meta()
+        self._free_list = meta.get("free_list", [])
 
-        old_count = self._collection.count()
-        if old_count == 0:
-            logger.info("集合为空，无需迁移数据")
+    async def _detect_dimensions(self) -> int:
+        """通过试算检测嵌入维度"""
+        try:
+            vecs = await self._embed(["test"])
+            return len(vecs[0])
+        except Exception:
+            return 384
+
+    def _create_index(self, dim: int):
+        """创建 FAISS IndexIDMap(IndexFlatIP) 索引"""
+        import faiss
+
+        base = faiss.IndexFlatIP(dim)
+        return faiss.IndexIDMap(base)
+
+    def _open_db(self, path: Path) -> sqlite3.Connection:
+        """打开 SQLite 数据库并确保表结构"""
+        db = sqlite3.connect(str(path), check_same_thread=False)
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA foreign_keys = ON")
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS memories (
+                faiss_idx INTEGER PRIMARY KEY,
+                memory_id TEXT UNIQUE NOT NULL,
+                content TEXT NOT NULL,
+                metadata TEXT NOT NULL DEFAULT '{}',
+                group_id TEXT,
+                user_id TEXT,
+                timestamp TEXT,
+                kg_processed INTEGER DEFAULT 0
+            )
+        """)
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memories_group_id ON memories(group_id)"
+        )
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memories_user_id ON memories(user_id)"
+        )
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memories_kg_processed ON memories(kg_processed)"
+        )
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memories_timestamp ON memories(timestamp)"
+        )
+        db.commit()
+        return db
+
+    def _load_meta(self) -> Dict[str, Any]:
+        """加载 index_meta.json"""
+        meta_path = self._persist_dir / "index_meta.json"
+        if meta_path.exists():
             try:
-                patch = {
-                    **self._collection.metadata,
-                    "embedding_model": new_model,
-                }
-                if new_dim:
-                    patch["embedding_dimensions"] = new_dim
-                self._collection.modify(metadata=patch)
+                return json.loads(meta_path.read_text(encoding="utf-8"))
             except Exception:
                 pass
-            return True
+        return {}
 
-        logger.info(
-            f"开始迁移 {old_count} 条记忆"
-            f"（模型: {new_model}，维度: {new_dim}）"
+    def _save_meta(self) -> None:
+        """保存 index_meta.json"""
+        meta = {
+            "version": 1,
+            "embedding_model": self._actual_embedding_model,
+            "embedding_dimensions": self._embedding_dimensions,
+            "persona_id": self._persona_id,
+            "free_list": self._free_list,
+        }
+        meta_path = self._persist_dir / "index_meta.json"
+        meta_path.write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
-        backup_path = self._persist_dir / f"_migration_backup_{collection_name}.json"
+    async def shutdown(self) -> None:
+        if self._dirty and self._index is not None:
+            try:
+                import faiss
 
-        try:
-            # 1. 导出所有记忆
-            exporter = MemoryExporter(self)
-            export_stats = await exporter.export_all(backup_path)
-            logger.info(
-                f"迁移步骤 1/4：导出完成，"
-                f"共 {export_stats.total_count} 条，导出 {export_stats.exported_count} 条"
-            )
+                faiss.write_index(self._index, str(self._persist_dir / "index.faiss"))
+                self._save_meta()
+                logger.info("FAISS 索引已保存")
+            except Exception as e:
+                logger.error(f"保存 FAISS 索引失败：{e}")
 
-            if export_stats.exported_count == 0:
-                logger.warning("导出 0 条记忆，跳过迁移")
-                backup_path.unlink(missing_ok=True)
-                return False
+        if self._db:
+            try:
+                self._db.close()
+            except Exception:
+                pass
 
-            # 2. 删除旧 collection
-            deleted = await self.delete_collection()
-            if not deleted:
-                logger.error("迁移步骤 2/4：删除旧 collection 失败")
-                return False
-            logger.info("迁移步骤 2/4：已删除旧 collection")
+        self._index = None
+        self._db = None
+        self._embedding_provider = None
+        self._local_model = None
+        self._actual_embedding_model = ""
+        self._embedding_source = "provider"
+        self._reset_state()
+        logger.info("L2 记忆库已关闭")
 
-            # 3. 创建新 collection（使用新嵌入模型）
-            new_metadata = {
-                "hnsw:space": "cosine",
-                "persona_id": self._persona_id,
-                "embedding_model": new_model,
-            }
-            if new_dim:
-                new_metadata["embedding_dimensions"] = new_dim
-            loop = asyncio.get_event_loop()
-            self._collection = await loop.run_in_executor(
-                None,
-                lambda: self._client.get_or_create_collection(
-                    name=collection_name,
-                    metadata=new_metadata,
-                    embedding_function=self._embedding_func,
-                ),
-            )
-            self._distance_space = "cosine"
-            logger.info("迁移步骤 3/4：已创建新 collection")
+    # ========================================================================
+    # 嵌入源初始化
+    # ========================================================================
 
-            # 4. 重新导入记忆（新嵌入模型会自动重新计算向量）
-            importer = MemoryImporter(self)
-            import_stats = await importer.import_from_file(
-                backup_path, skip_duplicates=False
-            )
-            logger.info(
-                f"迁移步骤 4/4：导入完成，"
-                f"共 {import_stats.total_count} 条，导入 {import_stats.imported_count} 条，"
-                f"跳过 {import_stats.skipped_count} 条，错误 {import_stats.error_count} 条"
-            )
-
-            # 5. 清理临时文件
-            backup_path.unlink(missing_ok=True)
-
-            success = import_stats.imported_count > 0
-            if success:
-                logger.info(
-                    f"迁移成功：{export_stats.exported_count} -> {import_stats.imported_count} 条"
-                )
-            else:
-                logger.error("迁移后导入 0 条记忆，迁移失败")
-
-            return success
-
-        except Exception as e:
-            logger.error(f"迁移过程异常：{e}", exc_info=True)
-
-            # 尝试恢复：如果备份文件存在且 collection 已被删除，重新创建并导入
-            if self._collection is None and backup_path.exists():
-                try:
-                    recovery_metadata = {
-                        "hnsw:space": "cosine",
-                        "persona_id": self._persona_id,
-                        "embedding_model": new_model,
-                    }
-                    if new_dim:
-                        recovery_metadata["embedding_dimensions"] = new_dim
-                    loop = asyncio.get_event_loop()
-                    self._collection = await loop.run_in_executor(
-                        None,
-                        lambda: self._client.get_or_create_collection(
-                            name=collection_name,
-                            metadata=recovery_metadata,
-                            embedding_function=self._embedding_func,
-                        ),
-                    )
-                    importer = MemoryImporter(self)
-                    await importer.import_from_file(backup_path, skip_duplicates=False)
-                    logger.info("已从备份恢复数据")
-                except Exception as restore_err:
-                    logger.error(f"恢复数据失败：{restore_err}", exc_info=True)
-
-            # 清理临时文件
-            backup_path.unlink(missing_ok=True)
-            return False
-
-    def _create_client(self):
-        """创建 ChromaDB 客户端（同步方法）
-
-        Returns:
-            ChromaDB 客户端实例
-        """
-        return _chromadb.PersistentClient(path=str(self._persist_dir))
-
-    async def _create_provider_embedding(self, config) -> tuple:
-        """创建基于 AstrBot EmbeddingProvider 的嵌入函数
-
-        Args:
-            config: 配置实例
-
-        Returns:
-            (embedding_function, model_identifier, dimensions) 元组
-        """
+    def _init_provider_embedding(self, config) -> None:
+        """初始化 AstrBot Embedding Provider 嵌入源"""
         provider_id = config.get("l2_memory.embedding_provider", "")
         provider = None
 
@@ -609,28 +371,17 @@ class L2MemoryAdapter(Component):
             if not provider:
                 logger.warning(
                     f"指定的 Embedding Provider '{provider_id}' 不可用，"
-                    f"请检查 ID 是否正确（可在 AstrBot「模型」页面查看）"
+                    f"请检查 ID 是否正确"
                 )
 
         if not provider:
             provider = self._get_first_embedding_provider()
 
         if not provider:
-            logger.warning(
-                "未找到可用的 AstrBot Embedding Provider，"
-                "尝试降级到本地 sentence-transformers 模型\n"
+            raise ImportError(
+                "未找到可用的 AstrBot Embedding Provider\n"
                 "  → 建议：在 AstrBot「模型」页面添加 Embedding 类型的 Provider"
             )
-            embedding_model = config.get(
-                "l2_memory.embedding_model", "BAAI/bge-small-zh-v1.5"
-            )
-            loop = asyncio.get_event_loop()
-            func, model = await loop.run_in_executor(
-                None, lambda: _create_embedding_function(embedding_model)
-            )
-            return func, model, SUPPORTED_EMBEDDING_MODELS.get(
-                model, {}
-            ).get("dimensions", 0)
 
         model_name = getattr(provider, "model_name", None)
         if not model_name and hasattr(provider, "meta"):
@@ -648,18 +399,73 @@ class L2MemoryAdapter(Component):
             f"模型: {model_name}，维度: {dim}"
         )
 
-        func = AstrBotEmbeddingFunction(provider, provider_id)
-        return func, f"provider:{provider_id}/{model_name}", dim
+        self._embedding_provider = provider
+        self._actual_embedding_model = f"provider:{provider_id}/{model_name}"
+        self._embedding_dimensions = dim
+
+    async def _init_local_embedding(self, config) -> None:
+        """初始化本地 sentence-transformers 嵌入源"""
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError:
+            raise ImportError(
+                "sentence-transformers 未安装。"
+                "请在 AstrBot 管理面板安装插件依赖，"
+                "或将嵌入来源切换为 Provider 模式"
+            )
+
+        model_name = config.get(
+            "l2_memory.embedding_model", "BAAI/bge-small-zh-v1.5"
+        )
+        model_info = SUPPORTED_EMBEDDING_MODELS.get(model_name)
+        dim = model_info["dimensions"] if model_info else 0
+
+        if model_info:
+            logger.info(
+                f"加载嵌入模型：{model_name} "
+                f"(维度={model_info['dimensions']}, "
+                f"大小≈{model_info['size_mb']}MB, "
+                f"{model_info['description']})"
+            )
+        else:
+            logger.info(f"加载自定义嵌入模型：{model_name}")
+
+        import os
+
+        try:
+            loop = asyncio.get_event_loop()
+            self._local_model = await loop.run_in_executor(
+                None, lambda: SentenceTransformer(model_name)
+            )
+        except Exception as first_err:
+            logger.warning(f"加载嵌入模型 {model_name} 失败：{first_err}，尝试离线模式...")
+            old_offline = os.environ.get("HF_HUB_OFFLINE")
+            try:
+                os.environ["HF_HUB_OFFLINE"] = "1"
+                self._local_model = await loop.run_in_executor(
+                    None, lambda: SentenceTransformer(model_name)
+                )
+                logger.info(f"离线模式加载嵌入模型 {model_name} 成功")
+            except Exception as offline_err:
+                raise ImportError(
+                    f"加载嵌入模型 {model_name} 失败"
+                    f"（在线：{first_err}，离线：{offline_err}）。"
+                    f"请确保模型已下载，或切换为 Provider 模式"
+                )
+            finally:
+                if old_offline is not None:
+                    os.environ["HF_HUB_OFFLINE"] = old_offline
+                else:
+                    os.environ.pop("HF_HUB_OFFLINE", None)
+
+        # 如果没有预知维度，从模型推断
+        if not dim:
+            dim = self._local_model.get_sentence_embedding_dimension()
+
+        self._actual_embedding_model = model_name
+        self._embedding_dimensions = dim
 
     def _get_embedding_provider_by_id(self, provider_id: str):
-        """通过 ID 获取 Embedding Provider 实例
-
-        Args:
-            provider_id: Provider ID
-
-        Returns:
-            Provider 实例，不可用时返回 None
-        """
         try:
             if hasattr(self._context, "get_provider_by_id"):
                 provider = self._context.get_provider_by_id(provider_id)
@@ -677,11 +483,6 @@ class L2MemoryAdapter(Component):
         return None
 
     def _get_first_embedding_provider(self):
-        """获取第一个可用的 Embedding Provider
-
-        Returns:
-            Provider 实例，不可用时返回 None
-        """
         try:
             if hasattr(self._context, "provider_manager"):
                 pm = self._context.provider_manager
@@ -697,18 +498,32 @@ class L2MemoryAdapter(Component):
             logger.debug(f"获取 Embedding Provider 失败: {e}")
         return None
 
-    async def shutdown(self) -> None:
-        """关闭适配器
+    # ========================================================================
+    # 嵌入计算
+    # ========================================================================
 
-        清理资源。
-        """
-        self._client = None
-        self._collection = None
-        self._embedding_func = None
-        self._actual_embedding_model = ""
-        self._embedding_source = "provider"
-        self._reset_state()
-        logger.info("L2 记忆库已关闭")
+    async def _embed(self, texts: list[str]) -> list[list[float]]:
+        """计算文本嵌入向量并 L2 归一化"""
+        if self._embedding_source == "provider" and self._embedding_provider:
+            vectors = await self._embedding_provider.get_embeddings(texts)
+        elif self._local_model:
+            loop = asyncio.get_event_loop()
+            vectors = await loop.run_in_executor(
+                None, lambda: self._local_model.encode(texts).tolist()
+            )
+        else:
+            raise RuntimeError("没有可用的嵌入源")
+
+        # L2 归一化，使内积 = 余弦相似度
+        normalized = []
+        for v in vectors:
+            arr = np.array(v, dtype=np.float32)
+            norm = np.linalg.norm(arr)
+            if norm > 0:
+                arr = arr / norm
+            normalized.append(arr.tolist())
+
+        return normalized
 
     # ========================================================================
     # 记忆存储
@@ -720,34 +535,13 @@ class L2MemoryAdapter(Component):
         metadata: Optional[Dict[str, Any]] = None,
         skip_dedup: bool = False,
     ) -> Optional[str]:
-        """添加记忆到库中
-
-        包含去重检查，相似度超过阈值则跳过。
-
-        Args:
-            content: 记忆内容
-            metadata: 元数据（group_id、user_id 等）
-            skip_dedup: 跳过去重检查（用于合并任务等已知无重复的场景）
-
-        Returns:
-            记忆 ID，跳过时返回已有记忆的 ID
-
-        Examples:
-            >>> await adapter.add_memory(
-            ...     "用户喜欢吃苹果",
-            ...     metadata={"group_id": "group_123"}
-            ... )
-            "mem_abc123"
-        """
         if not self._is_available:
             logger.warning("L2 记忆库不可用，跳过添加记忆")
             return None
 
-        # 准备元数据
         if metadata is None:
             metadata = {}
 
-        # 确保必要字段
         if "timestamp" not in metadata:
             metadata["timestamp"] = datetime.now().isoformat()
         if "access_count" not in metadata:
@@ -758,25 +552,34 @@ class L2MemoryAdapter(Component):
             metadata["last_access_time"] = datetime.now().isoformat()
 
         try:
-            # 去重检查
             if not skip_dedup:
                 existing_id = await self._check_similarity(content)
                 if existing_id:
                     logger.debug(f"发现相似记忆，跳过存储：{content[:50]}...")
                     return existing_id
 
-            # 生成记忆 ID
             memory_id = f"mem_{uuid.uuid4().hex[:12]}"
 
-            # 存储到 ChromaDB（在线程池中执行）
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: self._collection.add(
-                    ids=[memory_id], documents=[content], metadatas=[metadata]
-                ),
+            # 计算嵌入
+            vectors = await self._embed([content])
+            vector = vectors[0]
+
+            # 分配 FAISS 槽位
+            if self._free_list:
+                faiss_idx = self._free_list.pop(0)
+            else:
+                faiss_idx = self._index.ntotal
+
+            # 添加到 FAISS
+            self._index.add_with_ids(
+                np.array([vector], dtype=np.float32),
+                np.array([faiss_idx], dtype=np.int64),
             )
 
+            # 添加到 SQLite
+            self._upsert_db(faiss_idx, memory_id, content, metadata)
+
+            self._dirty = True
             logger.debug(f"已添加记忆：{memory_id}")
             return memory_id
 
@@ -785,36 +588,28 @@ class L2MemoryAdapter(Component):
             return None
 
     async def _check_similarity(self, content: str) -> Optional[str]:
-        """检查相似记忆
-
-        检索最相似的记忆，如果相似度超过阈值则返回其 ID。
-
-        Args:
-            content: 待检查的内容
-
-        Returns:
-            相似记忆的 ID，不存在时返回 None
-        """
         try:
-            loop = asyncio.get_event_loop()
+            vectors = await self._embed([content])
+            vector = np.array([vectors[0]], dtype=np.float32)
 
-            # 检索最相似的 1 条记忆
-            results = await loop.run_in_executor(
-                None, lambda: self._collection.query(query_texts=[content], n_results=1)
-            )
+            if self._index.ntotal == 0:
+                return None
 
-            # 检查距离
-            if results["distances"] and results["distances"][0]:
-                distance = results["distances"][0][0]
-                if self._distance_space == "cosine":
-                    is_duplicate = distance < (1 - self._similarity_threshold)
-                else:
-                    is_duplicate = distance < 2 * (1 - self._similarity_threshold)
-                if is_duplicate:
-                    return results["ids"][0][0]
+            scores, indices = self._index.search(vector, 1)
+            if indices[0][0] < 0:
+                return None
+
+            score = float(scores[0][0])
+            if score >= self._similarity_threshold:
+                faiss_idx = int(indices[0][0])
+                row = self._db_execute(
+                    "SELECT memory_id FROM memories WHERE faiss_idx = ?",
+                    (faiss_idx,),
+                ).fetchone()
+                if row:
+                    return row[0]
 
             return None
-
         except Exception as e:
             logger.warning(f"相似度检查失败：{e}")
             return None
@@ -826,28 +621,6 @@ class L2MemoryAdapter(Component):
     async def retrieve(
         self, query: str, group_id: Optional[str] = None, top_k: int = 10
     ) -> List[MemorySearchResult]:
-        """检索记忆
-
-        根据查询文本检索相似记忆，支持群聊隔离筛选。
-        设置超时保护，超时后返回空列表。
-
-        Args:
-            query: 查询文本
-            group_id: 群聊 ID（可选，用于隔离检索）
-            top_k: 返回数量
-
-        Returns:
-            检索结果列表，超时或失败时返回空列表
-
-        Examples:
-            >>> results = await adapter.retrieve(
-            ...     "喜欢吃什么",
-            ...     group_id="group_123",
-            ...     top_k=5
-            ... )
-            >>> len(results)
-            5
-        """
         if not self._is_available:
             return []
 
@@ -856,16 +629,18 @@ class L2MemoryAdapter(Component):
         timeout_sec = timeout_ms / 1000.0
 
         try:
-            # 设置超时保护
+            # 在主线程中计算嵌入（provider 模式避免 asyncio.run 开销）
+            vector = await self._embed([query])
+            vector_np = np.array([vector[0]], dtype=np.float32)
+
             loop = asyncio.get_event_loop()
             results = await asyncio.wait_for(
                 loop.run_in_executor(
-                    None, lambda: self._search(query, group_id, top_k)
+                    None, lambda: self._search_with_vector(vector_np, group_id, top_k)
                 ),
                 timeout=timeout_sec,
             )
             return results
-
         except asyncio.TimeoutError:
             logger.warning(f"L2 记忆检索超时（{timeout_sec}s），跳过")
             return []
@@ -873,138 +648,121 @@ class L2MemoryAdapter(Component):
             logger.error(f"L2 记忆检索失败：{e}", exc_info=True)
             return []
 
-    def _search(
-        self, query: str, group_id: Optional[str], top_k: int
+    def _search_with_vector(
+        self, vector: np.ndarray, group_id: Optional[str], top_k: int
     ) -> List[MemorySearchResult]:
-        """执行检索（同步方法）
-
-        Args:
-            query: 查询文本
-            group_id: 群聊 ID
-            top_k: 返回数量
-
-        Returns:
-            检索结果列表
-        """
-        # 准备查询参数
-        query_params = {"query_texts": [query], "n_results": top_k}
-
-        # 群聊隔离筛选
-        if group_id:
-            query_params["where"] = {"group_id": group_id}
-
-        # 执行查询
-        results = self._collection.query(**query_params)
-
-        # 转换结果
-        search_results = []
-        if results["ids"] and results["ids"][0]:
-            for i, memory_id in enumerate(results["ids"][0]):
-                entry = MemoryEntry(
-                    id=memory_id,
-                    content=results["documents"][0][i],
-                    metadata=results["metadatas"][0][i] if results["metadatas"] else {},
-                    embedding=results["embeddings"][0][i]
-                    if results.get("embeddings")
-                    else None,
-                )
-
-                # 计算相似度分数
-                distance = results["distances"][0][i] if results["distances"] else 0.0
-                if self._distance_space == "cosine":
-                    score = max(0.0, 1.0 - distance)
-                else:
-                    score = max(0.0, 1.0 - distance / 2)
-
-                search_results.append(
-                    MemorySearchResult(entry=entry, score=score, distance=distance)
-                )
-
-        return search_results
-
-    def _batch_search(
-        self, queries: List[str], group_id: Optional[str], top_k: int
-    ) -> List[List[MemorySearchResult]]:
-        """执行批量检索（同步方法）
-
-        利用 ChromaDB 原生 batch query 一次查询多条文本，
-        比逐条调用 _search 显著减少嵌入计算和 HNSW 搜索开销。
-
-        Args:
-            queries: 查询文本列表
-            group_id: 群聊 ID（可选，对所有查询生效）
-            top_k: 每个查询返回的数量
-
-        Returns:
-            每个查询的检索结果列表
-        """
-        if not queries:
+        if self._index.ntotal == 0:
             return []
 
-        query_params: Dict[str, Any] = {"query_texts": queries, "n_results": top_k}
+        # IndexFlatIP 是暴力搜索，成本与 k 无关（总是全量扫描），
+        # 所以 k 取 max(group_count, top_k) 确保过滤后有足够结果
+        if group_id:
+            row = self._db_execute(
+                "SELECT COUNT(*) FROM memories WHERE group_id = ?", (group_id,)
+            ).fetchone()
+            group_count = row[0]
+            if group_count == 0:
+                return []
+            n_probe = min(max(group_count, top_k), self._index.ntotal)
+        else:
+            n_probe = min(top_k, self._index.ntotal)
+
+        scores, indices = self._index.search(vector, n_probe)
+
+        results = []
+        for i in range(len(indices[0])):
+            faiss_idx = int(indices[0][i])
+            if faiss_idx < 0:
+                continue
+
+            score = float(scores[0][i])
+            row = self._db_execute(
+                "SELECT memory_id, content, metadata, group_id FROM memories WHERE faiss_idx = ?",
+                (faiss_idx,),
+            ).fetchone()
+
+            if not row:
+                continue
+
+            row_memory_id, row_content, row_metadata_json, row_group_id = row
+
+            if group_id and row_group_id != group_id:
+                continue
+
+            entry = MemoryEntry(
+                id=row_memory_id,
+                content=row_content,
+                metadata=json.loads(row_metadata_json),
+            )
+            results.append(
+                MemorySearchResult(entry=entry, score=score, distance=1.0 - score)
+            )
+
+            if len(results) >= top_k:
+                break
+
+        return results
+
+    def _batch_search_with_vectors(
+        self, vector_matrix: np.ndarray, group_id: Optional[str], top_k: int
+    ) -> List[List[MemorySearchResult]]:
+        if self._index.ntotal == 0:
+            return [[] for _ in range(len(vector_matrix))]
 
         if group_id:
-            query_params["where"] = {"group_id": group_id}
+            row = self._db_execute(
+                "SELECT COUNT(*) FROM memories WHERE group_id = ?", (group_id,)
+            ).fetchone()
+            group_count = row[0]
+            if group_count == 0:
+                return [[] for _ in queries]
+            n_probe = min(max(group_count, top_k), self._index.ntotal)
+        else:
+            n_probe = min(top_k, self._index.ntotal)
 
-        results = self._collection.query(**query_params)
+        all_scores, all_indices = self._index.search(vector_matrix, n_probe)
 
         all_results: List[List[MemorySearchResult]] = []
-        for i in range(len(queries)):
-            search_results: List[MemorySearchResult] = []
-            if results["ids"] and i < len(results["ids"]) and results["ids"][i]:
-                for j in range(len(results["ids"][i])):
-                    entry = MemoryEntry(
-                        id=results["ids"][i][j],
-                        content=results["documents"][i][j],
-                        metadata=(
-                            results["metadatas"][i][j]
-                            if results.get("metadatas") and results["metadatas"][i]
-                            else {}
-                        ),
-                    )
+        for q_idx in range(len(queries)):
+            results: List[MemorySearchResult] = []
+            for i in range(len(all_indices[q_idx])):
+                faiss_idx = int(all_indices[q_idx][i])
+                if faiss_idx < 0:
+                    continue
 
-                    distance = (
-                        results["distances"][i][j]
-                        if results.get("distances") and results["distances"][i]
-                        else 0.0
-                    )
-                    if self._distance_space == "cosine":
-                        score = max(0.0, 1.0 - distance)
-                    else:
-                        score = max(0.0, 1.0 - distance / 2)
+                score = float(all_scores[q_idx][i])
+                row = self._db_execute(
+                    "SELECT memory_id, content, metadata, group_id FROM memories WHERE faiss_idx = ?",
+                    (faiss_idx,),
+                ).fetchone()
 
-                    search_results.append(
-                        MemorySearchResult(entry=entry, score=score, distance=distance)
-                    )
-            all_results.append(search_results)
+                if not row:
+                    continue
+
+                row_memory_id, row_content, row_metadata_json, row_group_id = row
+
+                if group_id and row_group_id != group_id:
+                    continue
+
+                entry = MemoryEntry(
+                    id=row_memory_id,
+                    content=row_content,
+                    metadata=json.loads(row_metadata_json),
+                )
+                results.append(
+                    MemorySearchResult(entry=entry, score=score, distance=1.0 - score)
+                )
+
+                if len(results) >= top_k:
+                    break
+
+            all_results.append(results)
 
         return all_results
 
     async def batch_retrieve(
         self, queries: List[str], group_id: Optional[str] = None, top_k: int = 10
     ) -> List[List[MemorySearchResult]]:
-        """批量检索记忆
-
-        一次提交多条查询文本，利用 ChromaDB 原生 batch query
-        减少嵌入计算和索引搜索的重复开销。
-
-        Args:
-            queries: 查询文本列表
-            group_id: 群聊 ID（可选，对所有查询生效）
-            top_k: 每个查询返回的数量
-
-        Returns:
-            每个查询的检索结果列表，失败时对应位置返回空列表
-
-        Examples:
-            >>> results = await adapter.batch_retrieve(
-            ...     queries=["喜欢吃什么", "兴趣爱好"],
-            ...     group_id="group_123",
-            ...     top_k=5
-            ... )
-            >>> len(results)
-            2
-        """
         if not self._is_available or not queries:
             return [[] for _ in queries]
 
@@ -1013,15 +771,22 @@ class L2MemoryAdapter(Component):
         timeout_sec = base_timeout_ms / 1000.0 * max(1, len(queries) // 10 + 1)
 
         try:
+            # 在主线程中计算嵌入（provider 模式避免 asyncio.run 开销）
+            vectors = await self._embed(queries)
+            vector_matrix = np.array(vectors, dtype=np.float32)
+            # L2 归一化
+            norms = np.linalg.norm(vector_matrix, axis=1, keepdims=True)
+            norms = np.where(norms > 0, norms, 1.0)
+            vector_matrix = vector_matrix / norms
+
             loop = asyncio.get_event_loop()
             results = await asyncio.wait_for(
                 loop.run_in_executor(
-                    None, lambda: self._batch_search(queries, group_id, top_k)
+                    None, lambda: self._batch_search_with_vectors(vector_matrix, group_id, top_k)
                 ),
                 timeout=timeout_sec,
             )
             return results
-
         except asyncio.TimeoutError:
             logger.warning(
                 f"批量检索超时（{timeout_sec:.1f}s），跳过 {len(queries)} 条查询"
@@ -1036,69 +801,166 @@ class L2MemoryAdapter(Component):
     # ========================================================================
 
     async def update_access(self, memory_id: str) -> bool:
-        """更新记忆的访问信息
-
-        增加访问次数并更新最近访问时间。
-
-        Args:
-            memory_id: 记忆 ID
-
-        Returns:
-            是否更新成功
-
-        Note:
-            ChromaDB 不支持直接更新 metadata，需要先删除再添加。
-            此方法暂时不实现，在阶段 6 定时任务中统一处理。
-        """
         if not self._is_available:
             return False
 
         try:
-            # ChromaDB 不支持直接更新 metadata，需要先删除再添加
-            # 1. 查询旧记录
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: self._collection.get(
-                    ids=[memory_id], include=["embeddings", "metadatas", "documents"]
+            with self._db_lock:
+                row = self._db.execute(
+                    "SELECT metadata FROM memories WHERE memory_id = ?", (memory_id,)
+                ).fetchone()
+
+                if not row:
+                    logger.warning(f"记忆不存在：{memory_id}")
+                    return False
+
+                metadata = json.loads(row[0])
+                metadata["access_count"] = metadata.get("access_count", 0) + 1
+                metadata["last_access_time"] = datetime.now().isoformat()
+
+                self._db.execute(
+                    "UPDATE memories SET metadata = ? WHERE memory_id = ?",
+                    (json.dumps(metadata, ensure_ascii=False), memory_id),
+                )
+                self._db.commit()
+            logger.debug(f"记忆访问更新成功：{memory_id}")
+            return True
+        except Exception as e:
+            logger.error(f"更新记忆访问失败：{e}", exc_info=True)
+            return False
+
+    # ========================================================================
+    # 内容与元数据更新
+    # ========================================================================
+
+    async def update_metadata(self, memory_id: str, metadata: Dict[str, Any]) -> bool:
+        if not self._is_available or not memory_id:
+            return False
+
+        try:
+            group_id = metadata.get("group_id")
+            user_id = metadata.get("user_id")
+            timestamp = metadata.get("timestamp")
+            kg_processed = 1 if metadata.get("kg_processed") else 0
+
+            self._db_write(
+                "UPDATE memories SET metadata = ?, group_id = ?, user_id = ?, timestamp = ?, kg_processed = ? WHERE memory_id = ?",
+                (
+                    json.dumps(metadata, ensure_ascii=False),
+                    group_id,
+                    user_id,
+                    timestamp,
+                    kg_processed,
+                    memory_id,
                 ),
             )
+            return True
+        except Exception as e:
+            logger.error(f"更新元数据失败：{e}", exc_info=True)
+            return False
 
-            if not result["ids"]:
+    async def update_content(self, memory_id: str, new_content: str) -> bool:
+        if not self._is_available or not memory_id:
+            return False
+
+        try:
+            row = self._db_execute(
+                "SELECT faiss_idx, metadata FROM memories WHERE memory_id = ?",
+                (memory_id,),
+            ).fetchone()
+
+            if not row:
                 logger.warning(f"记忆不存在：{memory_id}")
                 return False
 
-            # 2. 提取旧数据
-            old_embedding = result["embeddings"][0]
-            old_metadata = result["metadatas"][0]
-            old_document = result["documents"][0]
+            faiss_idx, metadata_json = row
+            metadata = json.loads(metadata_json)
+            metadata["timestamp"] = datetime.now().isoformat()
 
-            # 3. 更新 metadata
-            access_count = old_metadata.get("access_count", 0) + 1
-            old_metadata["access_count"] = access_count
-            old_metadata["last_access_time"] = datetime.now().isoformat()
+            # 重新计算嵌入
+            vectors = await self._embed([new_content])
+            new_vector = np.array([vectors[0]], dtype=np.float32)
 
-            # 4. 删除旧记录
-            await loop.run_in_executor(
-                None, lambda: self._collection.delete(ids=[memory_id])
-            )
+            # 替换 FAISS 中的向量：先移除再添加
+            self._index.remove_ids(np.array([faiss_idx], dtype=np.int64))
+            self._index.add_with_ids(new_vector, np.array([faiss_idx], dtype=np.int64))
 
-            # 5. 添加新记录（使用相同的 ID）
-            await loop.run_in_executor(
-                None,
-                lambda: self._collection.add(
-                    ids=[memory_id],
-                    embeddings=[old_embedding],
-                    metadatas=[old_metadata],
-                    documents=[old_document],
-                ),
-            )
+            # 更新 SQLite
+            self._upsert_db(faiss_idx, memory_id, new_content, metadata)
 
-            logger.debug(f"记忆访问更新成功：{memory_id}，访问次数：{access_count}")
+            self._dirty = True
+            logger.info(f"已更新记忆内容：{memory_id}")
             return True
-
         except Exception as e:
-            logger.error(f"更新记忆访问失败：{e}", exc_info=True)
+            logger.error(f"更新记忆内容失败：{e}", exc_info=True)
+            return False
+
+    # ========================================================================
+    # 删除操作
+    # ========================================================================
+
+    async def delete_entries(self, memory_ids: List[str]) -> bool:
+        if not self._is_available or not memory_ids:
+            return False
+
+        try:
+            with self._db_lock:
+                # 获取对应的 faiss_idx
+                placeholders = ",".join("?" for _ in memory_ids)
+                rows = self._db.execute(
+                    f"SELECT faiss_idx FROM memories WHERE memory_id IN ({placeholders})",
+                    memory_ids,
+                ).fetchall()
+
+                if not rows:
+                    return False
+
+                faiss_indices = [row[0] for row in rows]
+
+                # 从 FAISS 移除
+                self._index.remove_ids(np.array(faiss_indices, dtype=np.int64))
+
+                # 加入 free-list
+                self._free_list.extend(faiss_indices)
+                self._free_list.sort()
+
+                # 从 SQLite 删除
+                self._db.execute(
+                    f"DELETE FROM memories WHERE memory_id IN ({placeholders})",
+                    memory_ids,
+                )
+                self._db.commit()
+
+            self._dirty = True
+            logger.info(f"已删除 {len(faiss_indices)} 条记忆")
+            return True
+        except Exception as e:
+            logger.error(f"删除记忆失败：{e}", exc_info=True)
+            return False
+
+    async def delete_collection(self) -> bool:
+        if self._persist_dir is None:
+            return False
+
+        try:
+            # 关闭数据库
+            if self._db:
+                self._db.close()
+                self._db = None
+
+            # 删除所有文件
+            import shutil
+
+            if self._persist_dir.exists():
+                shutil.rmtree(self._persist_dir)
+
+            self._index = None
+            self._free_list = []
+            self._dirty = False
+            logger.info(f"已删除 collection: {self._persona_id}")
+            return True
+        except Exception as e:
+            logger.error(f"删除 collection 失败：{e}", exc_info=True)
             return False
 
     # ========================================================================
@@ -1106,459 +968,220 @@ class L2MemoryAdapter(Component):
     # ========================================================================
 
     async def get_entry_count(self) -> int:
-        """获取当前记忆条目数
-
-        Returns:
-            记忆条目数量
-        """
-        if not self._is_available or not self._collection:
+        if not self._is_available or not self._db:
             return 0
-
         try:
-            return self._collection.count()
+            return self._count_db()
         except Exception as e:
             logger.error(f"获取条目数失败：{e}")
             return 0
 
     async def get_all_entries(self) -> List[MemoryEntry]:
-        """获取所有记忆条目
-
-        用于遗忘淘汰任务。
-
-        Returns:
-            所有记忆条目列表
-        """
-        if not self._is_available or not self._collection:
+        if not self._is_available or not self._db:
             return []
 
         try:
-            loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(None, lambda: self._collection.get())
+            rows = self._db_execute(
+                "SELECT memory_id, content, metadata FROM memories"
+            ).fetchall()
 
-            entries = []
-            if results["ids"]:
-                for i, memory_id in enumerate(results["ids"]):
-                    entries.append(
-                        MemoryEntry(
-                            id=memory_id,
-                            content=results["documents"][i],
-                            metadata=results["metadatas"][i]
-                            if results["metadatas"]
-                            else {},
-                        )
-                    )
-
-            return entries
-
+            return [
+                MemoryEntry(
+                    id=row[0],
+                    content=row[1],
+                    metadata=json.loads(row[2]),
+                )
+                for row in rows
+            ]
         except Exception as e:
             logger.error(f"获取所有条目失败：{e}")
             return []
 
-    async def delete_entries(self, memory_ids: List[str]) -> bool:
-        """批量删除记忆条目
-
-        Args:
-            memory_ids: 要删除的记忆 ID 列表
-
-        Returns:
-            是否删除成功
-        """
-        if not self._is_available or not memory_ids:
-            return False
-
-        try:
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None, lambda: self._collection.delete(ids=memory_ids)
-            )
-
-            logger.info(f"已删除 {len(memory_ids)} 条记忆")
-            return True
-
-        except Exception as e:
-            logger.error(f"删除记忆失败：{e}", exc_info=True)
-            return False
-
     async def get_entries_by_group(self, group_id: str) -> List[MemoryEntry]:
-        """获取指定群聊的所有记忆条目
-
-        使用 ChromaDB where 过滤，避免全量加载。
-
-        Args:
-            group_id: 群聊 ID
-
-        Returns:
-            该群聊的记忆条目列表
-        """
-        if not self._is_available or not self._collection:
+        if not self._is_available or not self._db:
             return []
 
         try:
-            loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(
-                None,
-                lambda: self._collection.get(where={"group_id": group_id}),
-            )
+            rows = self._db_execute(
+                "SELECT memory_id, content, metadata FROM memories WHERE group_id = ?",
+                (group_id,),
+            ).fetchall()
 
-            entries = []
-            if results["ids"]:
-                for i, memory_id in enumerate(results["ids"]):
-                    entries.append(
-                        MemoryEntry(
-                            id=memory_id,
-                            content=results["documents"][i],
-                            metadata=results["metadatas"][i]
-                            if results["metadatas"]
-                            else {},
-                        )
-                    )
-
-            return entries
-
+            return [
+                MemoryEntry(
+                    id=row[0],
+                    content=row[1],
+                    metadata=json.loads(row[2]),
+                )
+                for row in rows
+            ]
         except Exception as e:
             logger.error(f"获取群聊条目失败：{e}")
             return []
 
     async def get_entries_by_user(self, user_id: str) -> List[MemoryEntry]:
-        """获取指定用户的所有记忆条目
-
-        使用 ChromaDB where 过滤，避免全量加载。
-
-        Args:
-            user_id: 用户 ID
-
-        Returns:
-            该用户的记忆条目列表
-        """
-        if not self._is_available or not self._collection:
+        if not self._is_available or not self._db:
             return []
 
         try:
-            loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(
-                None,
-                lambda: self._collection.get(where={"user_id": user_id}),
-            )
+            rows = self._db_execute(
+                "SELECT memory_id, content, metadata FROM memories WHERE user_id = ?",
+                (user_id,),
+            ).fetchall()
 
-            entries = []
-            if results["ids"]:
-                for i, memory_id in enumerate(results["ids"]):
-                    entries.append(
-                        MemoryEntry(
-                            id=memory_id,
-                            content=results["documents"][i],
-                            metadata=results["metadatas"][i]
-                            if results["metadatas"]
-                            else {},
-                        )
-                    )
-
-            return entries
-
+            return [
+                MemoryEntry(
+                    id=row[0],
+                    content=row[1],
+                    metadata=json.loads(row[2]),
+                )
+                for row in rows
+            ]
         except Exception as e:
             logger.error(f"获取用户条目失败：{e}")
             return []
 
-    async def delete_collection(self) -> bool:
-        """删除当前 collection
-
-        用于重建记忆库时清除旧数据。
-
-        Returns:
-            是否删除成功
-        """
-        if not self._client or not self._collection:
-            return False
-
-        try:
-            collection_name = self._collection.name
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None, lambda: self._client.delete_collection(name=collection_name)
-            )
-            self._collection = None
-            logger.info(f"已删除 collection: {collection_name}")
-            return True
-
-        except Exception as e:
-            logger.error(f"删除 collection 失败：{e}", exc_info=True)
-            return False
-
-    async def update_metadata(self, memory_id: str, metadata: Dict[str, Any]) -> bool:
-        """更新记忆条目的元数据
-
-        Args:
-            memory_id: 记忆 ID
-            metadata: 新的元数据字典
-
-        Returns:
-            是否更新成功
-        """
-        if not self._is_available or not memory_id:
-            return False
-
-        try:
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: self._collection.update(ids=[memory_id], metadatas=[metadata]),
-            )
-            return True
-
-        except Exception as e:
-            logger.error(f"更新元数据失败：{e}", exc_info=True)
-            return False
-
-    async def update_content(self, memory_id: str, new_content: str) -> bool:
-        """更新记忆条目的内容
-
-        ChromaDB 不支持直接更新 document 并重新计算嵌入，
-        因此采用删除旧记录 + 重新添加的策略。
-
-        Args:
-            memory_id: 记忆 ID
-            new_content: 新的记忆内容
-
-        Returns:
-            是否更新成功
-        """
-        if not self._is_available or not memory_id:
-            return False
-
-        try:
-            loop = asyncio.get_event_loop()
-
-            result = await loop.run_in_executor(
-                None,
-                lambda: self._collection.get(
-                    ids=[memory_id], include=["metadatas", "documents"]
-                ),
-            )
-
-            if not result["ids"]:
-                logger.warning(f"记忆不存在：{memory_id}")
-                return False
-
-            old_metadata = result["metadatas"][0]
-
-            await loop.run_in_executor(
-                None, lambda: self._collection.delete(ids=[memory_id])
-            )
-
-            new_metadata = dict(old_metadata)
-            new_metadata["timestamp"] = datetime.now().isoformat()
-
-            await loop.run_in_executor(
-                None,
-                lambda: self._collection.add(
-                    ids=[memory_id],
-                    documents=[new_content],
-                    metadatas=[new_metadata],
-                ),
-            )
-
-            logger.info(f"已更新记忆内容：{memory_id}")
-            return True
-
-        except Exception as e:
-            logger.error(f"更新记忆内容失败：{e}", exc_info=True)
-            return False
-
-    async def evict_memories(self, memory_ids: List[str]) -> int:
-        """淘汰记忆条目（用于定时任务）
-
-        批量删除指定的记忆条目，并记录淘汰日志。
-
-        Args:
-            memory_ids: 要淘汰的记忆 ID 列表
-
-        Returns:
-            实际删除的记忆数量
-
-        Examples:
-            >>> deleted_count = await adapter.evict_memories(["mem_1", "mem_2"])
-            >>> print(deleted_count)
-            2
-        """
-        if not self._is_available or not memory_ids:
-            return 0
-
-        try:
-            # 先获取要删除的记忆内容（用于日志）
-            loop = asyncio.get_event_loop()
-            entries_to_delete = await loop.run_in_executor(
-                None, lambda: self._collection.get(ids=memory_ids)
-            )
-
-            # 执行删除
-            success = await self.delete_entries(memory_ids)
-
-            if success:
-                # 记录淘汰日志
-                if entries_to_delete["documents"]:
-                    logger.info(
-                        f"已淘汰 {len(memory_ids)} 条记忆：\n"
-                        + "\n".join(
-                            f"  - {doc[:100]}..."
-                            for doc in entries_to_delete["documents"][:5]
-                        )
-                    )
-                return len(memory_ids)
-
-            return 0
-
-        except Exception as e:
-            logger.error(f"淘汰记忆失败：{e}", exc_info=True)
-            return 0
-
     async def get_stats(self) -> Dict[str, Any]:
-        """获取 L2 记忆库的统计信息
-
-        Returns:
-            统计信息字典，包含：
-            - total_count: 总记忆数
-            - group_count: 群聊数量
-        """
-        if not self._is_available or not self._collection:
+        if not self._is_available or not self._db:
             return {"total_count": 0, "group_count": 0}
 
         try:
-            loop = asyncio.get_event_loop()
-
-            results = await loop.run_in_executor(None, lambda: self._collection.get())
-
-            total_count = len(results["ids"]) if results["ids"] else 0
-
-            group_ids = set()
-            if results.get("metadatas"):
-                for meta in results["metadatas"]:
-                    if meta and "group_id" in meta:
-                        group_ids.add(meta["group_id"])
-
-            group_count = len(group_ids)
-
-            return {"total_count": total_count, "group_count": group_count}
-
+            row = self._db_execute(
+                "SELECT COUNT(*), COUNT(DISTINCT group_id) FROM memories"
+            ).fetchone()
+            return {"total_count": row[0], "group_count": row[1]}
         except Exception as e:
             logger.error(f"获取L2统计失败：{e}", exc_info=True)
             return {"total_count": 0, "group_count": 0}
 
     async def delete_by_group(self, group_id: str) -> int:
-        """删除指定群聊的所有记忆
-
-        Args:
-            group_id: 群聊ID
-
-        Returns:
-            删除的记忆数量
-        """
         if not self._is_available:
             return 0
 
         try:
-            loop = asyncio.get_event_loop()
+            with self._db_lock:
+                rows = self._db.execute(
+                    "SELECT faiss_idx FROM memories WHERE group_id = ?", (group_id,)
+                ).fetchall()
 
-            results = await loop.run_in_executor(
-                None, lambda: self._collection.get(where={"group_id": group_id})
-            )
+                if not rows:
+                    logger.debug(f"群聊 {group_id} 没有记忆记录")
+                    return 0
 
-            if not results["ids"]:
-                logger.debug(f"群聊 {group_id} 没有记忆记录")
-                return 0
+                faiss_indices = [row[0] for row in rows]
 
-            memory_ids = results["ids"]
-            await loop.run_in_executor(
-                None, lambda: self._collection.delete(ids=memory_ids)
-            )
+                self._index.remove_ids(np.array(faiss_indices, dtype=np.int64))
+                self._free_list.extend(faiss_indices)
+                self._free_list.sort()
 
-            logger.info(f"已删除群聊 {group_id} 的 {len(memory_ids)} 条记忆")
-            return len(memory_ids)
+                self._db.execute(
+                    "DELETE FROM memories WHERE group_id = ?", (group_id,)
+                )
+                self._db.commit()
 
+            self._dirty = True
+            logger.info(f"已删除群聊 {group_id} 的 {len(faiss_indices)} 条记忆")
+            return len(faiss_indices)
         except Exception as e:
             logger.error(f"删除群聊记忆失败: {e}", exc_info=True)
             return 0
 
     async def delete_by_user(self, user_id: str, group_id: Optional[str] = None) -> int:
-        """删除指定用户的记忆
-
-        从 metadata 的 active_users 字段中筛选包含该用户的记忆。
-
-        Args:
-            user_id: 用户ID
-            group_id: 群聊ID（可选，不指定则删除所有群聊中该用户的记忆）
-
-        Returns:
-            删除的记忆数量
-        """
         if not self._is_available:
             return 0
 
         try:
-            loop = asyncio.get_event_loop()
+            with self._db_lock:
+                if group_id:
+                    rows = self._db.execute(
+                        "SELECT faiss_idx, memory_id, metadata FROM memories WHERE group_id = ?",
+                        (group_id,),
+                    ).fetchall()
+                else:
+                    rows = self._db.execute(
+                        "SELECT faiss_idx, memory_id, metadata FROM memories"
+                    ).fetchall()
 
-            if group_id:
-                results = await loop.run_in_executor(
-                    None, lambda: self._collection.get(where={"group_id": group_id})
+                if not rows:
+                    return 0
+
+                ids_to_delete = []
+                faiss_indices_to_delete = []
+                for faiss_idx, memory_id, metadata_json in rows:
+                    metadata = json.loads(metadata_json)
+                    active_users = metadata.get("active_users", "")
+                    if active_users:
+                        users = [u.strip() for u in active_users.split(",") if u.strip()]
+                        if user_id in users:
+                            ids_to_delete.append(memory_id)
+                            faiss_indices_to_delete.append(faiss_idx)
+
+                if not ids_to_delete:
+                    logger.debug(f"用户 {user_id} 没有记忆记录")
+                    return 0
+
+                self._index.remove_ids(np.array(faiss_indices_to_delete, dtype=np.int64))
+                self._free_list.extend(faiss_indices_to_delete)
+                self._free_list.sort()
+
+                placeholders = ",".join("?" for _ in ids_to_delete)
+                self._db.execute(
+                    f"DELETE FROM memories WHERE memory_id IN ({placeholders})",
+                    ids_to_delete,
                 )
-            else:
-                results = await loop.run_in_executor(
-                    None, lambda: self._collection.get()
-                )
+                self._db.commit()
 
-            if not results["ids"]:
-                return 0
-
-            memory_ids_to_delete = []
-            for i, metadata in enumerate(results["metadatas"]):
-                active_users = metadata.get("active_users", "")
-                if active_users:
-                    users = [u.strip() for u in active_users.split(",") if u.strip()]
-                    if user_id in users:
-                        memory_ids_to_delete.append(results["ids"][i])
-
-            if not memory_ids_to_delete:
-                logger.debug(f"用户 {user_id} 没有记忆记录")
-                return 0
-
-            await loop.run_in_executor(
-                None, lambda: self._collection.delete(ids=memory_ids_to_delete)
-            )
-
-            logger.info(f"已删除用户 {user_id} 的 {len(memory_ids_to_delete)} 条记忆")
-            return len(memory_ids_to_delete)
-
+            self._dirty = True
+            logger.info(f"已删除用户 {user_id} 的 {len(ids_to_delete)} 条记忆")
+            return len(ids_to_delete)
         except Exception as e:
             logger.error(f"删除用户记忆失败: {e}", exc_info=True)
             return 0
 
     async def delete_all(self) -> int:
-        """删除所有记忆
-
-        Returns:
-            删除的记忆数量
-        """
         if not self._is_available:
             return 0
 
         try:
-            loop = asyncio.get_event_loop()
-
-            results = await loop.run_in_executor(None, lambda: self._collection.get())
-
-            total_count = len(results["ids"]) if results["ids"] else 0
-
-            if total_count == 0:
+            count = self._count_db()
+            if count == 0:
                 return 0
 
-            await loop.run_in_executor(
-                None, lambda: self._collection.delete(ids=results["ids"])
-            )
+            # 重建空索引
+            self._index = self._create_index(self._embedding_dimensions)
 
-            logger.info(f"已删除所有记忆，共 {total_count} 条")
-            return total_count
+            self._db_write("DELETE FROM memories")
 
+            self._free_list = []
+            self._dirty = True
+            logger.info(f"已删除所有记忆，共 {count} 条")
+            return count
         except Exception as e:
             logger.error(f"删除所有记忆失败: {e}", exc_info=True)
+            return 0
+
+    async def evict_memories(self, memory_ids: List[str]) -> int:
+        if not self._is_available or not memory_ids:
+            return 0
+
+        try:
+            placeholders = ",".join("?" for _ in memory_ids)
+            docs = self._db_execute(
+                f"SELECT content FROM memories WHERE memory_id IN ({placeholders})",
+                memory_ids,
+            ).fetchall()
+
+            success = await self.delete_entries(memory_ids)
+
+            if success and docs:
+                logger.info(
+                    f"已淘汰 {len(memory_ids)} 条记忆：\n"
+                    + "\n".join(f"  - {doc[0][:100]}..." for doc in docs[:5])
+                )
+                return len(memory_ids)
+            return 0
+        except Exception as e:
+            logger.error(f"淘汰记忆失败：{e}", exc_info=True)
             return 0
 
     # ========================================================================
@@ -1566,115 +1189,64 @@ class L2MemoryAdapter(Component):
     # ========================================================================
 
     async def get_unprocessed_count(self) -> int:
-        """获取未处理的知识图谱记忆数量
-
-        Returns:
-            未处理的记忆数量
-        """
-        if not self._is_available or not self._collection:
+        if not self._is_available or not self._db:
             return 0
 
         try:
-            loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(None, lambda: self._collection.get())
-
-            count = 0
-            if results.get("metadatas"):
-                for meta in results["metadatas"]:
-                    if meta and not meta.get("kg_processed", False):
-                        count += 1
-
-            return count
-
+            row = self._db_execute(
+                "SELECT COUNT(*) FROM memories WHERE kg_processed = 0"
+            ).fetchone()
+            return row[0]
         except Exception as e:
-            logger.error(f"获取未处理记忆数量失败: {e}", exc_info=True)
+            logger.error(f"获取未处理记忆数量失败: {e}")
             return 0
 
     async def get_unprocessed_memories(self, limit: int = 20) -> List[MemoryEntry]:
-        """获取未处理的知识图谱记忆
-
-        Args:
-            limit: 最大返回数量
-
-        Returns:
-            未处理的记忆列表
-        """
-        if not self._is_available or not self._collection:
+        if not self._is_available or not self._db:
             return []
 
         try:
-            loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(None, lambda: self._collection.get())
+            rows = self._db_execute(
+                "SELECT memory_id, content, metadata FROM memories WHERE kg_processed = 0 LIMIT ?",
+                (limit,),
+            ).fetchall()
 
-            entries = []
-            if results["ids"]:
-                for i, memory_id in enumerate(results["ids"]):
-                    meta = results["metadatas"][i] if results.get("metadatas") else {}
-                    if not meta.get("kg_processed", False):
-                        entries.append(
-                            MemoryEntry(
-                                id=memory_id,
-                                content=results["documents"][i],
-                                metadata=meta,
-                            )
-                        )
-                        if len(entries) >= limit:
-                            break
-
-            return entries
-
+            return [
+                MemoryEntry(
+                    id=row[0],
+                    content=row[1],
+                    metadata=json.loads(row[2]),
+                )
+                for row in rows
+            ]
         except Exception as e:
-            logger.error(f"获取未处理记忆失败: {e}", exc_info=True)
+            logger.error(f"获取未处理记忆失败: {e}")
             return []
 
     async def mark_memories_processed(self, memory_ids: List[str]) -> bool:
-        """标记记忆为已处理
-
-        Args:
-            memory_ids: 要标记的记忆 ID 列表
-
-        Returns:
-            是否标记成功
-        """
         if not self._is_available or not memory_ids:
             return False
 
         try:
-            loop = asyncio.get_event_loop()
+            with self._db_lock:
+                for memory_id in memory_ids:
+                    row = self._db.execute(
+                        "SELECT metadata FROM memories WHERE memory_id = ?", (memory_id,)
+                    ).fetchone()
+                    if not row:
+                        continue
 
-            results = await loop.run_in_executor(
-                None,
-                lambda: self._collection.get(
-                    ids=memory_ids, include=["embeddings", "metadatas", "documents"]
-                ),
-            )
+                    metadata = json.loads(row[0])
+                    metadata["kg_processed"] = True
 
-            if not results["ids"]:
-                logger.warning("没有找到要标记的记忆")
-                return False
+                    self._db.execute(
+                        "UPDATE memories SET metadata = ?, kg_processed = 1 WHERE memory_id = ?",
+                        (json.dumps(metadata, ensure_ascii=False), memory_id),
+                    )
 
-            for i, memory_id in enumerate(results["ids"]):
-                old_embedding = results["embeddings"][i]
-                old_metadata = results["metadatas"][i]
-                old_document = results["documents"][i]
-
-                old_metadata["kg_processed"] = True
-
-                await loop.run_in_executor(
-                    None,
-                    lambda mid=memory_id, emb=old_embedding, meta=old_metadata, doc=old_document: (
-                        self._collection.upsert(
-                            ids=[mid],
-                            embeddings=[emb],
-                            metadatas=[meta],
-                            documents=[doc],
-                        )
-                    ),
-                )
-
+                self._db.commit()
             logger.info(f"已标记 {len(memory_ids)} 条记忆为已处理")
             return True
-
         except Exception as e:
             logger.error(f"标记记忆失败: {e}", exc_info=True)
             return False
@@ -1682,67 +1254,187 @@ class L2MemoryAdapter(Component):
     async def get_latest_memories(
         self, limit: int = 20, group_id: Optional[str] = None
     ) -> List[MemorySearchResult]:
-        """获取最新记忆
-
-        按时间戳倒序获取最新的记忆条目。
-
-        Args:
-            limit: 返回数量，默认 20
-            group_id: 群聊 ID（可选，用于隔离）
-
-        Returns:
-            最新记忆列表
-
-        Examples:
-            >>> memories = await adapter.get_latest_memories(limit=10)
-            >>> len(memories)
-            10
-        """
         if not self._is_available:
             return []
 
         try:
-            loop = asyncio.get_event_loop()
-
-            get_kwargs: Dict[str, Any] = {"include": ["documents", "metadatas"]}
-
             if group_id:
-                get_kwargs["where"] = {"group_id": group_id}
+                rows = self._db_execute(
+                    "SELECT memory_id, content, metadata FROM memories WHERE group_id = ? ORDER BY timestamp DESC LIMIT ?",
+                    (group_id, limit),
+                ).fetchall()
+            else:
+                rows = self._db_execute(
+                    "SELECT memory_id, content, metadata FROM memories ORDER BY timestamp DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
 
-            results = await loop.run_in_executor(
-                None,
-                lambda: self._collection.get(**get_kwargs),
-            )
-
-            if not results["ids"]:
-                return []
-
-            entries_with_time = []
-            for i, memory_id in enumerate(results["ids"]):
-                meta = results["metadatas"][i] if results.get("metadatas") else {}
-                timestamp = meta.get("timestamp", "")
-                entries_with_time.append(
-                    {
-                        "id": memory_id,
-                        "content": results["documents"][i],
-                        "metadata": meta,
-                        "timestamp": timestamp,
-                    }
+            return [
+                MemorySearchResult(
+                    entry=MemoryEntry(
+                        id=row[0],
+                        content=row[1],
+                        metadata=json.loads(row[2]),
+                    ),
+                    score=1.0,
+                    distance=0.0,
                 )
-
-            entries_with_time.sort(key=lambda x: x["timestamp"], reverse=True)
-
-            search_results = []
-            for entry in entries_with_time[:limit]:
-                memory_entry = MemoryEntry(
-                    id=entry["id"], content=entry["content"], metadata=entry["metadata"]
-                )
-                search_results.append(
-                    MemorySearchResult(entry=memory_entry, score=1.0, distance=0.0)
-                )
-
-            return search_results
-
+                for row in rows
+            ]
         except Exception as e:
             logger.error(f"获取最新记忆失败: {e}", exc_info=True)
             return []
+
+    # ========================================================================
+    # 模型迁移
+    # ========================================================================
+
+    async def _migrate_on_model_change(
+        self, new_model: str, new_dim: int
+    ) -> bool:
+        from .io import MemoryExporter, MemoryImporter
+
+        old_count = self._count_db()
+        if old_count == 0:
+            # 空库，直接创建新索引
+            self._index = self._create_index(new_dim)
+            self._embedding_dimensions = new_dim
+            self._save_meta()
+            return True
+
+        logger.info(
+            f"开始迁移 {old_count} 条记忆"
+            f"（模型: {new_model}，维度: {new_dim}）"
+        )
+
+        backup_path = self._persist_dir / "_migration_backup.json"
+
+        try:
+            # 1. 导出所有记忆
+            exporter = MemoryExporter(self)
+            export_stats = await exporter.export_all(backup_path)
+            logger.info(
+                f"迁移步骤 1/4：导出完成，"
+                f"共 {export_stats.total_count} 条，导出 {export_stats.exported_count} 条"
+            )
+
+            if export_stats.exported_count == 0:
+                logger.warning("导出 0 条记忆，跳过迁移")
+                backup_path.unlink(missing_ok=True)
+                return False
+
+            # 2. 删除旧数据
+            deleted = await self.delete_collection()
+            if not deleted:
+                logger.error("迁移步骤 2/4：删除旧数据失败")
+                return False
+            logger.info("迁移步骤 2/4：已删除旧数据")
+
+            # 3. 重新初始化（使用新模型）
+            self._persist_dir.mkdir(parents=True, exist_ok=True)
+            db_path = self._persist_dir / "metadata.db"
+            self._db = self._open_db(db_path)
+            self._index = self._create_index(new_dim)
+            self._embedding_dimensions = new_dim
+            self._free_list = []
+            self._save_meta()
+            logger.info("迁移步骤 3/4：已创建新索引")
+
+            # 4. 重新导入记忆
+            importer = MemoryImporter(self)
+            import_stats = await importer.import_from_file(
+                backup_path, skip_duplicates=False
+            )
+            logger.info(
+                f"迁移步骤 4/4：导入完成，"
+                f"共 {import_stats.total_count} 条，导入 {import_stats.imported_count} 条，"
+                f"跳过 {import_stats.skipped_count} 条，错误 {import_stats.error_count} 条"
+            )
+
+            backup_path.unlink(missing_ok=True)
+
+            success = import_stats.imported_count > 0
+            if success:
+                logger.info(
+                    f"迁移成功：{export_stats.exported_count} -> {import_stats.imported_count} 条"
+                )
+            else:
+                logger.error("迁移后导入 0 条记忆，迁移失败")
+
+            return success
+
+        except Exception as e:
+            logger.error(f"迁移过程异常：{e}", exc_info=True)
+
+            # 尝试恢复
+            if self._index is None and backup_path.exists():
+                try:
+                    self._persist_dir.mkdir(parents=True, exist_ok=True)
+                    db_path = self._persist_dir / "metadata.db"
+                    self._db = self._open_db(db_path)
+                    self._index = self._create_index(new_dim)
+                    self._embedding_dimensions = new_dim
+                    self._save_meta()
+
+                    importer = MemoryImporter(self)
+                    await importer.import_from_file(backup_path, skip_duplicates=False)
+                    logger.info("已从备份恢复数据")
+                except Exception as restore_err:
+                    logger.error(f"恢复数据失败：{restore_err}", exc_info=True)
+
+            backup_path.unlink(missing_ok=True)
+            return False
+
+    # ========================================================================
+    # 内部辅助
+    # ========================================================================
+
+    def _db_execute(self, sql: str, params=()):
+        """线程安全的 DB 执行（用于 SELECT）"""
+        with self._db_lock:
+            return self._db.execute(sql, params)
+
+    def _db_write(self, sql: str, params=()):
+        """线程安全的 DB 写入（INSERT/UPDATE/DELETE + COMMIT）"""
+        with self._db_lock:
+            self._db.execute(sql, params)
+            self._db.commit()
+
+    def _count_db(self) -> int:
+        if not self._db:
+            return 0
+        with self._db_lock:
+            row = self._db.execute("SELECT COUNT(*) FROM memories").fetchone()
+            return row[0]
+
+    def _upsert_db(
+        self,
+        faiss_idx: int,
+        memory_id: str,
+        content: str,
+        metadata: Dict[str, Any],
+    ) -> None:
+        """插入或更新 SQLite 记录"""
+        group_id = metadata.get("group_id")
+        user_id = metadata.get("user_id")
+        timestamp = metadata.get("timestamp")
+        kg_processed = 1 if metadata.get("kg_processed") else 0
+        metadata_json = json.dumps(metadata, ensure_ascii=False)
+
+        with self._db_lock:
+            self._db.execute(
+                """INSERT OR REPLACE INTO memories
+                   (faiss_idx, memory_id, content, metadata, group_id, user_id, timestamp, kg_processed)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    faiss_idx,
+                    memory_id,
+                    content,
+                    metadata_json,
+                    group_id,
+                    user_id,
+                    timestamp,
+                    kg_processed,
+                ),
+            )
+            self._db.commit()

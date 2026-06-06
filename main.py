@@ -3,8 +3,8 @@ Iris Chat Memory - AstrBot 分层记忆插件
 
 提供三阶段记忆管理：
 - L1: 消息上下文缓冲
-- L2: 记忆库（ChromaDB）
-- L3: 知识图谱（KuzuDB）
+- L2: 记忆库（FAISS + SQLite）
+- L3: 知识图谱（SQLite）
 """
 
 import sys

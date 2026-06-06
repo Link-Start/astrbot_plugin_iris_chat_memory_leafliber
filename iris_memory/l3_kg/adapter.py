@@ -1,78 +1,39 @@
-"""KuzuDB 图谱适配器"""
+"""SQLite 图谱适配器"""
 
-from iris_memory.core import Component, get_logger, InitMode
-from iris_memory.config import get_config
-from .models import GraphNode, GraphEdge
-import kuzu
-from typing import Optional
+import json
+import sqlite3
 from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+from iris_memory.config import get_config
+from iris_memory.core import Component, InitMode, get_logger
+from .models import GraphEdge, GraphNode
 
 logger = get_logger("l3_kg")
 
 
-def _escape_cypher_str(value: str) -> str:
-    """转义 Cypher 字符串值中的特殊字符
-
-    Args:
-        value: 原始字符串
-
-    Returns:
-        转义后的字符串
-    """
-    value = value.replace("\\", "\\\\")
-    value = value.replace("'", "\\'")
-    value = value.replace("\x00", "")
-    value = value.replace("\n", "\\n")
-    value = value.replace("\r", "\\r")
-    return value
-
-
-def _build_map_literal(properties: dict) -> str:
-    """构建 MAP 字面量字符串
-
-    Args:
-        properties: 属性字典
-
-    Returns:
-        MAP 字面量字符串，如 map(['key1', 'key2'], ['val1', 'val2'])
-    """
-    if not properties:
-        return "map([], [])"
-
-    keys = []
-    values = []
-    for k, v in properties.items():
-        keys.append(f"'{_escape_cypher_str(str(k))}'")
-        values.append(f"'{_escape_cypher_str(str(v))}'")
-
-    return f"map([{', '.join(keys)}], [{', '.join(values)}])"
-
-
 class L3KGAdapter(Component):
-    """KuzuDB 图谱适配器
+    """SQLite 图谱适配器
 
-    使用 KuzuDB 嵌入式图数据库存储实体关系图谱。
+    使用 SQLite 存储实体关系图谱。
     支持：
     - 动态节点类型（通过 label 字段）
     - 动态关系类型（通过 relation_type 字段）
-    - MAP 类型存储扩展属性
-    - 路径扩展检索
+    - JSON 存储扩展属性
+    - BFS 路径扩展检索
     """
 
     def __init__(self):
         super().__init__()
-        self._init_mode = InitMode.BACKGROUND
+        self._init_mode = InitMode.EAGER
 
     @property
     def name(self) -> str:
         return "l3_kg"
 
     async def initialize(self) -> None:
-        """初始化 KuzuDB 数据库
-
-        创建数据库连接和 schema。
-        如果初始化失败，标记为不可用但不阻塞主流程。
-        """
+        """初始化 SQLite 数据库"""
         config = get_config()
 
         if not config.get("l3_kg.enable"):
@@ -80,59 +41,63 @@ class L3KGAdapter(Component):
             self._is_available = False
             return
 
-        self._persist_dir = config.data_dir / "kuzu"
+        self._persist_dir = config.data_dir / "l3_graph"
         self._persist_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            db_path = self._persist_dir / "graph.kuzu"
-            self._db = kuzu.Database(str(db_path))
-            self._conn = kuzu.Connection(self._db)
+            db_path = self._persist_dir / "graph.db"
+            self._db = sqlite3.connect(str(db_path))
+            self._db.row_factory = sqlite3.Row
+            self._db.execute("PRAGMA journal_mode=WAL")
+            self._db.execute("PRAGMA foreign_keys=ON")
 
-            # 创建 schema
-            await self._create_schema()
+            self._create_schema()
 
             self._is_available = True
-            logger.info(f"KuzuDB 初始化成功：{self._persist_dir}")
+            logger.info(f"SQLite 图谱初始化成功：{self._persist_dir}")
         except Exception as e:
-            logger.error(f"KuzuDB 初始化失败：{e}")
+            logger.error(f"SQLite 图谱初始化失败：{e}")
             self._is_available = False
 
-    async def _create_schema(self):
-        """创建图谱 schema
+    def _create_schema(self):
+        self._db.executescript("""
+            CREATE TABLE IF NOT EXISTS nodes (
+                id TEXT PRIMARY KEY,
+                label TEXT NOT NULL,
+                name TEXT NOT NULL,
+                content TEXT DEFAULT '',
+                confidence REAL DEFAULT 0.5,
+                access_count INTEGER DEFAULT 0,
+                last_access_time TEXT,
+                created_time TEXT,
+                source_memory_id TEXT,
+                group_id TEXT,
+                properties TEXT DEFAULT '{}'
+            );
 
-        使用 MAP 类型存储动态属性，使用 DOUBLE 存储浮点数。
-        """
-        self._conn.execute("""
-            CREATE NODE TABLE IF NOT EXISTS Entity (
-                id STRING PRIMARY KEY,
-                label STRING,
-                name STRING,
-                content STRING,
-                confidence DOUBLE,
-                access_count INT64,
-                last_access_time TIMESTAMP,
-                created_time TIMESTAMP,
-                source_memory_id STRING,
-                group_id STRING,
-                properties MAP(STRING, STRING)
-            )
+            CREATE TABLE IF NOT EXISTS edges (
+                source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                relation_type TEXT NOT NULL,
+                weight REAL DEFAULT 1.0,
+                confidence REAL DEFAULT 0.5,
+                access_count INTEGER DEFAULT 0,
+                last_access_time TEXT,
+                created_time TEXT,
+                source_memory_id TEXT,
+                properties TEXT DEFAULT '{}',
+                PRIMARY KEY (source_id, target_id, relation_type),
+                FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
+                FOREIGN KEY (target_id) REFERENCES nodes(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_nodes_label_name ON nodes(label, name);
+            CREATE INDEX IF NOT EXISTS idx_nodes_group ON nodes(group_id);
+            CREATE INDEX IF NOT EXISTS idx_nodes_source_mem ON nodes(source_memory_id);
+            CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
+            CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
         """)
-
-        self._conn.execute("""
-            CREATE REL TABLE IF NOT EXISTS Related (
-                FROM Entity TO Entity,
-                relation_type STRING,
-                weight DOUBLE,
-                confidence DOUBLE,
-                access_count INT64,
-                last_access_time TIMESTAMP,
-                created_time TIMESTAMP,
-                source_memory_id STRING,
-                properties MAP(STRING, STRING)
-            )
-        """)
-
-        logger.debug("KuzuDB schema 创建完成")
+        logger.debug("SQLite schema 创建完成")
 
     async def add_node(self, node: GraphNode) -> bool:
         """添加节点，如果节点已存在则合并信息
@@ -155,22 +120,16 @@ class L3KGAdapter(Component):
             return False
 
         try:
-            existing = await self._get_node_by_id(node.id)
+            existing = self._get_node_by_id(node.id)
 
             if existing:
                 merged_content = self._merge_node_content(
-                    existing.get("content", ""), node.content
+                    existing["content"], node.content
                 )
-                merged_confidence = max(
-                    existing.get("confidence", 0.5), node.confidence
-                )
-                existing_access_count = existing.get("access_count", 0)
+                merged_confidence = max(existing["confidence"], node.confidence)
+                existing_access_count = existing["access_count"]
 
-                merged_properties = dict(
-                    existing.get("properties", {})
-                    if isinstance(existing.get("properties"), dict)
-                    else {}
-                )
+                merged_properties = dict(existing["properties"])
                 merged_properties.update(node.properties)
 
                 existing_ids = merged_properties.get("source_memory_ids", "")
@@ -192,28 +151,22 @@ class L3KGAdapter(Component):
                     group_list.append(node.group_id)
                 merged_properties["group_ids"] = ",".join(group_list)
 
-                map_literal = _build_map_literal(merged_properties)
-
-                query = f"""
-                    MATCH (e:Entity {{id: $id}})
-                    SET e.content = $content,
-                        e.confidence = $confidence,
-                        e.access_count = $access_count,
-                        e.last_access_time = $last_access_time,
-                        e.group_id = $group_id,
-                        e.properties = {map_literal}
-                """
-                self._conn.execute(
-                    query,
-                    {
-                        "id": node.id,
-                        "content": merged_content,
-                        "confidence": merged_confidence,
-                        "access_count": existing_access_count,
-                        "last_access_time": datetime.now(),
-                        "group_id": node.group_id or existing.get("group_id", ""),
-                    },
+                self._db.execute(
+                    """UPDATE nodes SET
+                        content = ?, confidence = ?, access_count = ?,
+                        last_access_time = ?, group_id = ?, properties = ?
+                    WHERE id = ?""",
+                    (
+                        merged_content,
+                        merged_confidence,
+                        existing_access_count,
+                        datetime.now().isoformat(),
+                        node.group_id or existing.get("group_id", ""),
+                        json.dumps(merged_properties, ensure_ascii=False),
+                        node.id,
+                    ),
                 )
+                self._db.commit()
                 logger.debug(f"节点合并成功：{node.id}")
             else:
                 properties = dict(node.properties)
@@ -222,38 +175,29 @@ class L3KGAdapter(Component):
                 if node.group_id:
                     properties["group_ids"] = node.group_id
 
-                map_literal = _build_map_literal(properties)
-
-                query = f"""
-                    CREATE (e:Entity {{
-                        id: $id,
-                        label: $label,
-                        name: $name,
-                        content: $content,
-                        confidence: $confidence,
-                        access_count: $access_count,
-                        last_access_time: $last_access_time,
-                        created_time: $created_time,
-                        source_memory_id: $source_memory_id,
-                        group_id: $group_id,
-                        properties: {map_literal}
-                    }})
-                """
-                self._conn.execute(
-                    query,
-                    {
-                        "id": node.id,
-                        "label": node.label,
-                        "name": node.name,
-                        "content": node.content,
-                        "confidence": node.confidence,
-                        "access_count": node.access_count,
-                        "last_access_time": node.last_access_time or datetime.now(),
-                        "created_time": node.created_time,
-                        "source_memory_id": node.source_memory_id,
-                        "group_id": node.group_id,
-                    },
+                self._db.execute(
+                    """INSERT INTO nodes
+                        (id, label, name, content, confidence, access_count,
+                         last_access_time, created_time, source_memory_id,
+                         group_id, properties)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        node.id,
+                        node.label,
+                        node.name,
+                        node.content,
+                        node.confidence,
+                        node.access_count,
+                        (node.last_access_time or datetime.now()).isoformat(),
+                        node.created_time.isoformat()
+                        if isinstance(node.created_time, datetime)
+                        else node.created_time,
+                        node.source_memory_id,
+                        node.group_id,
+                        json.dumps(properties, ensure_ascii=False),
+                    ),
                 )
+                self._db.commit()
                 logger.debug(f"节点添加成功：{node.id}")
 
             return True
@@ -264,17 +208,7 @@ class L3KGAdapter(Component):
     def _merge_node_content(self, existing_content: str, new_content: str) -> str:
         """合并节点内容描述
 
-        将新描述追加到已有描述后，对按分号拆分的子句进行去重：
-        1. 拆分为子句列表
-        2. 过滤掉已被现有子句包含的新子句（子串包含检测）
-        3. 合并去重后的子句
-
-        Args:
-            existing_content: 已有内容
-            new_content: 新内容
-
-        Returns:
-            合并后的内容
+        将新描述追加到已有描述后，对按分号拆分的子句进行去重。
         """
         if not existing_content:
             return new_content
@@ -283,7 +217,6 @@ class L3KGAdapter(Component):
 
         if new_content in existing_content:
             return existing_content
-
         if existing_content in new_content:
             return new_content
 
@@ -303,33 +236,25 @@ class L3KGAdapter(Component):
 
         return "；".join(deduped_parts)
 
-    async def _get_node_by_id(self, node_id: str) -> Optional[dict]:
-        """根据 ID 获取节点
-
-        Args:
-            node_id: 节点 ID
-
-        Returns:
-            节点信息字典，不存在返回 None
-        """
+    def _get_node_by_id(self, node_id: str) -> Optional[dict]:
+        """根据 ID 获取节点"""
         try:
-            result = self._conn.execute(
-                """
-                MATCH (e:Entity {id: $id})
-                RETURN e.content, e.confidence, e.access_count,
-                       e.group_id, e.properties
-            """,
-                {"id": node_id},
-            )
+            row = self._db.execute(
+                """SELECT content, confidence, access_count, group_id, properties
+                FROM nodes WHERE id = ?""",
+                (node_id,),
+            ).fetchone()
 
-            if result.has_next():
-                row = result.get_next()
+            if row:
+                props = row["properties"]
+                if isinstance(props, str):
+                    props = json.loads(props)
                 return {
-                    "content": row[0],
-                    "confidence": row[1],
-                    "access_count": row[2],
-                    "group_id": row[3],
-                    "properties": row[4] if isinstance(row[4], dict) else {},
+                    "content": row["content"],
+                    "confidence": row["confidence"],
+                    "access_count": row["access_count"],
+                    "group_id": row["group_id"],
+                    "properties": props if isinstance(props, dict) else {},
                 }
             return None
         except Exception as e:
@@ -343,18 +268,12 @@ class L3KGAdapter(Component):
         - source_memory_ids: 追加新的来源记忆ID
         - weight: 累加权重（最大1.0）
         - confidence: 取最大置信度
-
-        Args:
-            edge: 图谱边对象
-
-        Returns:
-            成功返回 True，失败返回 False
         """
         if not self._is_available:
             return False
 
         try:
-            existing_edge = await self._get_edge(
+            existing_edge = self._get_edge(
                 edge.source_id, edge.target_id, edge.relation_type
             )
 
@@ -378,61 +297,51 @@ class L3KGAdapter(Component):
                 merged_properties.update(edge.properties)
                 merged_properties["source_memory_ids"] = ",".join(existing_list)
 
-                map_literal = _build_map_literal(merged_properties)
-
-                query = f"""
-                    MATCH (src:Entity {{id: $source_id}})
-                    MATCH (tgt:Entity {{id: $target_id}})
-                    MATCH (src)-[r:Related {{relation_type: $relation_type}}]->(tgt)
-                    SET r.weight = $weight,
-                        r.confidence = $confidence,
-                        r.access_count = r.access_count + 1,
-                        r.last_access_time = $last_access_time,
-                        r.properties = {map_literal}
-                """
-                self._conn.execute(
-                    query,
-                    {
-                        "source_id": edge.source_id,
-                        "target_id": edge.target_id,
-                        "relation_type": edge.relation_type,
-                        "weight": new_weight,
-                        "confidence": new_confidence,
-                        "last_access_time": datetime.now(),
-                    },
+                self._db.execute(
+                    """UPDATE edges SET
+                        weight = ?, confidence = ?,
+                        access_count = access_count + 1,
+                        last_access_time = ?, properties = ?
+                    WHERE source_id = ? AND target_id = ? AND relation_type = ?""",
+                    (
+                        new_weight,
+                        new_confidence,
+                        datetime.now().isoformat(),
+                        json.dumps(merged_properties, ensure_ascii=False),
+                        edge.source_id,
+                        edge.target_id,
+                        edge.relation_type,
+                    ),
                 )
+                self._db.commit()
                 logger.debug(f"边合并成功：{edge.generate_id()}")
             else:
                 properties = dict(edge.properties)
                 if edge.source_memory_id:
                     properties["source_memory_ids"] = edge.source_memory_id
 
-                map_literal = _build_map_literal(properties)
-
-                query = f"""
-                    MATCH (src:Entity {{id: $source_id}})
-                    MATCH (tgt:Entity {{id: $target_id}})
-                    MERGE (src)-[r:Related {{relation_type: $relation_type}}]->(tgt)
-                    SET r.weight = $weight,
-                        r.confidence = $confidence,
-                        r.access_count = $access_count,
-                        r.last_access_time = $last_access_time,
-                        r.created_time = $created_time,
-                        r.properties = {map_literal}
-                """
-                self._conn.execute(
-                    query,
-                    {
-                        "source_id": edge.source_id,
-                        "target_id": edge.target_id,
-                        "relation_type": edge.relation_type,
-                        "weight": edge.weight,
-                        "confidence": edge.confidence,
-                        "access_count": edge.access_count,
-                        "last_access_time": edge.last_access_time or datetime.now(),
-                        "created_time": edge.created_time,
-                    },
+                self._db.execute(
+                    """INSERT OR IGNORE INTO edges
+                        (source_id, target_id, relation_type, weight, confidence,
+                         access_count, last_access_time, created_time,
+                         source_memory_id, properties)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        edge.source_id,
+                        edge.target_id,
+                        edge.relation_type,
+                        edge.weight,
+                        edge.confidence,
+                        edge.access_count,
+                        (edge.last_access_time or datetime.now()).isoformat(),
+                        edge.created_time.isoformat()
+                        if isinstance(edge.created_time, datetime)
+                        else edge.created_time,
+                        edge.source_memory_id,
+                        json.dumps(properties, ensure_ascii=False),
+                    ),
                 )
+                self._db.commit()
                 logger.debug(f"边添加成功：{edge.generate_id()}")
 
             return True
@@ -440,44 +349,28 @@ class L3KGAdapter(Component):
             logger.error(f"添加边失败：{e}")
             return False
 
-    async def _get_edge(
+    def _get_edge(
         self, source_id: str, target_id: str, relation_type: str
     ) -> Optional[dict]:
-        """获取已存在的边
-
-        Args:
-            source_id: 源节点ID
-            target_id: 目标节点ID
-            relation_type: 关系类型
-
-        Returns:
-            边信息字典，不存在返回 None
-        """
+        """获取已存在的边"""
         try:
-            query = """
-                MATCH (src:Entity {id: $source_id})
-                      -[r:Related {relation_type: $relation_type}]->
-                      (tgt:Entity {id: $target_id})
-                RETURN r.weight, r.confidence, r.properties
-            """
-            result = self._conn.execute(
-                query,
-                {
-                    "source_id": source_id,
-                    "target_id": target_id,
-                    "relation_type": relation_type,
-                },
-            )
+            row = self._db.execute(
+                """SELECT weight, confidence, properties
+                FROM edges
+                WHERE source_id = ? AND target_id = ? AND relation_type = ?""",
+                (source_id, target_id, relation_type),
+            ).fetchone()
 
-            if result.has_next():
-                row = result.get_next()
+            if row:
+                props = row["properties"]
+                if isinstance(props, str):
+                    props = json.loads(props)
+                props = props if isinstance(props, dict) else {}
                 return {
-                    "weight": row[0],
-                    "confidence": row[1],
-                    "properties": row[2] if isinstance(row[2], dict) else {},
-                    "source_memory_ids": (
-                        row[2] if isinstance(row[2], dict) else {}
-                    ).get("source_memory_ids", ""),
+                    "weight": row["weight"],
+                    "confidence": row["confidence"],
+                    "properties": props,
+                    "source_memory_ids": props.get("source_memory_ids", ""),
                 }
             return None
         except Exception as e:
@@ -487,61 +380,111 @@ class L3KGAdapter(Component):
     async def expand_from_nodes(
         self, node_ids: list[str], max_depth: int = 2, group_id: Optional[str] = None
     ) -> tuple[list[dict], list[dict]]:
-        """路径扩展检索
-
-        从指定节点出发，查找相关路径。
-
-        Args:
-            node_ids: 起始节点ID列表
-            max_depth: 最大路径深度（跳跃次数）
-            group_id: 群聊ID（用于隔离）
-
-        Returns:
-            (节点列表, 边列表)
-        """
+        """BFS 路径扩展检索"""
         if not self._is_available:
             return [], []
 
         try:
-            # KuzuDB 变长路径语法：[:Related*min..max]
-            query = (
-                """
-                MATCH path = (start:Entity)-[:Related*1..%d]-(target:Entity)
-                WHERE start.id IN $node_ids
-                AND ($group_id IS NULL OR start.group_id = $group_id)
-                RETURN 
-                    nodes(path) as nodes,
-                    relationships(path) as edges
-            """
-                % max_depth
-            )
+            visited = set(node_ids)
+            frontier = list(node_ids)
+            nodes_map: dict[str, dict] = {}
+            edges_list: list[dict] = []
 
-            result = self._conn.execute(
-                query, {"node_ids": node_ids, "group_id": group_id}
-            )
+            for seed_id in node_ids:
+                row = self._db.execute(
+                    "SELECT * FROM nodes WHERE id = ?", (seed_id,)
+                ).fetchone()
+                if row:
+                    nodes_map[seed_id] = dict(row)
 
-            nodes = []
-            edges = []
-            for row in result:
-                path_nodes = row[0] if row[0] else []
-                path_edges = row[1] if row[1] else []
-                for n in path_nodes:
-                    if isinstance(n, dict) and "id" in n:
-                        nodes.append(n)
-                for e in path_edges:
-                    if isinstance(e, dict):
-                        edges.append(e)
+            for _ in range(max_depth):
+                if not frontier:
+                    break
 
-            def _edge_id(v):
-                return v.get("id", "") if isinstance(v, dict) else str(v)
+                placeholders = ",".join("?" * len(frontier))
 
-            nodes = list({n["id"]: n for n in nodes}.values())
-            edges = list(
-                {
-                    f"{_edge_id(e.get('source', ''))}-{e.get('relation_type', '')}-{_edge_id(e.get('target', ''))}": e
-                    for e in edges
-                }.values()
-            )
+                if group_id:
+                    query = f"""
+                        SELECT e.source_id, e.target_id, e.relation_type,
+                               e.weight, e.confidence, e.access_count,
+                               e.last_access_time, e.created_time,
+                               e.source_memory_id, e.properties
+                        FROM edges e
+                        WHERE (e.source_id IN ({placeholders})
+                               OR e.target_id IN ({placeholders}))
+                        AND (
+                            e.source_id IN (SELECT id FROM nodes WHERE group_id = ?)
+                            AND e.target_id IN (SELECT id FROM nodes WHERE group_id = ?)
+                        )
+                    """
+                    rows = self._db.execute(
+                        query, (*frontier, *frontier, group_id, group_id)
+                    ).fetchall()
+                else:
+                    query = f"""
+                        SELECT source_id, target_id, relation_type,
+                               weight, confidence, access_count,
+                               last_access_time, created_time,
+                               source_memory_id, properties
+                        FROM edges
+                        WHERE source_id IN ({placeholders})
+                           OR target_id IN ({placeholders})
+                    """
+                    rows = self._db.execute(
+                        query, (*frontier, *frontier)
+                    ).fetchall()
+
+                next_frontier = []
+                frontier_set = set(frontier)
+
+                for row in rows:
+                    source_id = row["source_id"]
+                    target_id = row["target_id"]
+
+                    edge_props = row["properties"]
+                    if isinstance(edge_props, str):
+                        edge_props = json.loads(edge_props)
+
+                    edges_list.append({
+                        "source": source_id,
+                        "target": target_id,
+                        "_src": source_id,
+                        "_dst": target_id,
+                        "relation_type": row["relation_type"],
+                        "weight": row["weight"],
+                        "confidence": row["confidence"],
+                        "access_count": row["access_count"],
+                        "last_access_time": row["last_access_time"],
+                        "created_time": row["created_time"],
+                        "source_memory_id": row["source_memory_id"],
+                        "properties": edge_props if isinstance(edge_props, dict) else {},
+                    })
+
+                    neighbor_id = (
+                        target_id if source_id in frontier_set else source_id
+                    )
+                    if neighbor_id not in visited:
+                        visited.add(neighbor_id)
+                        next_frontier.append(neighbor_id)
+
+                        node_row = self._db.execute(
+                            "SELECT * FROM nodes WHERE id = ?", (neighbor_id,)
+                        ).fetchone()
+                        if node_row:
+                            nodes_map[neighbor_id] = dict(node_row)
+
+                frontier = next_frontier
+
+            nodes = list(nodes_map.values())
+
+            seen = set()
+            unique_edges = []
+            for e in edges_list:
+                key = f"{e['source']}-{e['relation_type']}-{e['target']}"
+                if key not in seen:
+                    seen.add(key)
+                    unique_edges.append(e)
+            edges = unique_edges
 
             logger.info(f"路径扩展检索完成：{len(nodes)} 个节点，{len(edges)} 条边")
             return nodes, edges
@@ -550,34 +493,25 @@ class L3KGAdapter(Component):
             return [], []
 
     async def update_node_access(self, node_ids: list[str]) -> None:
-        """更新节点访问计数和最后访问时间
-
-        Args:
-            node_ids: 要更新的节点ID列表
-        """
+        """更新节点访问计数和最后访问时间"""
         if not self._is_available:
             return
 
         try:
+            now = datetime.now().isoformat()
             for node_id in node_ids:
-                self._conn.execute(
-                    """
-                    MATCH (e:Entity {id: $id})
-                    SET e.access_count = e.access_count + 1,
-                        e.last_access_time = $now
-                """,
-                    {"id": node_id, "now": datetime.now()},
+                self._db.execute(
+                    """UPDATE nodes SET access_count = access_count + 1,
+                        last_access_time = ? WHERE id = ?""",
+                    (now, node_id),
                 )
+            self._db.commit()
             logger.debug(f"更新了 {len(node_ids)} 个节点的访问计数")
         except Exception as e:
             logger.error(f"更新节点访问计数失败：{e}")
 
     async def get_stats(self) -> dict:
-        """获取图谱统计信息
-
-        Returns:
-            包含节点数、边数、持久化路径等信息的字典
-        """
+        """获取图谱统计信息"""
         if not self._is_available:
             return {
                 "available": False,
@@ -588,30 +522,26 @@ class L3KGAdapter(Component):
             }
 
         try:
-            node_result = self._conn.execute(
-                "MATCH (e:Entity) RETURN COUNT(e) as count"
-            )
-            node_count = node_result.get_next()[0] if node_result.has_next() else 0
-            edge_result = self._conn.execute(
-                "MATCH ()-[r:Related]->() RETURN COUNT(r) as count"
-            )
-            edge_count = edge_result.get_next()[0] if edge_result.has_next() else 0
+            node_count = self._db.execute(
+                "SELECT COUNT(*) FROM nodes"
+            ).fetchone()[0]
+            edge_count = self._db.execute(
+                "SELECT COUNT(*) FROM edges"
+            ).fetchone()[0]
 
-            node_types_result = self._conn.execute(
-                "MATCH (e:Entity) RETURN e.label as label, COUNT(e) as count"
-            )
             node_types = {}
-            for row in node_types_result:
-                if row[0]:
-                    node_types[row[0]] = row[1]
+            for row in self._db.execute(
+                "SELECT label, COUNT(*) as cnt FROM nodes GROUP BY label"
+            ):
+                if row["label"]:
+                    node_types[row["label"]] = row["cnt"]
 
-            relation_types_result = self._conn.execute(
-                "MATCH ()-[r:Related]->() RETURN r.relation_type as type, COUNT(r) as count"
-            )
             relation_types = {}
-            for row in relation_types_result:
-                if row[0]:
-                    relation_types[row[0]] = row[1]
+            for row in self._db.execute(
+                "SELECT relation_type, COUNT(*) as cnt FROM edges GROUP BY relation_type"
+            ):
+                if row["relation_type"]:
+                    relation_types[row["relation_type"]] = row["cnt"]
 
             return {
                 "available": True,
@@ -632,217 +562,293 @@ class L3KGAdapter(Component):
             }
 
     async def get_all_nodes(self, limit: int = 100) -> list[dict]:
-        """获取节点（用于前端展示）
-
-        Args:
-            limit: 最大返回数量，默认 100
-
-        Returns:
-            节点字典列表
-        """
+        """获取节点（用于前端展示）"""
         if not self._is_available:
             return []
 
         try:
-            result = self._conn.execute(
-                """
-                MATCH (e:Entity)
-                RETURN e.id, e.label, e.name, e.content, e.confidence,
-                       e.access_count, e.last_access_time, e.created_time,
-                       e.source_memory_id, e.group_id, e.properties
-                LIMIT $limit
-            """,
-                {"limit": limit},
-            )
+            rows = self._db.execute(
+                """SELECT id, label, name, content, confidence,
+                          access_count, last_access_time, created_time,
+                          source_memory_id, group_id, properties
+                   FROM nodes LIMIT ?""",
+                (limit,),
+            ).fetchall()
 
             nodes = []
-            for row in result:
-                nodes.append(
-                    {
-                        "id": row[0],
-                        "label": row[1],
-                        "name": row[2],
-                        "content": row[3],
-                        "confidence": row[4],
-                        "access_count": row[5],
-                        "last_access_time": row[6],
-                        "created_time": row[7],
-                        "source_memory_id": row[8],
-                        "group_id": row[9],
-                        "properties": row[10],
-                    }
-                )
+            for row in rows:
+                props = row["properties"]
+                if isinstance(props, str):
+                    props = json.loads(props)
+                nodes.append({
+                    "id": row["id"],
+                    "label": row["label"],
+                    "name": row["name"],
+                    "content": row["content"],
+                    "confidence": row["confidence"],
+                    "access_count": row["access_count"],
+                    "last_access_time": row["last_access_time"],
+                    "created_time": row["created_time"],
+                    "source_memory_id": row["source_memory_id"],
+                    "group_id": row["group_id"],
+                    "properties": props,
+                })
 
             logger.debug(f"获取到 {len(nodes)} 个节点")
             return nodes
-
         except Exception as e:
             logger.error(f"获取所有节点失败：{e}")
             return []
 
     async def search_nodes(self, keyword: str, limit: int = 20) -> list[dict]:
-        """搜索节点
+        """搜索节点（匹配 name 或 content）"""
+        if not self._is_available:
+            return []
 
-        Args:
-            keyword: 搜索关键词（匹配name或content）
-            limit: 最大返回数量
+        try:
+            pattern = f"%{keyword}%"
+            rows = self._db.execute(
+                """SELECT id, label, name, content, confidence
+                   FROM nodes
+                   WHERE name LIKE ? OR content LIKE ?
+                   LIMIT ?""",
+                (pattern, pattern, limit),
+            ).fetchall()
 
-        Returns:
-            匹配的节点列表
+            nodes = [
+                {
+                    "id": row["id"],
+                    "label": row["label"],
+                    "name": row["name"],
+                    "content": row["content"],
+                    "confidence": row["confidence"],
+                }
+                for row in rows
+            ]
+
+            logger.debug(f"搜索节点 '{keyword}' 找到 {len(nodes)} 个结果")
+            return nodes
+        except Exception as e:
+            logger.error(f"搜索节点失败：{e}")
+            return []
+
+    async def search_nodes_detailed(
+        self,
+        query: str,
+        label: Optional[str] = None,
+        group_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        """搜索节点（完整信息，支持 label 和 group_id 过滤）
+
+        用于 LLM Tool 搜索知识图谱。
         """
         if not self._is_available:
             return []
 
         try:
-            result = self._conn.execute(
-                "MATCH (e:Entity) WHERE e.name CONTAINS $keyword OR e.content CONTAINS $keyword RETURN e.id, e.label, e.name, e.content, e.confidence LIMIT $limit",
-                {"keyword": keyword, "limit": limit},
-            )
+            pattern = f"%{query}%"
+            conditions = ["(name LIKE ? OR content LIKE ?)"]
+            params: list = [pattern, pattern]
 
-            nodes = []
-            for row in result:
-                nodes.append(
-                    {
-                        "id": row[0],
-                        "label": row[1],
-                        "name": row[2],
-                        "content": row[3],
-                        "confidence": row[4],
-                    }
-                )
+            if label:
+                conditions.append("label = ?")
+                params.append(label)
 
-            logger.debug(f"搜索节点 '{keyword}' 找到 {len(nodes)} 个结果")
-            return nodes
+            if group_id:
+                conditions.append("group_id = ?")
+                params.append(group_id)
 
+            where = " AND ".join(conditions)
+            params.append(limit)
+
+            rows = self._db.execute(
+                f"""SELECT id, label, name, content, confidence, group_id
+                    FROM nodes WHERE {where} LIMIT ?""",
+                params,
+            ).fetchall()
+
+            return [
+                {
+                    "id": row["id"],
+                    "label": row["label"],
+                    "name": row["name"],
+                    "content": row["content"],
+                    "confidence": row["confidence"],
+                    "group_id": row["group_id"],
+                }
+                for row in rows
+            ]
         except Exception as e:
-            logger.error(f"搜索节点失败：{e}")
+            logger.warning(f"搜索节点失败：{e}")
             return []
+
+    async def update_node_content_by_source_memory(
+        self, memory_id: str, new_content: str
+    ) -> Optional[str]:
+        """根据 source_memory_id 更新节点内容
+
+        用于记忆修正 Tool，返回更新的节点 ID 或 None。
+        """
+        if not self._is_available:
+            return None
+
+        try:
+            row = self._db.execute(
+                "SELECT id FROM nodes WHERE source_memory_id = ?",
+                (memory_id,),
+            ).fetchone()
+
+            if not row:
+                return None
+
+            node_id = row["id"]
+            props_str = self._db.execute(
+                "SELECT properties FROM nodes WHERE id = ?", (node_id,)
+            ).fetchone()["properties"]
+            props = json.loads(props_str) if isinstance(props_str, str) else props_str
+            if not isinstance(props, dict):
+                props = {}
+            props["corrected"] = "true"
+            props["correction_time"] = datetime.now().isoformat()
+
+            self._db.execute(
+                """UPDATE nodes SET content = ?, confidence = 1.0, properties = ?
+                WHERE id = ?""",
+                (new_content, json.dumps(props, ensure_ascii=False), node_id),
+            )
+            self._db.commit()
+            logger.info(f"已更新图谱节点: node_id={node_id}")
+            return node_id
+        except Exception as e:
+            logger.warning(f"根据来源记忆更新节点失败：{e}")
+            return None
 
     async def get_node_ids_by_source_memory_ids(
         self, memory_ids: list[str]
     ) -> list[str]:
-        """根据来源记忆 ID 反向查找图谱节点 ID
-
-        L3 节点的 source_memory_id 记录了创建该节点的 L2 记忆 ID，
-        合并节点的 properties.source_memory_ids 累积了所有来源记忆 ID。
-        通过反向查询建立 L2 记忆 → L3 节点的关联。
-
-        Args:
-            memory_ids: L2 记忆 ID 列表
-
-        Returns:
-            匹配的图谱节点 ID 列表
-        """
+        """根据来源记忆 ID 反向查找图谱节点 ID"""
         if not self._is_available or not memory_ids:
             return []
 
         try:
-            result = self._conn.execute(
-                "MATCH (e:Entity) WHERE e.source_memory_id IN $memory_ids RETURN e.id",
-                {"memory_ids": memory_ids},
-            )
+            placeholders = ",".join("?" * len(memory_ids))
+            rows = self._db.execute(
+                f"SELECT id FROM nodes WHERE source_memory_id IN ({placeholders})",
+                memory_ids,
+            ).fetchall()
 
-            node_ids: set[str] = set()
-            for row in result:
-                node_ids.add(row[0])
+            node_ids: set[str] = {row["id"] for row in rows}
 
             for mid in memory_ids:
-                try:
-                    result2 = self._conn.execute(
-                        "MATCH (e:Entity) WHERE e.properties['source_memory_ids'] CONTAINS $mid RETURN e.id",
-                        {"mid": mid},
-                    )
-                    for row in result2:
-                        node_ids.add(row[0])
-                except Exception:
-                    pass
+                pattern = f"%{mid}%"
+                extra_rows = self._db.execute(
+                    "SELECT id FROM nodes WHERE properties LIKE ?",
+                    (pattern,),
+                ).fetchall()
+                for row in extra_rows:
+                    try:
+                        props = json.loads(
+                            self._db.execute(
+                                "SELECT properties FROM nodes WHERE id = ?",
+                                (row["id"],),
+                            ).fetchone()["properties"]
+                        )
+                        ids_list = [
+                            x.strip()
+                            for x in props.get("source_memory_ids", "").split(",")
+                            if x.strip()
+                        ]
+                        if mid in ids_list:
+                            node_ids.add(row["id"])
+                    except Exception:
+                        pass
 
             if node_ids:
                 logger.debug(f"根据来源记忆 ID 反向查找找到 {len(node_ids)} 个图谱节点")
-
             return list(node_ids)
         except Exception as e:
             logger.error(f"根据来源记忆 ID 查找节点失败: {e}")
             return []
 
     async def search_edges(self, keyword: str, limit: int = 20) -> list[dict]:
-        """搜索边
-
-        Args:
-            keyword: 搜索关键词（匹配relation_type）
-            limit: 最大返回数量
-
-        Returns:
-            匹配的边列表（包含source和target节点信息）
-        """
+        """搜索边（匹配 relation_type）"""
         if not self._is_available:
             return []
 
         try:
-            result = self._conn.execute(
-                "MATCH (a:Entity)-[r:Related]->(b:Entity) WHERE r.relation_type CONTAINS $keyword RETURN a.id, a.label, a.name, b.id, b.label, b.name, r.relation_type, r.confidence LIMIT $limit",
-                {"keyword": keyword, "limit": limit},
-            )
+            pattern = f"%{keyword}%"
+            rows = self._db.execute(
+                """SELECT e.source_id, e.target_id, e.relation_type, e.confidence,
+                          src.name as src_name, src.label as src_label,
+                          tgt.name as tgt_name, tgt.label as tgt_label
+                   FROM edges e
+                   JOIN nodes src ON e.source_id = src.id
+                   JOIN nodes tgt ON e.target_id = tgt.id
+                   WHERE e.relation_type LIKE ?
+                   LIMIT ?""",
+                (pattern, limit),
+            ).fetchall()
 
-            edges = []
-            for row in result:
-                edges.append(
-                    {
-                        "source": {"id": row[0], "label": row[1], "name": row[2]},
-                        "target": {"id": row[3], "label": row[4], "name": row[5]},
-                        "relation": row[6],
-                        "confidence": row[7],
-                    }
-                )
-
-            logger.debug(f"搜索边 '{keyword}' 找到 {len(edges)} 个结果")
-            return edges
-
+            return [
+                {
+                    "source": {
+                        "id": row["source_id"],
+                        "label": row["src_label"],
+                        "name": row["src_name"],
+                    },
+                    "target": {
+                        "id": row["target_id"],
+                        "label": row["tgt_label"],
+                        "name": row["tgt_name"],
+                    },
+                    "relation": row["relation_type"],
+                    "confidence": row["confidence"],
+                }
+                for row in rows
+            ]
         except Exception as e:
             logger.error(f"搜索边失败：{e}")
             return []
 
     async def get_all_edges(self, limit: int = 100) -> list[dict]:
-        """获取所有边（用于前端展示）
-
-        Args:
-            limit: 最大返回数量，默认 100
-
-        Returns:
-            边字典列表（包含 source 和 target 节点信息）
-        """
+        """获取所有边（用于前端展示）"""
         if not self._is_available:
             return []
 
         try:
-            result = self._conn.execute(
-                """
-                MATCH (a:Entity)-[r:Related]->(b:Entity)
-                RETURN a.id, a.label, a.name, b.id, b.label, b.name,
-                       r.relation_type, r.confidence, r.weight,
-                       r.access_count, r.created_time
-                LIMIT $limit
-            """,
-                {"limit": limit},
-            )
+            rows = self._db.execute(
+                """SELECT e.source_id, e.relation_type, e.confidence,
+                          e.weight, e.access_count, e.created_time,
+                          src.label as src_label, src.name as src_name,
+                          tgt.id as tgt_id, tgt.label as tgt_label, tgt.name as tgt_name
+                   FROM edges e
+                   JOIN nodes src ON e.source_id = src.id
+                   JOIN nodes tgt ON e.target_id = tgt.id
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
 
-            edges = []
-            for row in result:
-                edges.append(
-                    {
-                        "source": {"id": row[0], "label": row[1], "name": row[2]},
-                        "target": {"id": row[3], "label": row[4], "name": row[5]},
-                        "relation": row[6],
-                        "confidence": row[7],
-                        "weight": row[8],
-                        "access_count": row[9],
-                        "created_time": row[10],
-                    }
-                )
-
-            logger.debug(f"获取到 {len(edges)} 条边")
-            return edges
-
+            return [
+                {
+                    "source": {
+                        "id": row["source_id"],
+                        "label": row["src_label"],
+                        "name": row["src_name"],
+                    },
+                    "target": {
+                        "id": row["tgt_id"],
+                        "label": row["tgt_label"],
+                        "name": row["tgt_name"],
+                    },
+                    "relation": row["relation_type"],
+                    "confidence": row["confidence"],
+                    "weight": row["weight"],
+                    "access_count": row["access_count"],
+                    "created_time": row["created_time"],
+                }
+                for row in rows
+            ]
         except Exception as e:
             logger.error(f"获取所有边失败：{e}")
             return []
@@ -850,37 +856,19 @@ class L3KGAdapter(Component):
     async def delete_edge(
         self, source_id: str, target_id: str, relation_type: str
     ) -> bool:
-        """删除指定的边
-
-        Args:
-            source_id: 源节点 ID
-            target_id: 目标节点 ID
-            relation_type: 关系类型
-
-        Returns:
-            是否删除成功
-        """
+        """删除指定的边"""
         if not self._is_available:
             return False
 
         try:
-            self._conn.execute(
-                """
-                MATCH (src:Entity {id: $source_id})
-                      -[r:Related {relation_type: $relation_type}]->
-                      (tgt:Entity {id: $target_id})
-                DELETE r
-            """,
-                {
-                    "source_id": source_id,
-                    "target_id": target_id,
-                    "relation_type": relation_type,
-                },
+            self._db.execute(
+                """DELETE FROM edges
+                WHERE source_id = ? AND target_id = ? AND relation_type = ?""",
+                (source_id, target_id, relation_type),
             )
-
+            self._db.commit()
             logger.info(f"已删除边：{source_id} -[{relation_type}]-> {target_id}")
             return True
-
         except Exception as e:
             logger.error(f"删除边失败：{e}")
             return False
@@ -892,29 +880,23 @@ class L3KGAdapter(Component):
         try:
             import random
 
-            result = self._conn.execute("""
-                MATCH (e:Entity)
-                WHERE e.label = 'Person'
-                RETURN e.id, e.label, e.name, e.content, e.confidence
-            """)
+            rows = self._db.execute(
+                """SELECT id, label, name, content, confidence
+                FROM nodes WHERE label = 'Person'"""
+            ).fetchall()
 
-            nodes = []
-            for row in result:
-                nodes.append(
-                    {
-                        "id": row[0],
-                        "label": row[1],
-                        "name": row[2],
-                        "content": row[3],
-                        "confidence": row[4],
-                    }
-                )
+            nodes = [
+                {
+                    "id": row["id"],
+                    "label": row["label"],
+                    "name": row["name"],
+                    "content": row["content"],
+                    "confidence": row["confidence"],
+                }
+                for row in rows
+            ]
 
-            if nodes:
-                return random.choice(nodes)
-
-            return None
-
+            return random.choice(nodes) if nodes else None
         except Exception as e:
             logger.error(f"获取随机Person节点失败：{e}")
             return None
@@ -922,372 +904,225 @@ class L3KGAdapter(Component):
     async def expand_from_node(
         self, node_id: str, depth: int = 2, max_nodes: int = 50, max_edges: int = 100
     ) -> tuple[list[dict], list[dict]]:
+        """从单个节点出发 BFS 扩展"""
         if not self._is_available:
             return [], []
 
         depth = min(max(1, depth), 3)
 
         try:
-            nodes_map = {}
+            nodes_map: dict[str, dict] = {}
             node_ids_to_query = [node_id]
             all_visited = {node_id}
 
-            for current_depth in range(1, depth + 1):
-                if len(nodes_map) >= max_nodes:
+            seed_row = self._db.execute(
+                "SELECT * FROM nodes WHERE id = ?", (node_id,)
+            ).fetchone()
+            if seed_row:
+                nodes_map[node_id] = dict(seed_row)
+
+            for _ in range(depth):
+                if len(nodes_map) >= max_nodes or not node_ids_to_query:
                     break
 
                 remaining = max_nodes - len(nodes_map)
+                placeholders = ",".join("?" * len(node_ids_to_query))
 
-                if current_depth == 1:
-                    query = """
-                        MATCH (start:Entity {id: $node_id})-[r:Related]-(neighbor:Entity)
-                        WHERE NOT neighbor.id IN $visited
-                        RETURN DISTINCT neighbor.id, neighbor.label, neighbor.name, neighbor.content, neighbor.confidence
-                        LIMIT $limit
-                    """
-                    result = self._conn.execute(
-                        query,
-                        {
-                            "node_id": node_id,
-                            "visited": list(all_visited),
-                            "limit": remaining,
-                        },
+                rows = self._db.execute(
+                    f"""SELECT DISTINCT n.id, n.label, n.name, n.content, n.confidence
+                    FROM edges e
+                    JOIN nodes n ON (
+                        (e.source_id IN ({placeholders}) AND n.id = e.target_id)
+                        OR (e.target_id IN ({placeholders}) AND n.id = e.source_id)
                     )
-                else:
-                    query = """
-                        MATCH (start:Entity)-[r:Related]-(neighbor:Entity)
-                        WHERE start.id IN $current_ids AND NOT neighbor.id IN $visited
-                        RETURN DISTINCT neighbor.id, neighbor.label, neighbor.name, neighbor.content, neighbor.confidence
-                        LIMIT $limit
-                    """
-                    result = self._conn.execute(
-                        query,
-                        {
-                            "current_ids": node_ids_to_query,
-                            "visited": list(all_visited),
-                            "limit": remaining,
-                        },
-                    )
+                    WHERE n.id NOT IN ({','.join('?' * len(all_visited))})
+                    LIMIT ?""",
+                    (*node_ids_to_query, *node_ids_to_query, *all_visited, remaining),
+                ).fetchall()
 
                 node_ids_to_query = []
-                for row in result:
-                    nid = row[0]
+                for row in rows:
+                    nid = row["id"]
                     if nid not in all_visited:
                         all_visited.add(nid)
                         node_ids_to_query.append(nid)
                         nodes_map[nid] = {
                             "id": nid,
-                            "label": row[1],
-                            "name": row[2],
-                            "content": row[3],
-                            "confidence": row[4],
+                            "label": row["label"],
+                            "name": row["name"],
+                            "content": row["content"],
+                            "confidence": row["confidence"],
                         }
 
-                if not node_ids_to_query:
-                    break
-
-            start_node_result = self._conn.execute(
-                """
-                MATCH (e:Entity {id: $node_id})
-                RETURN e.id, e.label, e.name, e.content, e.confidence
-            """,
-                {"node_id": node_id},
-            )
-
-            for row in start_node_result:
-                nodes_map[node_id] = {
-                    "id": row[0],
-                    "label": row[1],
-                    "name": row[2],
-                    "content": row[3],
-                    "confidence": row[4],
-                }
-
             edges_list = []
-            seen_edges = set()
+            seen_edges: set[str] = set()
 
             if nodes_map:
                 node_ids = list(nodes_map.keys())
+                placeholders = ",".join("?" * len(node_ids))
 
-                edges_result = self._conn.execute(
-                    """
-                    MATCH (a:Entity)-[r:Related]->(b:Entity)
-                    WHERE a.id IN $node_ids AND b.id IN $node_ids
-                    RETURN a.id, b.id, r.relation_type, r.confidence
-                    LIMIT $limit
-                """,
-                    {"node_ids": node_ids, "limit": max_edges},
-                )
+                edge_rows = self._db.execute(
+                    f"""SELECT source_id, target_id, relation_type, confidence
+                    FROM edges
+                    WHERE source_id IN ({placeholders}) AND target_id IN ({placeholders})
+                    LIMIT ?""",
+                    (*node_ids, *node_ids, max_edges),
+                ).fetchall()
 
-                for row in edges_result:
-                    edge_key = f"{row[0]}->{row[1]}"
+                for row in edge_rows:
+                    edge_key = f"{row['source_id']}->{row['target_id']}"
                     if edge_key not in seen_edges:
                         seen_edges.add(edge_key)
-                        edges_list.append(
-                            {
-                                "source": row[0],
-                                "target": row[1],
-                                "relation": row[2],
-                                "confidence": row[3],
-                            }
-                        )
-
-            nodes_list = list(nodes_map.values())
+                        edges_list.append({
+                            "source": row["source_id"],
+                            "target": row["target_id"],
+                            "relation": row["relation_type"],
+                            "confidence": row["confidence"],
+                        })
 
             logger.debug(
-                f"从节点 {node_id} 拓展深度 {depth}，获取 {len(nodes_list)} 节点，{len(edges_list)} 边"
+                f"从节点 {node_id} 拓展深度 {depth}，"
+                f"获取 {len(nodes_map)} 节点，{len(edges_list)} 边"
             )
-            return nodes_list, edges_list
-
+            return list(nodes_map.values()), edges_list
         except Exception as e:
             logger.error(f"从节点拓展失败：{e}")
             return [], []
 
     async def get_node_connection_counts(self) -> dict[str, int]:
-        """获取所有节点的连接数
-
-        Returns:
-            {node_id: connection_count}
-        """
+        """获取所有节点的连接数"""
         if not self._is_available:
             return {}
 
         try:
-            result = self._conn.execute("""
-                MATCH (e:Entity)
-                OPTIONAL MATCH (e)-[r:Related]-()
-                RETURN e.id, COUNT(r) as conn_count
-            """)
+            rows = self._db.execute("""
+                SELECT n.id, (
+                    SELECT COUNT(*) FROM edges e
+                    WHERE e.source_id = n.id OR e.target_id = n.id
+                ) as conn_count
+                FROM nodes n
+            """).fetchall()
 
-            counts = {}
-            for row in result:
-                counts[row[0]] = row[1]
-
-            return counts
+            return {row["id"]: row["conn_count"] for row in rows}
         except Exception as e:
             logger.error(f"获取节点连接数失败：{e}")
             return {}
 
     async def update_node_properties(self, node_id: str, properties: dict) -> bool:
-        """更新节点扩展属性
-
-        Args:
-            node_id: 节点 ID
-            properties: 新的属性字典（完整替换）
-
-        Returns:
-            是否更新成功
-        """
+        """更新节点扩展属性"""
         if not self._is_available:
             return False
 
         try:
-            import asyncio
-
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: self._conn.execute(
-                    "MATCH (e:Entity {id: $id}) SET e.properties = $props",
-                    {"id": node_id, "props": properties},
-                ),
+            self._db.execute(
+                "UPDATE nodes SET properties = ? WHERE id = ?",
+                (json.dumps(properties, ensure_ascii=False), node_id),
             )
+            self._db.commit()
             return True
         except Exception as e:
             logger.error(f"更新节点属性失败：{e}")
             return False
 
     async def evict_nodes(self, node_ids: list[str]) -> int:
-        """淘汰节点及关联边（用于定时任务）
-
-        先删除关联边，再删除节点。
-
-        Args:
-            node_ids: 要淘汰的节点 ID 列表
-
-        Returns:
-            实际删除的节点数量
-        """
+        """淘汰节点及关联边（CASCADE 自动删边）"""
         if not self._is_available or not node_ids:
             return 0
 
         try:
-            # 1. 删除关联边（KuzuDB 不支持删除无向关系，需分两个方向）
-            self._conn.execute(
-                """
-                MATCH (e:Entity)-[r:Related]->()
-                WHERE e.id IN $node_ids
-                DELETE r
-            """,
-                {"node_ids": node_ids},
+            placeholders = ",".join("?" * len(node_ids))
+            self._db.execute(
+                f"DELETE FROM nodes WHERE id IN ({placeholders})", node_ids
             )
-            self._conn.execute(
-                """
-                MATCH ()-[r:Related]->(e:Entity)
-                WHERE e.id IN $node_ids
-                DELETE r
-            """,
-                {"node_ids": node_ids},
-            )
-
-            # 2. 删除节点
-            self._conn.execute(
-                """
-                MATCH (e:Entity)
-                WHERE e.id IN $node_ids
-                DELETE e
-            """,
-                {"node_ids": node_ids},
-            )
+            self._db.commit()
 
             logger.info(f"已淘汰 {len(node_ids)} 个节点及其关联边")
             return len(node_ids)
-
         except Exception as e:
             logger.error(f"淘汰节点失败：{e}")
             return 0
 
     async def delete_by_group(self, group_id: str) -> int:
-        """删除指定群聊的所有节点和边
-
-        Args:
-            group_id: 群聊ID
-
-        Returns:
-            删除的节点数量
-        """
+        """删除指定群聊的所有节点和边"""
         if not self._is_available:
             return 0
 
         try:
-            count_result = self._conn.execute(
-                """
-                MATCH (e:Entity)
-                WHERE e.group_id = $group_id
-                RETURN COUNT(e) as count
-            """,
-                {"group_id": group_id},
-            )
-
-            node_count = count_result.get_next()[0] if count_result.has_next() else 0
+            count_row = self._db.execute(
+                "SELECT COUNT(*) FROM nodes WHERE group_id = ?", (group_id,)
+            ).fetchone()
+            node_count = count_row[0]
 
             if node_count == 0:
                 logger.debug(f"群聊 {group_id} 没有知识图谱节点")
                 return 0
 
-            self._conn.execute(
-                """
-                MATCH (e:Entity)
-                WHERE e.group_id = $group_id
-                DETACH DELETE e
-            """,
-                {"group_id": group_id},
+            self._db.execute(
+                "DELETE FROM nodes WHERE group_id = ?", (group_id,)
             )
+            self._db.commit()
 
             logger.info(f"已删除群聊 {group_id} 的 {node_count} 个节点及其关联边")
             return node_count
-
         except Exception as e:
             logger.error(f"删除群聊知识图谱失败: {e}", exc_info=True)
             return 0
 
     async def delete_all(self) -> int:
-        """删除所有节点和边
-
-        Returns:
-            删除的节点数量
-        """
+        """删除所有节点和边"""
         if not self._is_available:
             return 0
 
         try:
-            count_result = self._conn.execute("""
-                MATCH (e:Entity)
-                RETURN COUNT(e) as count
-            """)
+            count = self._db.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
 
-            node_count = count_result.get_next()[0] if count_result.has_next() else 0
-
-            if node_count == 0:
+            if count == 0:
                 return 0
 
-            self._conn.execute("""
-                MATCH (e:Entity)
-                DETACH DELETE e
-            """)
+            self._db.execute("DELETE FROM edges")
+            self._db.execute("DELETE FROM nodes")
+            self._db.commit()
 
-            logger.info(f"已删除所有知识图谱节点，共 {node_count} 个")
-            return node_count
-
+            logger.info(f"已删除所有知识图谱节点，共 {count} 个")
+            return count
         except Exception as e:
             logger.error(f"删除所有知识图谱失败: {e}", exc_info=True)
             return 0
 
     async def delete_by_user(self, user_id: str, group_id: Optional[str] = None) -> int:
-        """删除与指定用户相关的节点
-
-        注意：由于知识图谱节点没有直接的 user_id 字段，
-        此方法通过节点名称匹配用户ID来删除。
-        这是一个近似实现，可能不精确。
-
-        Args:
-            user_id: 用户ID
-            group_id: 群聊ID（可选）
-
-        Returns:
-            删除的节点数量
-        """
+        """删除与指定用户相关的节点（通过名称匹配）"""
         if not self._is_available:
             return 0
 
         try:
             if group_id:
-                count_result = self._conn.execute(
-                    """
-                    MATCH (e:Entity)
-                    WHERE e.group_id = $group_id AND e.name = $user_id
-                    RETURN COUNT(e) as count
-                """,
-                    {"group_id": group_id, "user_id": user_id},
-                )
+                count_row = self._db.execute(
+                    "SELECT COUNT(*) FROM nodes WHERE group_id = ? AND name = ?",
+                    (group_id, user_id),
+                ).fetchone()
             else:
-                count_result = self._conn.execute(
-                    """
-                    MATCH (e:Entity)
-                    WHERE e.name = $user_id
-                    RETURN COUNT(e) as count
-                """,
-                    {"user_id": user_id},
-                )
+                count_row = self._db.execute(
+                    "SELECT COUNT(*) FROM nodes WHERE name = ?", (user_id,)
+                ).fetchone()
 
-            node_count = count_result.get_next()[0] if count_result.has_next() else 0
-
+            node_count = count_row[0]
             if node_count == 0:
                 logger.debug(f"用户 {user_id} 没有知识图谱节点")
                 return 0
 
             if group_id:
-                self._conn.execute(
-                    """
-                    MATCH (e:Entity)
-                    WHERE e.group_id = $group_id AND e.name = $user_id
-                    DETACH DELETE e
-                """,
-                    {"group_id": group_id, "user_id": user_id},
+                self._db.execute(
+                    "DELETE FROM nodes WHERE group_id = ? AND name = ?",
+                    (group_id, user_id),
                 )
             else:
-                self._conn.execute(
-                    """
-                    MATCH (e:Entity)
-                    WHERE e.name = $user_id
-                    DETACH DELETE e
-                """,
-                    {"user_id": user_id},
+                self._db.execute(
+                    "DELETE FROM nodes WHERE name = ?", (user_id,)
                 )
+            self._db.commit()
 
             logger.info(f"已删除用户 {user_id} 的 {node_count} 个知识图谱节点")
             return node_count
-
         except Exception as e:
             logger.error(f"删除用户知识图谱失败: {e}", exc_info=True)
             return 0
@@ -1295,45 +1130,42 @@ class L3KGAdapter(Component):
     async def merge_duplicate_nodes(self) -> tuple[int, int]:
         """合并同名同 label 的重复节点
 
-        查找所有 label+name 相同但 id 不同的节点组，
-        将它们合并为一个节点（保留最早创建的），
-        并将重复节点的边迁移到保留节点上。
-
         Returns:
-            (合并的节点数, 删除的节点数)
+            (合并的节点组数, 删除的重复节点数)
         """
         if not self._is_available:
             return 0, 0
 
         try:
-            result = self._conn.execute("""
-                MATCH (e:Entity)
-                RETURN e.id, e.label, e.name, e.content, e.confidence,
-                       e.access_count, e.created_time, e.group_id, e.properties
-            """)
+            rows = self._db.execute(
+                """SELECT id, label, name, content, confidence,
+                          access_count, created_time, group_id, properties
+                   FROM nodes"""
+            ).fetchall()
 
             name_groups: dict[str, list[dict]] = {}
-            for row in result:
+            for row in rows:
+                props = row["properties"]
+                if isinstance(props, str):
+                    props = json.loads(props)
                 node_data = {
-                    "id": row[0],
-                    "label": row[1],
-                    "name": row[2],
-                    "content": row[3],
-                    "confidence": row[4],
-                    "access_count": row[5],
-                    "created_time": row[6],
-                    "group_id": row[7],
-                    "properties": row[8] if isinstance(row[8], dict) else {},
+                    "id": row["id"],
+                    "label": row["label"],
+                    "name": row["name"],
+                    "content": row["content"],
+                    "confidence": row["confidence"],
+                    "access_count": row["access_count"],
+                    "created_time": row["created_time"],
+                    "group_id": row["group_id"],
+                    "properties": props if isinstance(props, dict) else {},
                 }
-                key = f"{row[1]}:{row[2]}"
-                if key not in name_groups:
-                    name_groups[key] = []
-                name_groups[key].append(node_data)
+                key = f"{row['label']}:{row['name']}"
+                name_groups.setdefault(key, []).append(node_data)
 
             merged_count = 0
             deleted_count = 0
 
-            for key, nodes in name_groups.items():
+            for _key, nodes in name_groups.items():
                 if len(nodes) <= 1:
                     continue
 
@@ -1359,10 +1191,10 @@ class L3KGAdapter(Component):
                 if keep_node.get("group_id") and keep_node["group_id"] not in group_ids:
                     group_ids.insert(0, keep_node["group_id"])
 
+                dup_ids = []
                 for dup in duplicate_nodes:
-                    dup_content = dup["content"]
                     merged_content = self._merge_node_content(
-                        merged_content, dup_content
+                        merged_content, dup["content"]
                     )
 
                     merged_confidence = max(
@@ -1395,140 +1227,102 @@ class L3KGAdapter(Component):
                     if dup.get("group_id") and dup["group_id"] not in group_ids:
                         group_ids.append(dup["group_id"])
 
-                    dup_id = dup["id"]
-                    keep_id = keep_node["id"]
+                    dup_ids.append(dup["id"])
 
-                    outgoing_result = self._conn.execute(
-                        """
-                        MATCH (src:Entity {id: $dup_id})-[r:Related]->(tgt:Entity)
-                        WHERE tgt.id <> $keep_id
-                        RETURN tgt.id, r.relation_type, r.weight, r.confidence,
-                               r.access_count, r.created_time, r.source_memory_id, r.properties
-                    """,
-                        {"dup_id": dup_id, "keep_id": keep_id},
+                keep_id = keep_node["id"]
+                dup_ids_set = set(dup_ids)
+
+                if dup_ids:
+                    dup_placeholders = ",".join("?" * len(dup_ids))
+
+                    # 先收集重复节点的所有边，逐条合并到保留节点
+                    dup_edges = self._db.execute(
+                        f"""SELECT source_id, target_id, relation_type, weight,
+                                   confidence, access_count, last_access_time,
+                                   created_time, source_memory_id, properties
+                            FROM edges
+                            WHERE source_id IN ({dup_placeholders})
+                               OR target_id IN ({dup_placeholders})""",
+                        (*dup_ids, *dup_ids),
+                    ).fetchall()
+
+                    # 删除重复节点的所有边
+                    self._db.execute(
+                        f"""DELETE FROM edges
+                            WHERE source_id IN ({dup_placeholders})
+                               OR target_id IN ({dup_placeholders})""",
+                        (*dup_ids, *dup_ids),
                     )
 
-                    for row in outgoing_result:
-                        (
-                            tgt_id,
-                            rel_type,
-                            weight,
-                            conf,
-                            acc_count,
-                            c_time,
-                            src_mem_id,
-                            props,
-                        ) = (
-                            row[0],
-                            row[1],
-                            row[2],
-                            row[3],
-                            row[4],
-                            row[5],
-                            row[6],
-                            row[7],
-                        )
-                        existing_edge = await self._get_edge(keep_id, tgt_id, rel_type)
-                        if not existing_edge:
-                            edge_props = dict(props) if isinstance(props, dict) else {}
-                            if src_mem_id:
-                                edge_props["source_memory_ids"] = src_mem_id
-                            map_lit = _build_map_literal(edge_props)
-                            self._conn.execute(
-                                f"""
-                                MATCH (src:Entity {{id: $source_id}})
-                                MATCH (tgt:Entity {{id: $target_id}})
-                                CREATE (src)-[r:Related {{
-                                    relation_type: $relation_type,
-                                    weight: $weight,
-                                    confidence: $confidence,
-                                    access_count: $access_count,
-                                    last_access_time: current_timestamp(),
-                                    created_time: $created_time,
-                                    properties: {map_lit}
-                                }}]->(tgt)
-                            """,
-                                {
-                                    "source_id": keep_id,
-                                    "target_id": tgt_id,
-                                    "relation_type": rel_type,
-                                    "weight": weight,
-                                    "confidence": conf,
-                                    "access_count": acc_count,
-                                    "created_time": c_time,
-                                },
+                    # 将边重新挂载到保留节点，遇到冲突则合并属性
+                    for edge_row in dup_edges:
+                        new_source = keep_id if edge_row["source_id"] in dup_ids_set else edge_row["source_id"]
+                        new_target = keep_id if edge_row["target_id"] in dup_ids_set else edge_row["target_id"]
+
+                        # 跳过自环
+                        if new_source == new_target:
+                            continue
+
+                        edge_props = edge_row["properties"]
+                        if isinstance(edge_props, str):
+                            edge_props = json.loads(edge_props)
+
+                        # 检查保留节点是否已有相同边
+                        existing = self._db.execute(
+                            """SELECT weight, confidence, access_count, properties
+                               FROM edges
+                               WHERE source_id = ? AND target_id = ? AND relation_type = ?""",
+                            (new_source, new_target, edge_row["relation_type"]),
+                        ).fetchone()
+
+                        if existing:
+                            existing_props = existing["properties"]
+                            if isinstance(existing_props, str):
+                                existing_props = json.loads(existing_props)
+                            existing_props.update(edge_props)
+                            self._db.execute(
+                                """UPDATE edges SET
+                                    weight = MAX(weight, ?),
+                                    confidence = MAX(confidence, ?),
+                                    access_count = access_count + ?,
+                                    properties = ?
+                                WHERE source_id = ? AND target_id = ? AND relation_type = ?""",
+                                (
+                                    edge_row["weight"],
+                                    edge_row["confidence"],
+                                    edge_row["access_count"],
+                                    json.dumps(existing_props, ensure_ascii=False),
+                                    new_source,
+                                    new_target,
+                                    edge_row["relation_type"],
+                                ),
+                            )
+                        else:
+                            self._db.execute(
+                                """INSERT INTO edges
+                                    (source_id, target_id, relation_type, weight,
+                                     confidence, access_count, last_access_time,
+                                     created_time, source_memory_id, properties)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                (
+                                    new_source,
+                                    new_target,
+                                    edge_row["relation_type"],
+                                    edge_row["weight"],
+                                    edge_row["confidence"],
+                                    edge_row["access_count"],
+                                    edge_row["last_access_time"],
+                                    edge_row["created_time"],
+                                    edge_row["source_memory_id"],
+                                    json.dumps(edge_props, ensure_ascii=False),
+                                ),
                             )
 
-                    incoming_result = self._conn.execute(
-                        """
-                        MATCH (src:Entity)-[r:Related]->(tgt:Entity {id: $dup_id})
-                        WHERE src.id <> $keep_id
-                        RETURN src.id, r.relation_type, r.weight, r.confidence,
-                               r.access_count, r.created_time, r.source_memory_id, r.properties
-                    """,
-                        {"dup_id": dup_id, "keep_id": keep_id},
+                    self._db.execute(
+                        f"DELETE FROM nodes WHERE id IN ({dup_placeholders})",
+                        dup_ids,
                     )
-
-                    for row in incoming_result:
-                        (
-                            src_id,
-                            rel_type,
-                            weight,
-                            conf,
-                            acc_count,
-                            c_time,
-                            src_mem_id,
-                            props,
-                        ) = (
-                            row[0],
-                            row[1],
-                            row[2],
-                            row[3],
-                            row[4],
-                            row[5],
-                            row[6],
-                            row[7],
-                        )
-                        existing_edge = await self._get_edge(src_id, keep_id, rel_type)
-                        if not existing_edge:
-                            edge_props = dict(props) if isinstance(props, dict) else {}
-                            if src_mem_id:
-                                edge_props["source_memory_ids"] = src_mem_id
-                            map_lit = _build_map_literal(edge_props)
-                            self._conn.execute(
-                                f"""
-                                MATCH (src:Entity {{id: $source_id}})
-                                MATCH (tgt:Entity {{id: $target_id}})
-                                CREATE (src)-[r:Related {{
-                                    relation_type: $relation_type,
-                                    weight: $weight,
-                                    confidence: $confidence,
-                                    access_count: $access_count,
-                                    last_access_time: current_timestamp(),
-                                    created_time: $created_time,
-                                    properties: {map_lit}
-                                }}]->(tgt)
-                            """,
-                                {
-                                    "source_id": src_id,
-                                    "target_id": keep_id,
-                                    "relation_type": rel_type,
-                                    "weight": weight,
-                                    "confidence": conf,
-                                    "access_count": acc_count,
-                                    "created_time": c_time,
-                                },
-                            )
-
-                    self._conn.execute(
-                        """
-                        MATCH (e:Entity {id: $id})
-                        DETACH DELETE e
-                    """,
-                        {"id": dup_id},
-                    )
-
-                    deleted_count += 1
+                    deleted_count += len(dup_ids)
 
                 if source_ids:
                     merged_properties["source_memory_ids"] = ",".join(source_ids)
@@ -1539,28 +1333,23 @@ class L3KGAdapter(Component):
                 if not merged_group_id and group_ids:
                     merged_group_id = group_ids[0]
 
-                map_literal = _build_map_literal(merged_properties)
-
-                update_query = f"""
-                    MATCH (e:Entity {{id: $id}})
-                    SET e.content = $content,
-                        e.confidence = $confidence,
-                        e.access_count = $access_count,
-                        e.group_id = $group_id,
-                        e.properties = {map_literal}
-                """
-                self._conn.execute(
-                    update_query,
-                    {
-                        "id": keep_node["id"],
-                        "content": merged_content,
-                        "confidence": merged_confidence,
-                        "access_count": merged_access_count,
-                        "group_id": merged_group_id,
-                    },
+                self._db.execute(
+                    """UPDATE nodes SET content = ?, confidence = ?,
+                       access_count = ?, group_id = ?, properties = ?
+                    WHERE id = ?""",
+                    (
+                        merged_content,
+                        merged_confidence,
+                        merged_access_count,
+                        merged_group_id,
+                        json.dumps(merged_properties, ensure_ascii=False),
+                        keep_id,
+                    ),
                 )
 
                 merged_count += 1
+
+            self._db.commit()
 
             if merged_count > 0:
                 logger.info(
@@ -1569,17 +1358,12 @@ class L3KGAdapter(Component):
                 )
 
             return merged_count, deleted_count
-
         except Exception as e:
             logger.error(f"合并重复节点失败：{e}")
             return 0, 0
 
     async def export_all(self) -> dict:
-        """导出所有知识图谱数据
-
-        Returns:
-            包含版本、节点和边的字典
-        """
+        """导出所有知识图谱数据"""
         if not self._is_available:
             return {
                 "version": "1.0",
@@ -1590,64 +1374,62 @@ class L3KGAdapter(Component):
             }
 
         try:
-            nodes_result = self._conn.execute("""
-                MATCH (e:Entity)
-                RETURN e.id, e.label, e.name, e.content, e.confidence,
-                       e.access_count, e.last_access_time, e.created_time,
-                       e.source_memory_id, e.group_id, e.properties
-            """)
+            node_rows = self._db.execute(
+                """SELECT id, label, name, content, confidence,
+                          access_count, last_access_time, created_time,
+                          source_memory_id, group_id, properties
+                   FROM nodes"""
+            ).fetchall()
 
             nodes = []
-            for row in nodes_result:
-                nodes.append(
-                    {
-                        "id": row[0],
-                        "label": row[1],
-                        "name": row[2],
-                        "content": row[3],
-                        "confidence": row[4],
-                        "access_count": row[5],
-                        "last_access_time": str(row[6]) if row[6] else None,
-                        "created_time": str(row[7]) if row[7] else None,
-                        "source_memory_id": row[8],
-                        "group_id": row[9],
-                        "properties": row[10] if isinstance(row[10], dict) else {},
-                    }
-                )
+            for row in node_rows:
+                props = row["properties"]
+                if isinstance(props, str):
+                    props = json.loads(props)
+                nodes.append({
+                    "id": row["id"],
+                    "label": row["label"],
+                    "name": row["name"],
+                    "content": row["content"],
+                    "confidence": row["confidence"],
+                    "access_count": row["access_count"],
+                    "last_access_time": row["last_access_time"],
+                    "created_time": row["created_time"],
+                    "source_memory_id": row["source_memory_id"],
+                    "group_id": row["group_id"],
+                    "properties": props if isinstance(props, dict) else {},
+                })
 
-            edges_result = self._conn.execute("""
-                MATCH (a:Entity)-[r:Related]->(b:Entity)
-                RETURN a.id, b.id, r.relation_type, r.weight, r.confidence,
-                       r.access_count, r.last_access_time, r.created_time,
-                       r.source_memory_id, r.properties
-            """)
+            edge_rows = self._db.execute(
+                """SELECT source_id, target_id, relation_type, weight, confidence,
+                          access_count, last_access_time, created_time,
+                          source_memory_id, properties
+                   FROM edges"""
+            ).fetchall()
 
             edges = []
-            for row in edges_result:
-                edges.append(
-                    {
-                        "source_id": row[0],
-                        "target_id": row[1],
-                        "relation_type": row[2],
-                        "weight": row[3],
-                        "confidence": row[4],
-                        "access_count": row[5],
-                        "last_access_time": str(row[6]) if row[6] else None,
-                        "created_time": str(row[7]) if row[7] else None,
-                        "source_memory_id": row[8],
-                        "properties": row[9] if isinstance(row[9], dict) else {},
-                    }
-                )
-
-            from datetime import datetime as _dt
-
-            export_time = _dt.now().isoformat()
+            for row in edge_rows:
+                props = row["properties"]
+                if isinstance(props, str):
+                    props = json.loads(props)
+                edges.append({
+                    "source_id": row["source_id"],
+                    "target_id": row["target_id"],
+                    "relation_type": row["relation_type"],
+                    "weight": row["weight"],
+                    "confidence": row["confidence"],
+                    "access_count": row["access_count"],
+                    "last_access_time": row["last_access_time"],
+                    "created_time": row["created_time"],
+                    "source_memory_id": row["source_memory_id"],
+                    "properties": props if isinstance(props, dict) else {},
+                })
 
             logger.info(f"知识图谱导出完成：{len(nodes)} 个节点，{len(edges)} 条边")
 
             return {
                 "version": "1.0",
-                "export_time": export_time,
+                "export_time": datetime.now().isoformat(),
                 "nodes": nodes,
                 "edges": edges,
                 "stats": {
@@ -1655,7 +1437,6 @@ class L3KGAdapter(Component):
                     "edge_count": len(edges),
                 },
             }
-
         except Exception as e:
             logger.error(f"导出知识图谱失败：{e}", exc_info=True)
             return {
@@ -1667,15 +1448,7 @@ class L3KGAdapter(Component):
             }
 
     async def import_from_data(self, data: dict, skip_duplicates: bool = True) -> dict:
-        """从数据字典导入知识图谱
-
-        Args:
-            data: 导出数据字典（包含 nodes 和 edges）
-            skip_duplicates: 是否跳过重复节点（已存在则合并）
-
-        Returns:
-            导入统计 {"imported_nodes": int, "imported_edges": int, "skipped_nodes": int, "error_count": int}
-        """
+        """从数据字典导入知识图谱"""
         if not self._is_available:
             return {
                 "imported_nodes": 0,
@@ -1761,9 +1534,7 @@ class L3KGAdapter(Component):
 
     async def shutdown(self) -> None:
         """关闭数据库连接"""
-        if self._conn:
-            self._conn.close()
-        if self._db:
+        if hasattr(self, "_db") and self._db:
             self._db.close()
         self._reset_state()
-        logger.info("KuzuDB 已关闭")
+        logger.info("SQLite 图谱已关闭")

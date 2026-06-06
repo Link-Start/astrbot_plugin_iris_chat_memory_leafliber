@@ -209,7 +209,7 @@ class HiddenConfig:
     )
     dream_consolidation_query_batch_size: int = field(
         default=50,
-        metadata={"description": "ChromaDB 批量查询大小", "group": "梦境任务"},
+        metadata={"description": "向量检索批量查询大小", "group": "梦境任务"},
     )
     dream_consolidation_max_group_size: int = field(
         default=5,

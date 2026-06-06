@@ -1,6 +1,7 @@
 """Token 计数工具测试"""
 
 from iris_memory.utils.token_counter import (
+    _TIKTOKEN_AVAILABLE,
     count_tokens,
     get_encoder,
     count_messages_tokens,
@@ -12,15 +13,15 @@ class TestTokenCounter:
 
     def test_count_tokens_english(self):
         """测试英文文本计数"""
-        # "Hello, world!" 通常为 4 tokens
         count = count_tokens("Hello, world!")
-        assert count == 4
+        assert count > 0
+        # tiktoken 精确模式下为 4，字符估算模式下为 7
+        if _TIKTOKEN_AVAILABLE and get_encoder() is not None:
+            assert count == 4
 
     def test_count_tokens_chinese(self):
         """测试中文文本计数"""
-        # "你好，世界！" 通常为 9 tokens
         count = count_tokens("你好，世界！")
-        # 中文 token 数可能因编码器不同而略有差异
         assert count > 0
 
     def test_count_tokens_empty_string(self):
@@ -36,11 +37,8 @@ class TestTokenCounter:
 
     def test_get_encoder_caching(self):
         """测试编码器缓存"""
-        # 获取两次相同的编码器
         encoder1 = get_encoder("cl100k_base")
         encoder2 = get_encoder("cl100k_base")
-
-        # 应该是同一个实例
         assert encoder1 is encoder2
 
     def test_count_messages_tokens_empty(self):
@@ -68,7 +66,4 @@ class TestTokenCounter:
         """测试消息格式开销"""
         messages = [{"role": "user", "content": "test"}]
         count = count_messages_tokens(messages)
-
-        # 格式开销应该包含在内（至少 4 tokens）
-        # 实际内容 "test" 约为 1 token
         assert count > 1

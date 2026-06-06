@@ -124,51 +124,15 @@ class SearchKnowledgeGraphTool(FunctionTool[AstrAgentContext]):
         self, l3_adapter, query: str, label: str, group_id
     ) -> list[dict]:
         try:
-            escaped_query = query.replace("\\", "\\\\").replace("'", "\\'")
-
-            if label:
-                escaped_label = label.replace("\\", "\\\\").replace("'", "\\'")
-                cypher = (
-                    "MATCH (e:Entity) "
-                    "WHERE e.label = $label "
-                    "AND (e.name CONTAINS $query OR e.content CONTAINS $query) "
-                    "RETURN e.id, e.label, e.name, e.content, e.confidence, e.group_id"
-                )
-                result_set = l3_adapter._conn.execute(
-                    cypher,
-                    {"label": escaped_label, "query": escaped_query},
-                )
-            else:
-                cypher = (
-                    "MATCH (e:Entity) "
-                    "WHERE e.name CONTAINS $query OR e.content CONTAINS $query "
-                    "RETURN e.id, e.label, e.name, e.content, e.confidence, e.group_id"
-                )
-                result_set = l3_adapter._conn.execute(
-                    cypher,
-                    {"query": escaped_query},
-                )
-
-            nodes = []
-            for row in result_set:
-                node = {
-                    "id": row[0],
-                    "label": row[1],
-                    "name": row[2],
-                    "content": row[3],
-                    "confidence": row[4],
-                    "group_id": row[5],
-                }
-                if group_id and node.get("group_id") and node["group_id"] != group_id:
-                    continue
-                nodes.append(node)
-
+            nodes = await l3_adapter.search_nodes_detailed(
+                query=query, label=label or None, group_id=group_id, limit=15
+            )
             if len(nodes) > 15:
                 logger.debug(f"KG Tool 搜索节点截断：原始 {len(nodes)} 个 → 保留 15 个")
             return nodes[:15]
 
         except Exception as e:
-            logger.warning(f"Cypher查询节点失败：{e}")
+            logger.warning(f"搜索知识图谱节点失败：{e}")
             return []
 
     def _format_results(

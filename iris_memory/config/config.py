@@ -57,7 +57,7 @@ class Config:
         >>>
         >>> # 获取数据目录
         >>> data_dir = config.data_dir
-        >>> chroma_dir = data_dir / "chromadb"
+        >>> faiss_dir = data_dir / "faiss"
         >>>
         >>> # 热修改隐藏配置
         >>> config.set_hidden("debug_mode", True)
