@@ -51,30 +51,6 @@
             "default": 200,
             "description": "每日解析限额",
             "hint": "全局共享计数器，超限后静默跳过，每日00:00重置"
-          },
-          "max_parse_per_request": {
-            "type": "int",
-            "default": 5,
-            "description": "单次请求最大解析数",
-            "hint": "每次 LLM 请求最多解析的图片数量"
-          },
-          "max_concurrent_parse": {
-            "type": "int",
-            "default": 3,
-            "description": "最大并发解析数",
-            "hint": "同时解析图片的最大并发数"
-          },
-          "cache_retention_days": {
-            "type": "int",
-            "default": 7,
-            "description": "缓存保留天数",
-            "hint": "图片解析结果的缓存保留天数，过期后自动清理"
-          },
-          "skip_on_passive_trigger": {
-            "type": "bool",
-            "default": true,
-            "description": "被动触发时跳过图片解析",
-            "hint": "当 LLM 由 sampling/主动回复触发时跳过图片解析，节省 token 和配额"
           }
         }
       }
@@ -124,18 +100,6 @@
         "description": "检索 Top-K",
         "hint": "从记忆库检索的相关记忆数量"
       },
-      "max_entries": {
-        "type": "int",
-        "default": 10000,
-        "description": "最大条目数",
-        "hint": "超限后按遗忘权重淘汰低分条目"
-      },
-      "timeout_ms": {
-        "type": "int",
-        "default": 4000,
-        "description": "检索超时 (毫秒)",
-        "hint": "超时后跳过 L2 结果"
-      },
       "relevance_threshold": {
         "type": "float",
         "default": 0.3,
@@ -161,42 +125,6 @@
         "description": "L3 实体提取模型 Provider",
         "hint": "选择用于知识图谱实体提取的模型，留空则使用默认 Provider",
         "_special": "select_provider"
-      },
-      "max_nodes": {
-        "type": "int",
-        "default": 50000,
-        "description": "最大节点数",
-        "hint": "超限后淘汰评分最低的节点及关联边"
-      },
-      "max_edges": {
-        "type": "int",
-        "default": 100000,
-        "description": "最大边数",
-        "hint": "关系边的数量上限"
-      },
-      "timeout_ms": {
-        "type": "int",
-        "default": 1500,
-        "description": "检索超时 (毫秒)",
-        "hint": "超时后跳过图增强结果"
-      },
-      "expansion_depth": {
-        "type": "int",
-        "default": 2,
-        "description": "图增强检索的路径扩展深度",
-        "hint": "从记忆节点出发的最大跳跃次数"
-      },
-      "enable_type_whitelist": {
-        "type": "bool",
-        "default": true,
-        "description": "启用类型白名单约束",
-        "hint": "LLM 优先使用白名单类型，但仍允许创建新类型"
-      },
-      "max_inject_tokens": {
-        "type": "int",
-        "default": 600,
-        "description": "图谱注入最大 token 数",
-        "hint": "控制知识图谱注入到 LLM 上下文的 token 预算"
       }
     }
   },
@@ -258,18 +186,18 @@
     "description": "梦境任务",
     "hint": "记忆的离线深度加工，包含6个阶段：合并重复、时间锚定、矛盾消解、模式挖掘、知识提取、遗忘清洗",
     "items": {
+      "enable_dream": {
+        "type": "bool",
+        "default": true,
+        "description": "启用梦境任务",
+        "hint": "定期执行记忆的离线深度加工"
+      },
       "provider": {
         "type": "string",
         "default": "",
         "description": "梦境任务模型 Provider",
         "hint": "选择用于执行梦境任务的模型，留空则使用默认 Provider",
         "_special": "select_provider"
-      },
-      "enable_dream": {
-        "type": "bool",
-        "default": true,
-        "description": "启用梦境任务",
-        "hint": "定期执行记忆的离线深度加工"
       },
       "dream_enable_consolidation": {
         "type": "bool",

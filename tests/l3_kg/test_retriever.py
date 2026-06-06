@@ -230,7 +230,7 @@ class TestGraphRetriever:
 
         # 修改配置，设置很短的超时
         retriever.adapter = mock_adapter
-        retriever.config._hidden.set("l3_kg.timeout_ms", 100)
+        retriever.config._hidden.set("l3_timeout_ms", 100)
 
         # 执行检索
         nodes, edges = await retriever.retrieve_with_expansion(["test_id"])

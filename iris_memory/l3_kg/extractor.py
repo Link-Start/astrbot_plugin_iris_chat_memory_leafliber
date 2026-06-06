@@ -140,7 +140,7 @@ class EntityExtractor:
         Returns:
             构建好的 prompt
         """
-        enable_whitelist = self.config.get("l3_kg.enable_type_whitelist", True)
+        enable_whitelist = self.config.get("l3_enable_type_whitelist", True)
 
         if enable_whitelist:
             node_types_desc = "\n".join(

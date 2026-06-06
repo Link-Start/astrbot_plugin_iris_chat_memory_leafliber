@@ -68,8 +68,8 @@ class GraphRetriever:
             return [], []
 
         try:
-            max_depth = self.config.get("l3_kg.expansion_depth", 2)
-            timeout_ms = self.config.get("l3_kg.timeout_ms", 1500)
+            max_depth = self.config.get("l3_expansion_depth", 2)
+            timeout_ms = self.config.get("l3_timeout_ms", 1500)
 
             nodes, edges = await asyncio.wait_for(
                 self.adapter.expand_from_nodes(

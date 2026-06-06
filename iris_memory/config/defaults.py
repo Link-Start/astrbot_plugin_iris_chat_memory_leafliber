@@ -20,10 +20,6 @@ class ImageParsingConfig:
     provider: str = ""
     mode: Literal["all", "related"] = "related"
     daily_quota: int = 200
-    max_parse_per_request: int = 5
-    max_concurrent_parse: int = 3
-    cache_retention_days: int = 7
-    skip_on_passive_trigger: bool = True
 
 
 @dataclass
@@ -45,8 +41,6 @@ class L2MemoryConfig:
     embedding_provider: str = ""
     embedding_model: str = "BAAI/bge-small-zh-v1.5"
     top_k: int = 10
-    max_entries: int = 10000  # TODO: 预留位，尚未接入 L2 容量检查
-    timeout_ms: int = 4000
     relevance_threshold: float = 0.3
 
 
@@ -56,12 +50,6 @@ class L3KGConfig:
 
     enable: bool = True
     extraction_provider: str = ""
-    max_nodes: int = 50000  # TODO: 预留位，尚未接入 L3 容量检查
-    max_edges: int = 100000  # TODO: 预留位，尚未接入 L3 容量检查
-    timeout_ms: int = 1500
-    expansion_depth: int = 2
-    enable_type_whitelist: bool = True
-    max_inject_tokens: int = 600
 
 
 @dataclass
@@ -169,8 +157,40 @@ class HiddenConfig:
         default=0.90,
         metadata={"description": "L2 去重相似度阈值", "group": "L2 记忆"},
     )
+    l2_max_entries: int = field(
+        default=10000,
+        metadata={"description": "L2 最大条目数(预留)", "group": "L2 记忆"},
+    )
+    l2_timeout_ms: int = field(
+        default=4000,
+        metadata={"description": "L2 检索超时(ms)", "group": "L2 记忆"},
+    )
 
     # L3 知识图谱参数
+    l3_max_nodes: int = field(
+        default=50000,
+        metadata={"description": "L3 最大节点数(预留)", "group": "L3 知识图谱"},
+    )
+    l3_max_edges: int = field(
+        default=100000,
+        metadata={"description": "L3 最大边数(预留)", "group": "L3 知识图谱"},
+    )
+    l3_timeout_ms: int = field(
+        default=1500,
+        metadata={"description": "L3 检索超时(ms)", "group": "L3 知识图谱"},
+    )
+    l3_expansion_depth: int = field(
+        default=2,
+        metadata={"description": "图谱检索路径扩展深度", "group": "L3 知识图谱"},
+    )
+    l3_enable_type_whitelist: bool = field(
+        default=True,
+        metadata={"description": "启用 LLM 实体类型白名单约束", "group": "L3 知识图谱"},
+    )
+    l3_max_inject_tokens: int = field(
+        default=600,
+        metadata={"description": "知识图谱注入上下文最大 token 数", "group": "L3 知识图谱"},
+    )
     node_confidence_threshold: float = field(
         default=0.3,
         metadata={"description": "节点最低置信度", "group": "L3 知识图谱"},
@@ -286,6 +306,24 @@ class HiddenConfig:
     profile_long_update_interval_hours: float = field(
         default=168.0,
         metadata={"description": "长期更新: 最短间隔(小时)", "group": "画像系统"},
+    )
+
+    # 图片解析（从 _conf_schema.json 迁移）
+    image_max_parse_per_request: int = field(
+        default=5,
+        metadata={"description": "单次请求最大图片解析数", "group": "图片处理"},
+    )
+    image_max_concurrent_parse: int = field(
+        default=3,
+        metadata={"description": "最大并发图片解析数", "group": "图片处理"},
+    )
+    image_cache_retention_days: int = field(
+        default=7,
+        metadata={"description": "图片解析结果缓存保留天数", "group": "图片处理"},
+    )
+    image_skip_on_passive_trigger: bool = field(
+        default=True,
+        metadata={"description": "被动触发时跳过图片解析", "group": "图片处理"},
     )
 
     # 图片去重参数

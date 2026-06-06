@@ -625,7 +625,7 @@ class L2MemoryAdapter(Component):
             return []
 
         config = get_config()
-        timeout_ms = config.get("l2_memory.timeout_ms")
+        timeout_ms = config.get("l2_timeout_ms")
         timeout_sec = timeout_ms / 1000.0
 
         try:
@@ -715,7 +715,7 @@ class L2MemoryAdapter(Component):
             ).fetchone()
             group_count = row[0]
             if group_count == 0:
-                return [[] for _ in queries]
+                return [[] for _ in range(len(vector_matrix))]
             n_probe = min(max(group_count, top_k), self._index.ntotal)
         else:
             n_probe = min(top_k, self._index.ntotal)
@@ -723,7 +723,7 @@ class L2MemoryAdapter(Component):
         all_scores, all_indices = self._index.search(vector_matrix, n_probe)
 
         all_results: List[List[MemorySearchResult]] = []
-        for q_idx in range(len(queries)):
+        for q_idx in range(len(vector_matrix)):
             results: List[MemorySearchResult] = []
             for i in range(len(all_indices[q_idx])):
                 faiss_idx = int(all_indices[q_idx][i])
@@ -767,7 +767,7 @@ class L2MemoryAdapter(Component):
             return [[] for _ in queries]
 
         config = get_config()
-        base_timeout_ms = config.get("l2_memory.timeout_ms")
+        base_timeout_ms = config.get("l2_timeout_ms")
         timeout_sec = base_timeout_ms / 1000.0 * max(1, len(queries) // 10 + 1)
 
         try:

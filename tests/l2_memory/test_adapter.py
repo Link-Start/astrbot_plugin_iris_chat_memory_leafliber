@@ -20,8 +20,8 @@ class TestL2MemoryAdapter:
         config.get = Mock(
             side_effect=lambda key, default=None: {
                 "l2_memory.enable": True,
-                "l2_memory.timeout_ms": 2000,
-                "l2_memory.max_entries": 10000,
+                "l2_timeout_ms": 2000,
+                "l2_max_entries": 10000,
                 "l2_similarity_threshold": 0.90,
                 "l2_memory.embedding_source": "provider",
                 "l2_memory.embedding_provider": "",
@@ -186,7 +186,7 @@ class TestL2MemoryAdapter:
         mock_config.get = Mock(
             side_effect=lambda key, default=None: {
                 "l2_memory.enable": True,
-                "l2_memory.timeout_ms": 100,
+                "l2_timeout_ms": 100,
             }.get(key, default)
         )
 
