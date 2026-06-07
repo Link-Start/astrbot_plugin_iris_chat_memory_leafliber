@@ -99,7 +99,7 @@ class L2MemoryAdapter(Component):
         self._similarity_threshold = 0.90
         self._free_list: List[int] = []
         self._dirty = False
-        self._db_lock = threading.Lock()
+        self._lock = threading.RLock()
         self._init_mode = InitMode.BACKGROUND
 
     @property
@@ -332,29 +332,36 @@ class L2MemoryAdapter(Component):
         )
 
     async def shutdown(self) -> None:
-        if self._dirty and self._index is not None:
-            try:
-                import faiss
+        """关闭数据库连接并保存 FAISS 索引
 
-                faiss.write_index(self._index, str(self._persist_dir / "index.faiss"))
-                self._save_meta()
-                logger.info("FAISS 索引已保存")
-            except Exception as e:
-                logger.error(f"保存 FAISS 索引失败：{e}")
+        获取锁后再操作，确保不会有其他线程在使用 FAISS 或 SQLite。
+        """
+        with self._lock:
+            if self._dirty and self._index is not None:
+                try:
+                    import faiss
 
-        if self._db:
-            try:
-                self._db.close()
-            except Exception:
-                pass
+                    faiss.write_index(
+                        self._index, str(self._persist_dir / "index.faiss")
+                    )
+                    self._save_meta()
+                    logger.info("FAISS 索引已保存")
+                except Exception as e:
+                    logger.error(f"保存 FAISS 索引失败：{e}")
 
-        self._index = None
-        self._db = None
-        self._embedding_provider = None
-        self._local_model = None
-        self._actual_embedding_model = ""
-        self._embedding_source = "provider"
-        self._reset_state()
+            if self._db:
+                try:
+                    self._db.close()
+                except Exception:
+                    pass
+
+            self._index = None
+            self._db = None
+            self._embedding_provider = None
+            self._local_model = None
+            self._actual_embedding_model = ""
+            self._embedding_source = "provider"
+            self._reset_state()
         logger.info("L2 记忆库已关闭")
 
     # ========================================================================
@@ -560,24 +567,29 @@ class L2MemoryAdapter(Component):
 
             memory_id = f"mem_{uuid.uuid4().hex[:12]}"
 
-            # 计算嵌入
+            # 计算嵌入（在锁外，嵌入计算是无状态的）
             vectors = await self._embed([content])
             vector = vectors[0]
 
-            # 分配 FAISS 槽位
-            if self._free_list:
-                faiss_idx = self._free_list.pop(0)
-            else:
-                faiss_idx = self._index.ntotal
+            # FAISS + SQLite 操作需要在同一个锁内完成以保证一致性
+            with self._lock:
+                if self._index is None or self._db is None:
+                    return None
 
-            # 添加到 FAISS
-            self._index.add_with_ids(
-                np.array([vector], dtype=np.float32),
-                np.array([faiss_idx], dtype=np.int64),
-            )
+                # 分配 FAISS 槽位
+                if self._free_list:
+                    faiss_idx = self._free_list.pop(0)
+                else:
+                    faiss_idx = self._index.ntotal
 
-            # 添加到 SQLite
-            self._upsert_db(faiss_idx, memory_id, content, metadata)
+                # 添加到 FAISS
+                self._index.add_with_ids(
+                    np.array([vector], dtype=np.float32),
+                    np.array([faiss_idx], dtype=np.int64),
+                )
+
+                # 添加到 SQLite
+                self._upsert_db_unlocked(faiss_idx, memory_id, content, metadata)
 
             self._dirty = True
             logger.debug(f"已添加记忆：{memory_id}")
@@ -592,22 +604,23 @@ class L2MemoryAdapter(Component):
             vectors = await self._embed([content])
             vector = np.array([vectors[0]], dtype=np.float32)
 
-            if self._index.ntotal == 0:
-                return None
+            with self._lock:
+                if self._index.ntotal == 0:
+                    return None
 
-            scores, indices = self._index.search(vector, 1)
-            if indices[0][0] < 0:
-                return None
+                scores, indices = self._index.search(vector, 1)
+                if indices[0][0] < 0:
+                    return None
 
-            score = float(scores[0][0])
-            if score >= self._similarity_threshold:
-                faiss_idx = int(indices[0][0])
-                row = self._db_execute(
-                    "SELECT memory_id FROM memories WHERE faiss_idx = ?",
-                    (faiss_idx,),
-                ).fetchone()
-                if row:
-                    return row[0]
+                score = float(scores[0][0])
+                if score >= self._similarity_threshold:
+                    faiss_idx = int(indices[0][0])
+                    row = self._db.execute(
+                        "SELECT memory_id FROM memories WHERE faiss_idx = ?",
+                        (faiss_idx,),
+                    ).fetchone()
+                    if row:
+                        return row[0]
 
             return None
         except Exception as e:
@@ -651,97 +664,66 @@ class L2MemoryAdapter(Component):
     def _search_with_vector(
         self, vector: np.ndarray, group_id: Optional[str], top_k: int
     ) -> List[MemorySearchResult]:
-        if self._index.ntotal == 0:
-            return []
+        """在锁保护下执行 FAISS 搜索 + SQLite 查询
 
-        # IndexFlatIP 是暴力搜索，成本与 k 无关（总是全量扫描），
-        # 所以 k 取 max(group_count, top_k) 确保过滤后有足够结果
-        if group_id:
-            row = self._db_execute(
-                "SELECT COUNT(*) FROM memories WHERE group_id = ?", (group_id,)
-            ).fetchone()
-            group_count = row[0]
-            if group_count == 0:
+        调用方（retrieve/batch_retrieve）通过 run_in_executor 在线程池中
+        调用此方法。使用 RLock 保证 FAISS 和 SQLite 操作的线程安全，
+        同时 RLock 允许 _db_execute 等内部方法重入。
+        """
+        with self._lock:
+            if self._index is None or self._db is None:
+                logger.debug("FAISS 索引或 DB 为 None，跳过检索")
                 return []
-            n_probe = min(max(group_count, top_k), self._index.ntotal)
-        else:
-            n_probe = min(top_k, self._index.ntotal)
+            if self._index.ntotal == 0:
+                logger.debug("FAISS 索引为空（ntotal=0），跳过检索")
+                return []
 
-        scores, indices = self._index.search(vector, n_probe)
+            if group_id:
+                row = self._db.execute(
+                    "SELECT COUNT(*) FROM memories WHERE group_id = ?", (group_id,)
+                ).fetchone()
+                group_count = row[0]
+                if group_count == 0:
+                    logger.debug(
+                        f"群聊隔离过滤：group_id='{group_id}' 在 DB 中无记忆 "
+                        f"(总计 {self._index.ntotal} 条)，跳过检索"
+                    )
+                    return []
+                n_probe = min(max(group_count, top_k), self._index.ntotal)
+            else:
+                n_probe = min(top_k, self._index.ntotal)
 
-        results = []
-        for i in range(len(indices[0])):
-            faiss_idx = int(indices[0][i])
-            if faiss_idx < 0:
-                continue
+            scores, indices = self._index.search(vector, n_probe)
 
-            score = float(scores[0][i])
-            row = self._db_execute(
-                "SELECT memory_id, content, metadata, group_id FROM memories WHERE faiss_idx = ?",
-                (faiss_idx,),
-            ).fetchone()
-
-            if not row:
-                continue
-
-            row_memory_id, row_content, row_metadata_json, row_group_id = row
-
-            if group_id and row_group_id != group_id:
-                continue
-
-            entry = MemoryEntry(
-                id=row_memory_id,
-                content=row_content,
-                metadata=json.loads(row_metadata_json),
-            )
-            results.append(
-                MemorySearchResult(entry=entry, score=score, distance=1.0 - score)
+            valid_count = sum(1 for idx in indices[0] if idx >= 0)
+            top_score = float(scores[0][0]) if valid_count > 0 else 0.0
+            logger.debug(
+                f"FAISS 搜索：ntotal={self._index.ntotal}, n_probe={n_probe}, "
+                f"有效结果={valid_count}, 最高分={top_score:.4f}"
             )
 
-            if len(results) >= top_k:
-                break
-
-        return results
-
-    def _batch_search_with_vectors(
-        self, vector_matrix: np.ndarray, group_id: Optional[str], top_k: int
-    ) -> List[List[MemorySearchResult]]:
-        if self._index.ntotal == 0:
-            return [[] for _ in range(len(vector_matrix))]
-
-        if group_id:
-            row = self._db_execute(
-                "SELECT COUNT(*) FROM memories WHERE group_id = ?", (group_id,)
-            ).fetchone()
-            group_count = row[0]
-            if group_count == 0:
-                return [[] for _ in range(len(vector_matrix))]
-            n_probe = min(max(group_count, top_k), self._index.ntotal)
-        else:
-            n_probe = min(top_k, self._index.ntotal)
-
-        all_scores, all_indices = self._index.search(vector_matrix, n_probe)
-
-        all_results: List[List[MemorySearchResult]] = []
-        for q_idx in range(len(vector_matrix)):
-            results: List[MemorySearchResult] = []
-            for i in range(len(all_indices[q_idx])):
-                faiss_idx = int(all_indices[q_idx][i])
+            db_miss = 0
+            group_filtered = 0
+            results = []
+            for i in range(len(indices[0])):
+                faiss_idx = int(indices[0][i])
                 if faiss_idx < 0:
                     continue
 
-                score = float(all_scores[q_idx][i])
-                row = self._db_execute(
+                score = float(scores[0][i])
+                row = self._db.execute(
                     "SELECT memory_id, content, metadata, group_id FROM memories WHERE faiss_idx = ?",
                     (faiss_idx,),
                 ).fetchone()
 
                 if not row:
+                    db_miss += 1
                     continue
 
                 row_memory_id, row_content, row_metadata_json, row_group_id = row
 
                 if group_id and row_group_id != group_id:
+                    group_filtered += 1
                     continue
 
                 entry = MemoryEntry(
@@ -756,9 +738,73 @@ class L2MemoryAdapter(Component):
                 if len(results) >= top_k:
                     break
 
-            all_results.append(results)
+            if not results:
+                logger.debug(
+                    f"FAISS 检索最终 0 条：db_miss={db_miss}, "
+                    f"group_filtered={group_filtered}, group_id={group_id}"
+                )
 
-        return all_results
+            return results
+
+    def _batch_search_with_vectors(
+        self, vector_matrix: np.ndarray, group_id: Optional[str], top_k: int
+    ) -> List[List[MemorySearchResult]]:
+        with self._lock:
+            if self._index is None or self._db is None:
+                return [[] for _ in range(len(vector_matrix))]
+            if self._index.ntotal == 0:
+                return [[] for _ in range(len(vector_matrix))]
+
+            if group_id:
+                row = self._db.execute(
+                    "SELECT COUNT(*) FROM memories WHERE group_id = ?", (group_id,)
+                ).fetchone()
+                group_count = row[0]
+                if group_count == 0:
+                    return [[] for _ in range(len(vector_matrix))]
+                n_probe = min(max(group_count, top_k), self._index.ntotal)
+            else:
+                n_probe = min(top_k, self._index.ntotal)
+
+            all_scores, all_indices = self._index.search(vector_matrix, n_probe)
+
+            all_results: List[List[MemorySearchResult]] = []
+            for q_idx in range(len(vector_matrix)):
+                results: List[MemorySearchResult] = []
+                for i in range(len(all_indices[q_idx])):
+                    faiss_idx = int(all_indices[q_idx][i])
+                    if faiss_idx < 0:
+                        continue
+
+                    score = float(all_scores[q_idx][i])
+                    row = self._db.execute(
+                        "SELECT memory_id, content, metadata, group_id FROM memories WHERE faiss_idx = ?",
+                        (faiss_idx,),
+                    ).fetchone()
+
+                    if not row:
+                        continue
+
+                    row_memory_id, row_content, row_metadata_json, row_group_id = row
+
+                    if group_id and row_group_id != group_id:
+                        continue
+
+                    entry = MemoryEntry(
+                        id=row_memory_id,
+                        content=row_content,
+                        metadata=json.loads(row_metadata_json),
+                    )
+                    results.append(
+                        MemorySearchResult(entry=entry, score=score, distance=1.0 - score)
+                    )
+
+                    if len(results) >= top_k:
+                        break
+
+                all_results.append(results)
+
+            return all_results
 
     async def batch_retrieve(
         self, queries: List[str], group_id: Optional[str] = None, top_k: int = 10
@@ -800,7 +846,7 @@ class L2MemoryAdapter(Component):
             return False
 
         try:
-            with self._db_lock:
+            with self._lock:
                 row = self._db.execute(
                     "SELECT metadata FROM memories WHERE memory_id = ?", (memory_id,)
                 ).fetchone()
@@ -841,7 +887,7 @@ class L2MemoryAdapter(Component):
         now = datetime.now().isoformat()
 
         try:
-            with self._db_lock:
+            with self._lock:
                 placeholders = ",".join("?" * len(memory_ids))
                 cursor = self._db.execute(
                     f"""UPDATE memories
@@ -896,29 +942,29 @@ class L2MemoryAdapter(Component):
             return False
 
         try:
-            row = self._db_execute(
-                "SELECT faiss_idx, metadata FROM memories WHERE memory_id = ?",
-                (memory_id,),
-            ).fetchone()
+            with self._lock:
+                row = self._db.execute(
+                    "SELECT faiss_idx, metadata FROM memories WHERE memory_id = ?",
+                    (memory_id,),
+                ).fetchone()
 
-            if not row:
-                logger.warning(f"记忆不存在：{memory_id}")
-                return False
+                if not row:
+                    logger.warning(f"记忆不存在：{memory_id}")
+                    return False
 
-            faiss_idx, metadata_json = row
-            metadata = json.loads(metadata_json)
-            metadata["timestamp"] = datetime.now().isoformat()
+                faiss_idx, metadata_json = row
+                metadata = json.loads(metadata_json)
+                metadata["timestamp"] = datetime.now().isoformat()
 
-            # 重新计算嵌入
+            # 重新计算嵌入（在锁外，嵌入计算是无状态的）
             vectors = await self._embed([new_content])
             new_vector = np.array([vectors[0]], dtype=np.float32)
 
-            # 替换 FAISS 中的向量：先移除再添加
-            self._index.remove_ids(np.array([faiss_idx], dtype=np.int64))
-            self._index.add_with_ids(new_vector, np.array([faiss_idx], dtype=np.int64))
-
-            # 更新 SQLite
-            self._upsert_db(faiss_idx, memory_id, new_content, metadata)
+            # FAISS + SQLite 操作在同一个锁内完成
+            with self._lock:
+                self._index.remove_ids(np.array([faiss_idx], dtype=np.int64))
+                self._index.add_with_ids(new_vector, np.array([faiss_idx], dtype=np.int64))
+                self._upsert_db_unlocked(faiss_idx, memory_id, new_content, metadata)
 
             self._dirty = True
             logger.info(f"已更新记忆内容：{memory_id}")
@@ -936,7 +982,7 @@ class L2MemoryAdapter(Component):
             return False
 
         try:
-            with self._db_lock:
+            with self._lock:
                 # 获取对应的 faiss_idx
                 placeholders = ",".join("?" for _ in memory_ids)
                 rows = self._db.execute(
@@ -1091,7 +1137,7 @@ class L2MemoryAdapter(Component):
             return 0
 
         try:
-            with self._db_lock:
+            with self._lock:
                 rows = self._db.execute(
                     "SELECT faiss_idx FROM memories WHERE group_id = ?", (group_id,)
                 ).fetchall()
@@ -1123,7 +1169,7 @@ class L2MemoryAdapter(Component):
             return 0
 
         try:
-            with self._db_lock:
+            with self._lock:
                 if group_id:
                     rows = self._db.execute(
                         "SELECT faiss_idx, memory_id, metadata FROM memories WHERE group_id = ?",
@@ -1260,7 +1306,7 @@ class L2MemoryAdapter(Component):
             return False
 
         try:
-            with self._db_lock:
+            with self._lock:
                 for memory_id in memory_ids:
                     row = self._db.execute(
                         "SELECT metadata FROM memories WHERE memory_id = ?", (memory_id,)
@@ -1423,19 +1469,19 @@ class L2MemoryAdapter(Component):
 
     def _db_execute(self, sql: str, params=()):
         """线程安全的 DB 执行（用于 SELECT）"""
-        with self._db_lock:
+        with self._lock:
             return self._db.execute(sql, params)
 
     def _db_write(self, sql: str, params=()):
         """线程安全的 DB 写入（INSERT/UPDATE/DELETE + COMMIT）"""
-        with self._db_lock:
+        with self._lock:
             self._db.execute(sql, params)
             self._db.commit()
 
     def _count_db(self) -> int:
         if not self._db:
             return 0
-        with self._db_lock:
+        with self._lock:
             row = self._db.execute("SELECT COUNT(*) FROM memories").fetchone()
             return row[0]
 
@@ -1453,7 +1499,7 @@ class L2MemoryAdapter(Component):
         kg_processed = 1 if metadata.get("kg_processed") else 0
         metadata_json = json.dumps(metadata, ensure_ascii=False)
 
-        with self._db_lock:
+        with self._lock:
             self._db.execute(
                 """INSERT OR REPLACE INTO memories
                    (faiss_idx, memory_id, content, metadata, group_id, user_id, timestamp, kg_processed)
@@ -1470,3 +1516,34 @@ class L2MemoryAdapter(Component):
                 ),
             )
             self._db.commit()
+
+    def _upsert_db_unlocked(
+        self,
+        faiss_idx: int,
+        memory_id: str,
+        content: str,
+        metadata: Dict[str, Any],
+    ) -> None:
+        """插入或更新 SQLite 记录（调用方需持有 _lock）"""
+        group_id = metadata.get("group_id")
+        user_id = metadata.get("user_id")
+        timestamp = metadata.get("timestamp")
+        kg_processed = 1 if metadata.get("kg_processed") else 0
+        metadata_json = json.dumps(metadata, ensure_ascii=False)
+
+        self._db.execute(
+            """INSERT OR REPLACE INTO memories
+               (faiss_idx, memory_id, content, metadata, group_id, user_id, timestamp, kg_processed)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                faiss_idx,
+                memory_id,
+                content,
+                metadata_json,
+                group_id,
+                user_id,
+                timestamp,
+                kg_processed,
+            ),
+        )
+        self._db.commit()

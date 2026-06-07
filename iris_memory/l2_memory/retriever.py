@@ -104,7 +104,9 @@ class MemoryRetriever:
             if len(filtered) < len(results):
                 logger.debug(
                     f"相似度阈值过滤：{len(results)} -> {len(filtered)} 条 "
-                    f"(阈值={relevance_threshold})"
+                    f"(阈值={relevance_threshold}, "
+                    f"最高分={max(r.score for r in results):.4f}, "
+                    f"最低分={min(r.score for r in results):.4f})"
                 )
             results = filtered
 
