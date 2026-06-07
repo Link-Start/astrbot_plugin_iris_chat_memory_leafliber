@@ -122,12 +122,19 @@ def _inject_to_extra_user_content_parts(
     ]
 
     parts = []
+    inject_summary = []
     for section_name, content in sections:
         if content:
             parts.append(f"<iris:{section_name}>\n{content}\n</iris:{section_name}>")
+            inject_summary.append(f"{section_name}({len(content)}字)")
+        else:
+            inject_summary.append(f"{section_name}(空)")
 
     if not parts:
+        logger.debug("注入摘要：所有 section 均为空，跳过注入")
         return
+
+    logger.debug(f"注入摘要：{', '.join(inject_summary)}")
 
     combined = "\n\n".join(parts)
 
@@ -1071,11 +1078,33 @@ def _log_final_context(req: "ProviderRequest") -> None:
         log_parts.append(
             f"\n[Extra User Content Parts] (共 {len(req.extra_user_content_parts)} 个)"
         )
+        import re as _re
+
+        _iris_tag_pattern = _re.compile(
+            r"<iris:(\w+)>\n(.*?)\n</iris:\1>", _re.DOTALL
+        )
+        _section_truncation = 300
+
         for i, part in enumerate(req.extra_user_content_parts, 1):
             text = getattr(part, "text", None) or str(part)
-            if len(text) > 500:
-                text = text[:500] + "..."
-            log_parts.append(f"  [{i}] {text}")
+            tag_sections = _iris_tag_pattern.findall(text)
+            if tag_sections:
+                log_parts.append(f"  [{i}] ({len(text)} 字符)")
+                for sec_name, sec_content in tag_sections:
+                    display = sec_content
+                    if len(display) > _section_truncation:
+                        display = (
+                            display[: _section_truncation // 2]
+                            + f"\n  ... 省略 {len(display) - _section_truncation} 字 ...\n"
+                            + display[-_section_truncation // 2 :]
+                        )
+                    log_parts.append(f"    <iris:{sec_name}> ({len(sec_content)} 字)")
+                    for line in display.split("\n"):
+                        log_parts.append(f"      {line}")
+            else:
+                if len(text) > 500:
+                    text = text[:500] + "..."
+                log_parts.append(f"  [{i}] {text}")
     else:
         log_parts.append("\n[Extra User Content Parts]\n(无)")
 
