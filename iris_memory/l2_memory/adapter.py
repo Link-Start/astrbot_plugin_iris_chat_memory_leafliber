@@ -101,6 +101,8 @@ class L2MemoryAdapter(Component):
         self._dirty = False
         self._lock = threading.RLock()
         self._init_mode = InitMode.BACKGROUND
+        self._last_recovery_attempt: float = 0.0
+        self._recovery_cooldown: float = 60.0
 
     @property
     def name(self) -> str:
@@ -140,7 +142,7 @@ class L2MemoryAdapter(Component):
 
             try:
                 if self._embedding_source == "provider":
-                    self._init_provider_embedding(config)
+                    await self._init_provider_embedding(config)
                 else:
                     await self._init_local_embedding(config)
             except ImportError as emb_err:
@@ -368,27 +370,47 @@ class L2MemoryAdapter(Component):
     # 嵌入源初始化
     # ========================================================================
 
-    def _init_provider_embedding(self, config) -> None:
-        """初始化 AstrBot Embedding Provider 嵌入源"""
+    async def _init_provider_embedding(self, config) -> None:
+        """初始化 AstrBot Embedding Provider 嵌入源
+
+        带指数退避重试：AstrBot 启动时 Embedding Provider 可能尚未注册，
+        后台初始化期间等待 Provider 就绪。
+        """
+        import asyncio
+
         provider_id = config.get("l2_memory.embedding_provider", "")
-        provider = None
+        max_retries = 5
+        base_interval = 2.0
 
-        if provider_id:
-            provider = self._get_embedding_provider_by_id(provider_id)
+        for attempt in range(1, max_retries + 1):
+            provider = None
+
+            if provider_id:
+                provider = self._get_embedding_provider_by_id(provider_id)
+                if not provider and attempt == 1:
+                    logger.warning(
+                        f"指定的 Embedding Provider '{provider_id}' 不可用，"
+                        f"请检查 ID 是否正确"
+                    )
+
             if not provider:
-                logger.warning(
-                    f"指定的 Embedding Provider '{provider_id}' 不可用，"
-                    f"请检查 ID 是否正确"
+                provider = self._get_first_embedding_provider()
+
+            if provider:
+                break
+
+            if attempt < max_retries:
+                delay = min(base_interval * (2 ** (attempt - 1)), 16.0)
+                logger.info(
+                    f"Embedding Provider 未就绪，"
+                    f"{delay:.0f}s 后重试 ({attempt}/{max_retries})"
                 )
-
-        if not provider:
-            provider = self._get_first_embedding_provider()
-
-        if not provider:
-            raise ImportError(
-                "未找到可用的 AstrBot Embedding Provider\n"
-                "  → 建议：在 AstrBot「模型」页面添加 Embedding 类型的 Provider"
-            )
+                await asyncio.sleep(delay)
+            else:
+                raise ImportError(
+                    "未找到可用的 AstrBot Embedding Provider\n"
+                    "  → 建议：在 AstrBot「模型」页面添加 Embedding 类型的 Provider"
+                )
 
         model_name = getattr(provider, "model_name", None)
         if not model_name and hasattr(provider, "meta"):
@@ -506,6 +528,41 @@ class L2MemoryAdapter(Component):
         return None
 
     # ========================================================================
+    # 懒加载恢复
+    # ========================================================================
+
+    async def _try_recover(self) -> bool:
+        """尝试从初始化失败中恢复
+
+        仅当失败原因是 Embedding Provider 未就绪时才重试，
+        带冷却时间防止频繁重试。适用于 Provider 在启动后才注册的场景。
+        """
+        if self._is_available:
+            return True
+
+        if not self._init_error or "Provider" not in self._init_error:
+            return False
+
+        import time
+
+        now = time.monotonic()
+        if now - self._last_recovery_attempt < self._recovery_cooldown:
+            return False
+
+        self._last_recovery_attempt = now
+        logger.info("L2 记忆库尝试恢复：重新初始化...")
+
+        try:
+            await self.initialize()
+            if self._is_available:
+                logger.info("L2 记忆库恢复成功")
+                return True
+        except Exception as e:
+            logger.debug(f"L2 记忆库恢复失败：{e}")
+
+        return False
+
+    # ========================================================================
     # 嵌入计算
     # ========================================================================
 
@@ -542,6 +599,8 @@ class L2MemoryAdapter(Component):
         metadata: Optional[Dict[str, Any]] = None,
         skip_dedup: bool = False,
     ) -> Optional[str]:
+        if not self._is_available:
+            await self._try_recover()
         if not self._is_available:
             logger.warning("L2 记忆库不可用，跳过添加记忆")
             return None
@@ -634,6 +693,8 @@ class L2MemoryAdapter(Component):
     async def retrieve(
         self, query: str, group_id: Optional[str] = None, top_k: int = 10
     ) -> List[MemorySearchResult]:
+        if not self._is_available:
+            await self._try_recover()
         if not self._is_available:
             return []
 
