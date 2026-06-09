@@ -28,6 +28,7 @@ from .image_utils import (
     check_invalid_image,
     compute_url_hash,
     compute_image_hash,
+    detect_image_extension,
 )
 
 __all__ = [
@@ -50,4 +51,5 @@ __all__ = [
     "check_invalid_image",
     "compute_url_hash",
     "compute_image_hash",
+    "detect_image_extension",
 ]

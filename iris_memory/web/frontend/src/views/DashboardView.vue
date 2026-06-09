@@ -393,7 +393,7 @@ const kgEdgeCount = computed(() => kgStats.value?.edge_count ?? 0)
 
 const NODE_TYPE_WHITELIST = new Set([
   'Person', 'Preference', 'Skill', 'Trait', 'Goal', 'Belief',
-  'Event', 'Concept', 'Location', 'Item', 'Topic', 'Group'
+  'Event', 'Concept', 'Location', 'Item', 'Topic', 'Group', 'Pattern'
 ])
 
 const RELATION_TYPE_WHITELIST = new Set([
@@ -414,7 +414,8 @@ const NODE_TYPE_LABELS: Record<string, string> = {
   Location: '地点',
   Item: '物品',
   Topic: '话题',
-  Group: '群体'
+  Group: '群体',
+  Pattern: '模式'
 }
 
 const RELATION_TYPE_LABELS: Record<string, string> = {

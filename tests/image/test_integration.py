@@ -115,6 +115,7 @@ class TestImageParsingIntegration:
         with (
             patch("iris_memory.config.get_config") as mock_get_config,
             patch("iris_memory.platform.get_adapter") as mock_get_adapter,
+            patch("iris_memory.image.ImageParser._check_url_accessible", new_callable=AsyncMock, return_value=True),
         ):
             # 配置 mock
             mock_config = Mock()
@@ -334,6 +335,7 @@ class TestImageParsingIntegration:
         with (
             patch("iris_memory.config.get_config") as mock_get_config,
             patch("iris_memory.platform.get_adapter") as mock_get_adapter,
+            patch("iris_memory.image.ImageParser._check_url_accessible", new_callable=AsyncMock, return_value=True),
         ):
             # 配置 mock
             mock_config = Mock()
@@ -411,6 +413,7 @@ class TestImageParsingIntegration:
         with (
             patch("iris_memory.config.get_config") as mock_get_config,
             patch("iris_memory.platform.get_adapter") as mock_get_adapter,
+            patch("iris_memory.image.ImageParser._check_url_accessible", new_callable=AsyncMock, return_value=True),
         ):
             mock_config = Mock()
             mock_config.get = Mock(

@@ -76,17 +76,23 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useTheme } from 'vuetify'
 import { storeToRefs } from 'pinia'
 import { useAppStore } from '@/stores'
 
 const route = useRoute()
 const appStore = useAppStore()
+const theme = useTheme()
 
 const { loading, error, darkMode } = storeToRefs(appStore)
 
 const drawer = ref(true)
 const rail = ref(false)
 const showError = ref(false)
+
+watch(darkMode, (val) => {
+  theme.global.name.value = val ? 'dark' : 'light'
+}, { immediate: true })
 
 const navItems = [
   { to: '/dashboard', title: '仪表盘', icon: 'mdi-view-dashboard' },

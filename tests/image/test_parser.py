@@ -23,12 +23,18 @@ class TestImageParser:
         """创建解析器实例"""
         return ImageParser(mock_llm_manager, provider="test_provider")
 
+    @pytest.fixture
+    def parser_with_url_check(self, parser):
+        """创建并 mock URL 可达性检查为通过"""
+        parser._check_url_accessible = AsyncMock(return_value=True)
+        return parser
+
     @pytest.mark.asyncio
-    async def test_parse_with_url(self, parser, mock_llm_manager):
+    async def test_parse_with_url(self, parser_with_url_check, mock_llm_manager):
         """测试使用 URL 解析图片"""
         image_info = ImageInfo(url="https://example.com/image.jpg", format="jpg")
 
-        result = await parser.parse(image_info)
+        result = await parser_with_url_check.parse(image_info)
 
         assert result.success
         assert result.content == "这是一张风景图片，显示蓝天白云"
@@ -62,18 +68,18 @@ class TestImageParser:
         assert "图片信息无效" in result.error_message
 
     @pytest.mark.asyncio
-    async def test_parse_with_llm_error(self, parser, mock_llm_manager):
+    async def test_parse_with_llm_error(self, parser_with_url_check, mock_llm_manager):
         """测试 LLM 调用失败"""
         mock_llm_manager.generate_with_images.side_effect = Exception("网络错误")
 
         image_info = ImageInfo(url="https://example.com/image.jpg")
-        result = await parser.parse(image_info)
+        result = await parser_with_url_check.parse(image_info)
 
         assert not result.success
         assert "网络错误" in result.error_message
 
     @pytest.mark.asyncio
-    async def test_parse_batch(self, parser, mock_llm_manager):
+    async def test_parse_batch(self, parser_with_url_check, mock_llm_manager):
         """测试批量解析"""
         images = [
             ImageInfo(url="https://example.com/1.jpg"),
@@ -81,7 +87,7 @@ class TestImageParser:
             ImageInfo(url="https://example.com/3.jpg"),
         ]
 
-        results = await parser.parse_batch(images)
+        results = await parser_with_url_check.parse_batch(images)
 
         assert len(results) == 3
         assert all(r.success for r in results)
@@ -91,6 +97,7 @@ class TestImageParser:
     async def test_parse_with_default_provider(self, mock_llm_manager):
         """测试使用默认 provider"""
         parser = ImageParser(mock_llm_manager)  # 不指定 provider
+        parser._check_url_accessible = AsyncMock(return_value=True)
 
         image_info = ImageInfo(url="https://example.com/image.jpg")
         result = await parser.parse(image_info)
@@ -109,14 +116,14 @@ class TestImageParser:
         assert "不超过80字" in prompt
 
     @pytest.mark.asyncio
-    async def test_parse_with_unable_to_describe_response(self, parser, mock_llm_manager):
+    async def test_parse_with_unable_to_describe_response(self, parser_with_url_check, mock_llm_manager):
         """测试 LLM 返回无法识别图片内容时的处理"""
         mock_llm_manager.generate_with_images.return_value = (
             "抱歉，我无法查看或分析图片，因为目前没有图片附件上传成功。"
         )
 
         image_info = ImageInfo(url="https://example.com/broken.jpg")
-        result = await parser.parse(image_info)
+        result = await parser_with_url_check.parse(image_info)
 
         assert not result.success
         assert "无法识别" in result.error_message
@@ -129,11 +136,23 @@ class TestImageParser:
             return_value="我无法分析这张图片，因为这里没有图片显示。"
         )
         p = ImageParser(manager)
+        p._check_url_accessible = AsyncMock(return_value=True)
 
         image_info = ImageInfo(url="https://example.com/missing.jpg")
         result = await p.parse(image_info)
 
         assert not result.success
+
+    @pytest.mark.asyncio
+    async def test_parse_with_url_inaccessible(self, parser):
+        """测试图片 URL 不可达时跳过 LLM 调用"""
+        parser._check_url_accessible = AsyncMock(return_value=False)
+
+        image_info = ImageInfo(url="https://example.com/expired.jpg")
+        result = await parser.parse(image_info)
+
+        assert not result.success
+        assert "图片信息无效" in result.error_message
 
     def test_is_unable_to_describe_positive(self, parser):
         """测试检测无法描述图片的回复（正向用例）"""

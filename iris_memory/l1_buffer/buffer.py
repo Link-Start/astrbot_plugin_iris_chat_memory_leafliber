@@ -13,6 +13,7 @@ Iris Chat Memory - L1 消息缓冲组件
 from __future__ import annotations
 
 from typing import Optional, Dict, Any, List, TYPE_CHECKING, cast
+from pathlib import Path
 from datetime import datetime
 import asyncio
 
@@ -250,9 +251,14 @@ class L1Buffer(Component):
 
     def clear_all(self) -> int:
         total_messages = sum(len(q) for q in self._queues.values())
+        # 收集所有图片项用于清理缓存文件
+        all_image_items: list[Any] = []
+        for img_list in self._image_queues.values():
+            all_image_items.extend(img_list)
         self._queues.clear()
         self._image_queues.clear()
         self._summarizing_locks.clear()
+        self._cleanup_image_cache_files(all_image_items)
         logger.info(f"已清空所有队列，共 {total_messages} 条消息")
         return total_messages
 
@@ -1028,12 +1034,16 @@ class L1Buffer(Component):
             return 0
 
         original_count = len(self._image_queues[queue_key])
+        removed_items = [
+            img for img in self._image_queues[queue_key] if img.message_id == message_id
+        ]
         self._image_queues[queue_key] = [
             img for img in self._image_queues[queue_key] if img.message_id != message_id
         ]
 
         removed_count = original_count - len(self._image_queues[queue_key])
         if removed_count > 0:
+            self._cleanup_image_cache_files(removed_items)
             logger.debug(f"已清理消息 {message_id} 的 {removed_count} 张图片")
 
         return removed_count
@@ -1044,10 +1054,12 @@ class L1Buffer(Component):
         if queue_key not in self._image_queues:
             return 0
 
-        removed_count = len(self._image_queues[queue_key])
+        removed_items = list(self._image_queues[queue_key])
+        removed_count = len(removed_items)
         del self._image_queues[queue_key]
 
         if removed_count > 0:
+            self._cleanup_image_cache_files(removed_items)
             logger.debug(f"已清理队列 {queue_key} 的 {removed_count} 张图片")
 
         return removed_count
@@ -1108,6 +1120,11 @@ class L1Buffer(Component):
             return 0
 
         original_count = len(self._image_queues[queue_key])
+        removed_items = [
+            img
+            for img in self._image_queues[queue_key]
+            if img.message_id in message_ids
+        ]
         self._image_queues[queue_key] = [
             img
             for img in self._image_queues[queue_key]
@@ -1116,6 +1133,36 @@ class L1Buffer(Component):
 
         removed_count = original_count - len(self._image_queues[queue_key])
         if removed_count > 0:
+            self._cleanup_image_cache_files(removed_items)
             logger.debug(f"已清理被总结消息的 {removed_count} 张图片")
 
         return removed_count
+
+    @staticmethod
+    def _cleanup_image_cache_files(items: list[Any]) -> None:
+        """删除图片队列项对应的本地缓存文件
+
+        仅删除位于插件 image_cache 目录下的文件，避免误删平台原始文件。
+
+        Args:
+            items: 被移除的 ImageQueueItem 列表
+        """
+        for item in items:
+            try:
+                info = getattr(item, "image_info", None)
+                if not info:
+                    continue
+                fp = getattr(info, "file_path", None)
+                if not fp:
+                    continue
+                path = Path(fp)
+                if not path.is_absolute():
+                    continue
+                # 仅清理 image_cache 目录下的文件，不删平台原始文件
+                if "image_cache" not in path.parts:
+                    continue
+                if path.exists():
+                    path.unlink()
+                    logger.debug(f"已删除图片缓存：{path.name}")
+            except Exception as e:
+                logger.debug(f"删除图片缓存文件失败：{e}")

@@ -187,6 +187,41 @@ def compute_url_hash(url: str) -> str:
     return hashlib.md5(url.encode()).hexdigest()
 
 
+def detect_image_extension(data: bytes, url: str = "") -> str:
+    """从图片数据或 URL 推断文件扩展名
+
+    优先通过图片魔数（magic bytes）检测，回退到 URL 后缀。
+
+    Args:
+        data: 图片二进制数据
+        url: 图片 URL（魔数检测失败时的回退）
+
+    Returns:
+        文件扩展名（含点号），如 ".jpg"、".png"，默认 ".jpg"
+    """
+    # 魔数检测
+    if len(data) >= 12:
+        if data[:3] == b"\xff\xd8\xff":
+            return ".jpg"
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            return ".png"
+        if data[:6] in (b"GIF87a", b"GIF89a"):
+            return ".gif"
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            return ".webp"
+
+    # URL 后缀回退
+    if url:
+        from urllib.parse import urlparse
+
+        path = urlparse(url).path.lower()
+        for ext in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+            if path.endswith(ext):
+                return ext
+
+    return ".jpg"
+
+
 async def compute_image_hash(
     image_data: Optional[bytes] = None,
     url: Optional[str] = None,

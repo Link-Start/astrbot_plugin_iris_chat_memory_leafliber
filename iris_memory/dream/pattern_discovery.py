@@ -1,12 +1,14 @@
 """
 Iris Chat Memory - 梦境阶段4：模式挖掘
 
-跨记忆发现隐含的行为规律、偏好模式、因果关联。
+跨记忆发现隐含的行为规律、偏好模式、因果关联，
+归类到已有节点类型（Trait/Preference/Belief/Goal/Skill）
+并建立与 Person 的关系边。
 
 Features:
     - 按群聊/用户分组采样
-    - LLM 模式提取
-    - 写入 L2 + L3（Pattern 类型节点）
+    - LLM 模式提取（含类型归类和人物关联）
+    - 写入 L2 + L3（具体类型节点 + 关系边）
     - 向量检索去重
 """
 
@@ -20,15 +22,27 @@ from iris_memory.config import get_config
 from iris_memory.l2_memory.adapter import L2MemoryAdapter
 from iris_memory.l3_kg.adapter import L3KGAdapter
 from iris_memory.llm.manager import LLMManager
-from iris_memory.l3_kg.models import GraphNode
+from iris_memory.l3_kg.models import GraphNode, GraphEdge
 
 logger = get_logger("dream.pattern_discovery")
+
+# 模式允许映射到的节点类型 → 对应关系边
+_TYPE_TO_RELATION = {
+    "Trait": "HAS_TRAIT",
+    "Preference": "HAS_PREFERENCE",
+    "Belief": "HAS_BELIEF",
+    "Goal": "HAS_GOAL",
+    "Skill": "HAS_SKILL",
+}
+
+_ALLOWED_TYPES = set(_TYPE_TO_RELATION.keys())
 
 
 class PatternDiscoveryPhase:
     """模式挖掘阶段
 
-    跨记忆发现隐含的行为规律、偏好模式、因果关联。
+    跨记忆发现隐含的行为规律、偏好模式、因果关联，
+    归类为 Trait/Preference/Belief/Goal/Skill 并关联到 Person。
     """
 
     def __init__(self):
@@ -87,7 +101,7 @@ class PatternDiscoveryPhase:
                     patterns_found += len(patterns)
 
                     for pattern in patterns:
-                        if pattern["confidence"] == "low":
+                        if pattern.get("confidence") == "low":
                             continue
 
                         is_dup = await self._check_duplicate(pattern["description"], l2)
@@ -154,9 +168,18 @@ class PatternDiscoveryPhase:
 {chr(10).join(memory_texts)}
 
 输出格式（每行一个模式，严格按以下格式）：
-PATTERN: <模式描述>
+TYPE: <类型：Trait/Preference/Belief/Goal/Skill 之一>
+PERSON: <模式关联的用户标识，来自记忆片段中的用户ID；如无法确定则留空>
+DESCRIPTION: <模式描述>
 EVIDENCE: <支撑该模式的记忆编号，用逗号分隔>
 CONFIDENCE: <high/medium/low>
+
+类型说明：
+- Trait：稳定的性格、行为模式
+- Preference：持续倾向的选择或喜好
+- Belief：持有的观点、价值观或因果认知
+- Goal：正在追求的计划或意图
+- Skill：掌握或正在学习的能力
 
 如果没有发现任何可靠模式，输出 NONE。"""
 
@@ -179,17 +202,26 @@ CONFIDENCE: <high/medium/low>
 
     def _parse_patterns(self, response: str) -> List[dict]:
         patterns = []
-        current = {}
+        current: dict = {}
 
         for line in response.strip().split("\n"):
             line = line.strip()
-            if line.upper().startswith("PATTERN:"):
+            upper = line.upper()
+
+            if upper.startswith("TYPE:"):
                 if current.get("description"):
                     patterns.append(current)
-                current = {"description": line.split(":", 1)[1].strip()}
-            elif line.upper().startswith("EVIDENCE:") and current.get("description"):
+                raw_type = line.split(":", 1)[1].strip()
+                current = {
+                    "type": raw_type if raw_type in _ALLOWED_TYPES else "Trait",
+                }
+            elif upper.startswith("PERSON:") and "type" in current:
+                current["person"] = line.split(":", 1)[1].strip()
+            elif upper.startswith("DESCRIPTION:") and "type" in current:
+                current["description"] = line.split(":", 1)[1].strip()
+            elif upper.startswith("EVIDENCE:") and "type" in current:
                 current["evidence"] = line.split(":", 1)[1].strip()
-            elif line.upper().startswith("CONFIDENCE:") and current.get("description"):
+            elif upper.startswith("CONFIDENCE:") and "type" in current:
                 conf = line.split(":", 1)[1].strip().lower()
                 current["confidence"] = (
                     conf if conf in ("high", "medium", "low") else "low"
@@ -221,6 +253,7 @@ CONFIDENCE: <high/medium/low>
         l3: Optional["L3KGAdapter"],
     ) -> bool:
         description = pattern["description"]
+        node_type = pattern.get("type", "Trait")
         confidence_map = {"high": 0.9, "medium": 0.7, "low": 0.4}
         confidence = confidence_map.get(pattern.get("confidence", "low"), 0.4)
 
@@ -232,6 +265,7 @@ CONFIDENCE: <high/medium/low>
                 "timestamp": datetime.now().isoformat(),
                 "group_id": group_key if group_key != "_all" else None,
                 "evidence": pattern.get("evidence", ""),
+                "pattern_type": node_type,
             },
         )
 
@@ -240,17 +274,86 @@ CONFIDENCE: <high/medium/low>
 
         if l3 and l3.is_available:
             try:
+                # 创建具体类型节点
                 node = GraphNode(
                     id="",
-                    label="Pattern",
+                    label=node_type,
                     name=description[:50],
                     content=description,
                     confidence=confidence,
                     group_id=group_key if group_key != "_all" else None,
+                    properties={"source": "dream_pattern"},
                 )
                 node.id = node.generate_id()
-                await l3.add_node(node)
+                node_added = await l3.add_node(node)
+
+                # 建立与 Person 的关系边
+                person_id = pattern.get("person", "").strip()
+                if person_id and node_added:
+                    await self._link_to_person(
+                        l3,
+                        person_id,
+                        node.id,
+                        node_type,
+                        group_key,
+                        confidence,
+                    )
             except Exception as e:
-                logger.debug(f"写入 L3 Pattern 节点失败：{e}")
+                logger.debug(f"写入 L3 节点失败：{e}")
 
         return True
+
+    async def _link_to_person(
+        self,
+        l3: "L3KGAdapter",
+        person_id_str: str,
+        target_node_id: str,
+        node_type: str,
+        group_key: str,
+        confidence: float,
+    ) -> None:
+        """查找或创建 Person 节点，建立关系边"""
+        relation_type = _TYPE_TO_RELATION.get(node_type)
+        if not relation_type:
+            return
+
+        try:
+            # 搜索是否已有该 Person 节点
+            existing = await l3.search_nodes(person_id_str, limit=5)
+            person_node_id = None
+            for n in existing:
+                if n.get("label") == "Person" and person_id_str in n.get("name", ""):
+                    person_node_id = n["id"]
+                    break
+
+            # 不存在则创建
+            if not person_node_id:
+                person = GraphNode(
+                    id="",
+                    label="Person",
+                    name=person_id_str,
+                    content=f"用户 {person_id_str}",
+                    confidence=0.5,
+                    group_id=group_key if group_key != "_all" else None,
+                    properties={"source": "dream_pattern"},
+                )
+                person.id = person.generate_id()
+                added = await l3.add_node(person)
+                if not added:
+                    return
+                person_node_id = person.id
+
+            # 创建关系边
+            edge = GraphEdge(
+                source_id=person_node_id,
+                target_id=target_node_id,
+                relation_type=relation_type,
+                weight=confidence,
+                confidence=confidence,
+            )
+            await l3.add_edge(edge)
+            logger.debug(
+                f"建立关系边：{person_node_id} --[{relation_type}]--> {target_node_id}"
+            )
+        except Exception as e:
+            logger.debug(f"建立关系边失败：{e}")

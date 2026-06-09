@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING
 import asyncio
 
+import httpx
 import re
 
 from iris_memory.core import get_logger
@@ -102,9 +103,39 @@ class ImageParser:
                         return data_url
 
         if image_info.has_url:
-            return image_info.url
+            if await self._check_url_accessible(image_info.url):
+                return image_info.url
+            logger.info(f"图片 URL 不可访问，跳过 LLM 解析：{image_info.url[:80]}")
+            return None
 
         return None
+
+    async def _check_url_accessible(self, url: str) -> bool:
+        """检查网络图片 URL 是否可达且有内容
+
+        通过流式 GET 请求读取少量数据验证 URL 返回了有效内容，
+        避免 LLM 调用因图片不可下载而浪费 token。
+
+        Args:
+            url: 图片 URL
+
+        Returns:
+            URL 是否可访问且有内容
+        """
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                async with client.stream("GET", url, follow_redirects=True) as resp:
+                    if resp.status_code >= 400:
+                        logger.debug(f"图片 URL 返回 {resp.status_code}：{url[:80]}")
+                        return False
+                    chunk = await resp.aread(1024)
+                    if not chunk:
+                        logger.debug(f"图片 URL 返回空内容：{url[:80]}")
+                        return False
+                    return True
+        except Exception as e:
+            logger.debug(f"图片 URL 检查失败：{e}")
+            return False
 
     async def parse(self, image_info: ImageInfo) -> ParseResult:
         """解析单张图片
