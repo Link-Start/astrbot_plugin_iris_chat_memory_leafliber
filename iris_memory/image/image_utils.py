@@ -111,6 +111,8 @@ def hamming_distance(hash1: str, hash2: str) -> int:
     Returns:
         汉明距离（不同位的数量）
     """
+    hash1 = hash1.removeprefix("ph:")
+    hash2 = hash2.removeprefix("ph:")
     if not hash1 or not hash2 or len(hash1) != len(hash2):
         return 999
 

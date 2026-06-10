@@ -387,17 +387,18 @@ async def _queue_images_to_l1_buffer(
         # ---- 本地缓存（避免 URL 过期后无法访问） ----
         if image_data:
             try:
+                raw_hash = image_hash.removeprefix("ph:")
                 ext = detect_image_extension(image_data, image_info.url or "")
-                cache_dir = config.data_dir / "image_cache" / image_hash[:2]
+                cache_dir = config.data_dir / "image_cache" / raw_hash[:2]
                 cache_dir.mkdir(parents=True, exist_ok=True)
-                cache_path = cache_dir / f"{image_hash}{ext}"
+                cache_path = cache_dir / f"{raw_hash}{ext}"
                 cache_path.write_bytes(image_data)
                 image_info.file_path = str(cache_path)
                 logger.debug(f"已缓存图片到本地：{cache_path.name}")
             except Exception as e:
                 logger.debug(f"图片缓存写入失败：{e}")
 
-        hash_prefix = image_hash[:12]
+        hash_prefix = image_hash.removeprefix("ph:")[:12]
 
         cached_desc = None
         if cache_manager and cache_manager.is_available:
@@ -517,7 +518,7 @@ async def _parse_images_if_enabled(
                 l1_buffer.mark_image_parsed(
                     group_id, img_item.image_hash, ImageParseStatus.SUCCESS
                 )
-                placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+                placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
                 l1_buffer.replace_image_placeholder(
                     group_id, placeholder, f"[图:{cached.content}]"
                 )
@@ -570,7 +571,7 @@ async def _parse_images_if_enabled(
             l1_buffer.mark_image_parsed(
                 group_id, img_item.image_hash, ImageParseStatus.FAILED
             )
-            placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+            placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
             l1_buffer.replace_image_placeholder(group_id, placeholder, "")
             continue
 
@@ -579,7 +580,7 @@ async def _parse_images_if_enabled(
             l1_buffer.mark_image_parsed(
                 group_id, img_item.image_hash, ImageParseStatus.FAILED
             )
-            placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+            placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
             l1_buffer.replace_image_placeholder(group_id, placeholder, "")
             continue
 
@@ -596,7 +597,7 @@ async def _parse_images_if_enabled(
             group_id, img_item.image_hash, ImageParseStatus.SUCCESS
         )
 
-        placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+        placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
         l1_buffer.replace_image_placeholder(
             group_id, placeholder, f"[图:{result.content}]"
         )

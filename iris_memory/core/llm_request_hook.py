@@ -946,7 +946,7 @@ async def _parse_images_if_related_mode(
                 l1_buffer.mark_image_parsed(
                     group_id, img_item.image_hash, ImageParseStatus.SUCCESS
                 )
-                placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+                placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
                 l1_buffer.replace_image_placeholder(
                     group_id, placeholder, f"[图:{cached.content}]"
                 )
@@ -1001,7 +1001,7 @@ async def _parse_images_if_related_mode(
             l1_buffer.mark_image_parsed(
                 group_id, img_item.image_hash, ImageParseStatus.FAILED
             )
-            placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+            placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
             l1_buffer.replace_image_placeholder(group_id, placeholder, "")
             continue
 
@@ -1010,7 +1010,7 @@ async def _parse_images_if_related_mode(
             l1_buffer.mark_image_parsed(
                 group_id, img_item.image_hash, ImageParseStatus.FAILED
             )
-            placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+            placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
             l1_buffer.replace_image_placeholder(group_id, placeholder, "")
             continue
 
@@ -1019,7 +1019,7 @@ async def _parse_images_if_related_mode(
             l1_buffer.mark_image_parsed(
                 group_id, img_item.image_hash, ImageParseStatus.FAILED
             )
-            placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+            placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
             l1_buffer.replace_image_placeholder(group_id, placeholder, "")
             continue
 
@@ -1036,7 +1036,7 @@ async def _parse_images_if_related_mode(
             group_id, img_item.image_hash, ImageParseStatus.SUCCESS
         )
 
-        placeholder = f"[IMG:{img_item.image_hash[:12]}]"
+        placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
         l1_buffer.replace_image_placeholder(
             group_id, placeholder, f"[图:{result.content}]"
         )
