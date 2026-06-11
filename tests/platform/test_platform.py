@@ -250,11 +250,20 @@ class TestOneBot11Adapter:
 class TestGetAdapter:
     """get_adapter 工厂方法测试"""
 
-    def test_get_onebot11_adapter_via_session(self):
-        """测试获取 OneBot11 适配器 - 通过 session.platform_name"""
+    def test_get_onebot11_adapter_via_get_platform_name(self):
+        """测试获取 OneBot11 适配器 - 通过 event.get_platform_name()"""
         event = Mock()
-        event.session = Mock()
-        event.session.platform_name = "qq"
+        event.get_platform_name = Mock(return_value="qq")
+
+        adapter = get_adapter(event)
+
+        assert isinstance(adapter, OneBot11Adapter)
+
+    def test_get_onebot11_adapter_custom_instance_name(self):
+        """测试用户自定义平台实例名仍能正确识别协议类型"""
+        event = Mock()
+        # 用户在 AstrBot 中将实例命名为 "yuki"，但协议类型是 aiocqhttp
+        event.get_platform_name = Mock(return_value="aiocqhttp")
 
         adapter = get_adapter(event)
 
@@ -263,8 +272,7 @@ class TestGetAdapter:
     def test_get_unsupported_adapter(self):
         """测试获取不支持的适配器"""
         event = Mock()
-        event.session = Mock()
-        event.session.platform_name = "unsupported_platform"
+        event.get_platform_name = Mock(return_value="unsupported_platform")
 
         with pytest.raises(UnsupportedPlatformError) as exc_info:
             get_adapter(event)
@@ -274,12 +282,10 @@ class TestGetAdapter:
     def test_adapter_is_singleton(self):
         """测试适配器是单例"""
         event1 = Mock()
-        event1.session = Mock()
-        event1.session.platform_name = "qq"
+        event1.get_platform_name = Mock(return_value="qq")
 
         event2 = Mock()
-        event2.session = Mock()
-        event2.session.platform_name = "qq"
+        event2.get_platform_name = Mock(return_value="qq")
 
         adapter1 = get_adapter(event1)
         adapter2 = get_adapter(event2)

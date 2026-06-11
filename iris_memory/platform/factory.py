@@ -113,6 +113,9 @@ def get_adapter(event: "AstrMessageEvent") -> PlatformAdapter:
 def _get_platform_type(event: "AstrMessageEvent") -> str:
     """从事件对象中获取平台类型（AstrBot v4.x）
 
+    优先使用 event.get_platform_name() 获取协议类型（如 "aiocqhttp"），
+    而非 event.session.platform_name（返回用户自定义实例名，如 "yuki"）。
+
     Args:
         event: AstrBot 消息事件对象
 
@@ -122,14 +125,22 @@ def _get_platform_type(event: "AstrMessageEvent") -> str:
     Raises:
         ValueError: 无法获取平台类型
     """
-    if hasattr(event, "session") and event.session is not None:
-        if hasattr(event.session, "platform_name"):
-            platform_name = event.session.platform_name
-            if platform_name is not None:
-                return str(platform_name).lower()
+    # 优先使用 AstrBot 官方 API（返回协议类型如 "aiocqhttp"）
+    if hasattr(event, "get_platform_name"):
+        platform_name = event.get_platform_name()
+        if platform_name is not None:
+            return str(platform_name).lower()
+
+    # 回退：直接访问 platform_meta.name
+    if hasattr(event, "platform_meta") and event.platform_meta is not None:
+        platform_name = getattr(event.platform_meta, "name", None)
+        if platform_name is not None:
+            return str(platform_name).lower()
 
     logger.error("无法从事件对象中获取平台类型")
-    raise ValueError("无法获取平台类型，event.session.platform_name 不存在")
+    raise ValueError(
+        "无法获取平台类型，event.get_platform_name() 和 event.platform_meta.name 均不可用"
+    )
 
 
 # ============================================================================
