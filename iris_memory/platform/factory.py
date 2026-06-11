@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from iris_memory.core import get_logger
 from iris_memory.platform.base import PlatformAdapter, UnsupportedPlatformError
+from iris_memory.platform.generic import GenericAdapter
 from iris_memory.platform.qq import OneBot11Adapter
 
 if TYPE_CHECKING:
@@ -90,10 +91,15 @@ def get_adapter(event: "AstrMessageEvent") -> PlatformAdapter:
 
     # 检查是否支持
     if platform_key not in _ADAPTER_REGISTRY:
-        raise UnsupportedPlatformError(
-            platform_type,
-            f"不支持的平台类型: {platform_type}。当前支持: {list(_ADAPTER_REGISTRY.keys())}",
+        logger.warning(
+            f"未支持的平台类型: {platform_type}，使用通用适配器降级。"
+            f"当前支持: {list(_ADAPTER_REGISTRY.keys())}"
         )
+        with _ADAPTER_LOCK:
+            if "__generic__" not in _ADAPTER_INSTANCES:
+                logger.info("创建通用平台适配器实例")
+                _ADAPTER_INSTANCES["__generic__"] = GenericAdapter()
+            return _ADAPTER_INSTANCES["__generic__"]
 
     adapter_class = _ADAPTER_REGISTRY[platform_key]
     if adapter_class is None:

@@ -8,6 +8,7 @@ from iris_memory.platform.base import (
     UnsupportedPlatformError,
 )
 from iris_memory.platform.factory import get_adapter
+from iris_memory.platform.generic import GenericAdapter
 from iris_memory.platform.qq import OneBot11Adapter
 
 
@@ -269,15 +270,14 @@ class TestGetAdapter:
 
         assert isinstance(adapter, OneBot11Adapter)
 
-    def test_get_unsupported_adapter(self):
-        """测试获取不支持的适配器"""
+    def test_unsupported_platform_returns_generic_adapter(self):
+        """测试未支持的平台返回通用适配器"""
         event = Mock()
-        event.get_platform_name = Mock(return_value="unsupported_platform")
+        event.get_platform_name = Mock(return_value="wechat")
 
-        with pytest.raises(UnsupportedPlatformError) as exc_info:
-            get_adapter(event)
+        adapter = get_adapter(event)
 
-        assert exc_info.value.platform_type == "unsupported_platform"
+        assert isinstance(adapter, GenericAdapter)
 
     def test_adapter_is_singleton(self):
         """测试适配器是单例"""

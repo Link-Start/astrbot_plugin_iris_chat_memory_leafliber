@@ -53,6 +53,7 @@ from iris_memory.platform.factory import (
     get_supported_platforms,
     register_adapter,
 )
+from iris_memory.platform.generic import GenericAdapter
 from iris_memory.platform.qq import OneBot11Adapter
 
 
@@ -64,6 +65,7 @@ __all__ = [
     "UnsupportedPlatformError",
     # 平台适配器
     "OneBot11Adapter",
+    "GenericAdapter",
     # 扩展接口
     "register_adapter",
     "get_supported_platforms",
