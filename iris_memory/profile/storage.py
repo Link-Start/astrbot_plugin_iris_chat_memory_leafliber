@@ -110,6 +110,7 @@ class ProfileStorage(Component):
         if not self._is_available:
             return None
 
+        persona_id = self._effective_persona(persona_id)
         key = f"group_profile:{persona_id}:{group_id}"
 
         try:
@@ -128,7 +129,10 @@ class ProfileStorage(Component):
             return None
 
     async def save_group_profile(
-        self, profile: GroupProfile, increment_version: bool = True
+        self,
+        profile: GroupProfile,
+        increment_version: bool = True,
+        persona_id: str = "default",
     ) -> None:
         if not self._is_available:
             return
@@ -136,7 +140,7 @@ class ProfileStorage(Component):
         if increment_version:
             profile.version += 1
 
-        persona_id = self._get_persona_id()
+        persona_id = self._effective_persona(persona_id)
         key = f"group_profile:{persona_id}:{profile.group_id}"
 
         try:
@@ -164,6 +168,7 @@ class ProfileStorage(Component):
         if not self._is_available:
             return None
 
+        persona_id = self._effective_persona(persona_id)
         key = f"user_profile:{persona_id}:{group_id}:{user_id}"
 
         try:
@@ -186,6 +191,7 @@ class ProfileStorage(Component):
         profile: UserProfile,
         group_id: str = "default",
         increment_version: bool = True,
+        persona_id: str = "default",
     ) -> None:
         if not self._is_available:
             return
@@ -193,7 +199,7 @@ class ProfileStorage(Component):
         if increment_version:
             profile.version += 1
 
-        persona_id = self._get_persona_id()
+        persona_id = self._effective_persona(persona_id)
         key = f"user_profile:{persona_id}:{group_id}:{profile.user_id}"
 
         try:
@@ -205,24 +211,20 @@ class ProfileStorage(Component):
         except Exception as e:
             logger.error(f"保存用户画像失败: {key}, 错误: {e}")
 
-    def _get_persona_id(self) -> str:
-        """获取当前人格ID
+    def _effective_persona(self, persona_id: str) -> str:
+        """规范化 persona_id
 
-        Returns:
-            人格ID，未启用人格隔离则返回 "default"
+        隔离未启用时强制返回 "default"（即便调用方传入了具体 persona，
+        也不应产生非 default 的存储键）。隔离启用时返回传入值，空值兜底 "default"。
         """
+        if not persona_id:
+            return "default"
         try:
-            config = get_config()
-            if not config.get("isolation_config.enable_persona_isolation"):
+            if not get_config().get("isolation_config.enable_persona_isolation"):
                 return "default"
-            logger.warning(
-                "人格隔离已启用，但当前无法获取 persona_id，使用 default。"
-                "人格隔离功能需要通过调用方传入 persona_id。"
-            )
         except RuntimeError:
-            pass
-
-        return "default"
+            return "default"
+        return persona_id
 
     def _get_effective_group_id(self) -> str:
         """获取用于用户索引查询的 effective group_id
@@ -242,18 +244,21 @@ class ProfileStorage(Component):
 
         return ""
 
-    async def update_group_profile(self, group_id: str, updates: dict) -> bool:
+    async def update_group_profile(
+        self, group_id: str, updates: dict, persona_id: str = "default"
+    ) -> bool:
         """更新群聊画像
 
         Args:
             group_id: 群聊ID
             updates: 更新字段字典
+            persona_id: 人格ID
 
         Returns:
             是否更新成功
         """
         try:
-            profile = await self.get_group_profile(group_id)
+            profile = await self.get_group_profile(group_id, persona_id)
 
             if not profile:
                 profile = GroupProfile(group_id=group_id)
@@ -262,7 +267,7 @@ class ProfileStorage(Component):
                 if key in GROUP_PROFILE_WRITABLE_FIELDS:
                     setattr(profile, key, value)
 
-            await self.save_group_profile(profile)
+            await self.save_group_profile(profile, persona_id=persona_id)
             logger.info(f"更新群聊画像成功: {group_id}")
             return True
 
@@ -271,7 +276,7 @@ class ProfileStorage(Component):
             return False
 
     async def update_user_profile(
-        self, user_id: str, group_id: str, updates: dict
+        self, user_id: str, group_id: str, updates: dict, persona_id: str = "default"
     ) -> bool:
         """更新用户画像
 
@@ -279,12 +284,13 @@ class ProfileStorage(Component):
             user_id: 用户ID
             group_id: 群聊ID
             updates: 更新字段字典
+            persona_id: 人格ID
 
         Returns:
             是否更新成功
         """
         try:
-            profile = await self.get_user_profile(user_id, group_id)
+            profile = await self.get_user_profile(user_id, group_id, persona_id)
 
             if not profile:
                 profile = UserProfile(user_id=user_id)
@@ -293,7 +299,9 @@ class ProfileStorage(Component):
                 if key in USER_PROFILE_WRITABLE_FIELDS:
                     setattr(profile, key, value)
 
-            await self.save_user_profile(profile, group_id)
+            await self.save_user_profile(
+                profile, group_id=group_id, persona_id=persona_id
+            )
             logger.info(f"更新用户画像成功: {user_id}@{group_id}")
             return True
 
@@ -301,8 +309,8 @@ class ProfileStorage(Component):
             logger.error(f"更新用户画像失败: {e}", exc_info=True)
             return False
 
-    async def list_groups(self) -> list:
-        persona_id = self._get_persona_id()
+    async def list_groups(self, persona_id: str = "default") -> list:
+        persona_id = self._effective_persona(persona_id)
         index_key = f"group_index:{persona_id}"
 
         try:
@@ -335,8 +343,8 @@ class ProfileStorage(Component):
             logger.error(f"获取群聊列表失败: {e}", exc_info=True)
             return []
 
-    async def list_users(self, group_id: str = "default") -> list:
-        persona_id = self._get_persona_id()
+    async def list_users(self, group_id: str = "default", persona_id: str = "default") -> list:
+        persona_id = self._effective_persona(persona_id)
         index_key = f"user_index:{persona_id}:{group_id}"
 
         try:
@@ -394,13 +402,14 @@ class ProfileStorage(Component):
             logger.error(f"更新用户索引失败: {e}")
 
     async def delete_user_profile(
-        self, user_id: str, group_id: str = "default"
+        self, user_id: str, group_id: str = "default", persona_id: str = "default"
     ) -> bool:
         """删除用户画像
 
         Args:
             user_id: 用户ID
             group_id: 群聊ID
+            persona_id: 人格ID
 
         Returns:
             是否删除成功
@@ -408,7 +417,7 @@ class ProfileStorage(Component):
         if not self._is_available:
             return False
 
-        persona_id = self._get_persona_id()
+        persona_id = self._effective_persona(persona_id)
         key = f"user_profile:{persona_id}:{group_id}:{user_id}"
 
         try:
@@ -420,11 +429,12 @@ class ProfileStorage(Component):
             logger.error(f"删除用户画像失败: {key}, 错误: {e}")
             return False
 
-    async def delete_group_profile(self, group_id: str) -> bool:
+    async def delete_group_profile(self, group_id: str, persona_id: str = "default") -> bool:
         """删除群聊画像
 
         Args:
             group_id: 群聊ID
+            persona_id: 人格ID
 
         Returns:
             是否删除成功
@@ -432,7 +442,7 @@ class ProfileStorage(Component):
         if not self._is_available:
             return False
 
-        persona_id = self._get_persona_id()
+        persona_id = self._effective_persona(persona_id)
         key = f"group_profile:{persona_id}:{group_id}"
 
         try:
@@ -496,8 +506,11 @@ class ProfileStorage(Component):
 
         return {"user_profiles": user_count, "group_profiles": group_count}
 
-    async def export_all(self) -> dict:
+    async def export_all(self, persona_id: str = "default") -> dict:
         """导出所有画像数据
+
+        Args:
+            persona_id: 人格ID，导出该 persona 命名空间下的画像
 
         Returns:
             包含群聊画像和用户画像的字典
@@ -514,18 +527,20 @@ class ProfileStorage(Component):
         try:
             from datetime import datetime as _dt
 
-            groups = await self.list_groups()
+            groups = await self.list_groups(persona_id)
             group_profiles = []
             for g in groups:
-                profile = await self.get_group_profile(g["group_id"])
+                profile = await self.get_group_profile(g["group_id"], persona_id)
                 if profile:
                     group_profiles.append(profile_to_dict(profile))
 
             all_users = []
             for g in groups:
-                users = await self.list_users(g["group_id"])
+                users = await self.list_users(g["group_id"], persona_id)
                 for u in users:
-                    profile = await self.get_user_profile(u["user_id"], g["group_id"])
+                    profile = await self.get_user_profile(
+                        u["user_id"], g["group_id"], persona_id
+                    )
                     if profile:
                         all_users.append(
                             {
@@ -534,9 +549,9 @@ class ProfileStorage(Component):
                             }
                         )
 
-            users_without_group = await self.list_users("default")
+            users_without_group = await self.list_users("default", persona_id)
             for u in users_without_group:
-                profile = await self.get_user_profile(u["user_id"], "default")
+                profile = await self.get_user_profile(u["user_id"], "default", persona_id)
                 if profile:
                     already = any(
                         p.get("user_id") == u["user_id"]
@@ -578,12 +593,15 @@ class ProfileStorage(Component):
                 "stats": {"group_count": 0, "user_count": 0},
             }
 
-    async def import_from_data(self, data: dict, skip_duplicates: bool = True) -> dict:
+    async def import_from_data(
+        self, data: dict, skip_duplicates: bool = True, persona_id: str = "default"
+    ) -> dict:
         """从数据字典导入画像
 
         Args:
             data: 导出数据字典（包含 groups 和 users）
             skip_duplicates: 是否跳过已有画像（否则覆盖更新）
+            persona_id: 人格ID，导入到该 persona 命名空间
 
         Returns:
             导入统计 {"imported_groups": int, "imported_users": int, "skipped": int, "error_count": int}
@@ -612,13 +630,15 @@ class ProfileStorage(Component):
                     continue
 
                 if skip_duplicates:
-                    existing = await self.get_group_profile(group_id)
+                    existing = await self.get_group_profile(group_id, persona_id)
                     if existing:
                         skipped += 1
                         continue
 
                 profile = dict_to_group_profile(group_data)
-                await self.save_group_profile(profile, increment_version=False)
+                await self.save_group_profile(
+                    profile, increment_version=False, persona_id=persona_id
+                )
                 imported_groups += 1
 
             except Exception as e:
@@ -635,14 +655,17 @@ class ProfileStorage(Component):
                     continue
 
                 if skip_duplicates:
-                    existing = await self.get_user_profile(user_id, group_id)
+                    existing = await self.get_user_profile(user_id, group_id, persona_id)
                     if existing:
                         skipped += 1
                         continue
 
                 profile = dict_to_user_profile(user_data)
                 await self.save_user_profile(
-                    profile, group_id=group_id, increment_version=False
+                    profile,
+                    group_id=group_id,
+                    increment_version=False,
+                    persona_id=persona_id,
                 )
                 imported_users += 1
 

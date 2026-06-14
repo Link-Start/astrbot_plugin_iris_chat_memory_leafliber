@@ -90,8 +90,15 @@ class GetProfileTool(FunctionTool[AstrAgentContext]):
             else "default"
         )
 
+        from iris_memory.core.persona import resolve_persona
+
+        manager = get_component_manager()
+        persona_id = await resolve_persona(manager, event)
+
         user_manager = UserProfileManager(profile_storage)
-        profile = await user_manager.get_or_create(user_id, effective_group_id)
+        profile = await user_manager.get_or_create(
+            user_id, effective_group_id, persona_id
+        )
 
         result = self._format_user_profile(profile)
         logger.info(f"获取用户画像: {user_id} (群聊: {effective_group_id})")
@@ -110,8 +117,13 @@ class GetProfileTool(FunctionTool[AstrAgentContext]):
         if not profile_storage or not profile_storage.is_available:
             return "画像系统未启用或不可用。"
 
+        from iris_memory.core.persona import resolve_persona
+
+        manager = get_component_manager()
+        persona_id = await resolve_persona(manager, event)
+
         group_manager = GroupProfileManager(profile_storage)
-        profile = await group_manager.get_or_create(group_id)
+        profile = await group_manager.get_or_create(group_id, persona_id)
 
         result = self._format_group_profile(profile)
         logger.info(f"获取群聊画像: {group_id}")

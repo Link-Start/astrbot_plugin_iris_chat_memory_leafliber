@@ -24,6 +24,7 @@ async def search_l2_memory():
     query = data.get("query", "")
     group_id = data.get("group_id")
     top_k = data.get("top_k", 10)
+    persona_id = data.get("persona", request.args.get("persona", "default"))
 
     if not query:
         return jsonify({"success": False, "error": "搜索关键词不能为空"}), 400
@@ -38,7 +39,7 @@ async def search_l2_memory():
     if not l2_retriever or not l2_retriever.is_available:
         return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
 
-    results = await l2_retriever.retrieve(query, group_id, top_k)
+    results = await l2_retriever.retrieve(query, group_id, top_k, persona_id)
 
     formatted_results = [
         {
@@ -64,6 +65,7 @@ async def search_l2_memory():
 async def get_latest_l2_memories():
     limit = request.args.get("limit", default=20, type=int)
     group_id = request.args.get("group_id")
+    persona_id = request.args.get("persona", "default")
     sort_by = request.args.get("sort_by", default="timestamp")
     sort_order = request.args.get("sort_order", default="desc")
 
@@ -90,9 +92,9 @@ async def get_latest_l2_memories():
         return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
 
     if group_id:
-        all_entries = await l2_adapter.get_entries_by_group(group_id)
+        all_entries = await l2_adapter.get_entries_by_group(group_id, persona_id)
     else:
-        all_entries = await l2_adapter.get_all_entries()
+        all_entries = await l2_adapter.get_all_entries(persona_id)
 
     raw_entries = []
     for entry in all_entries:

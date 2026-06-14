@@ -91,10 +91,15 @@ class DreamTask:
     def __init__(self, component_manager: "ComponentManager"):
         self._component_manager = component_manager
         self._cached_entries: Optional[List[MemoryEntry]] = None
+        self._cached_persona: Optional[str] = None
 
-    async def _get_entries(self, l2: L2MemoryAdapter) -> List[MemoryEntry]:
-        if self._cached_entries is None:
-            self._cached_entries = await l2.get_all_entries()
+    async def _get_entries(
+        self, l2: L2MemoryAdapter, persona_id: str
+    ) -> List[MemoryEntry]:
+        # 缓存按 persona 区分；persona 变化时重载
+        if self._cached_entries is None or self._cached_persona != persona_id:
+            self._cached_entries = await l2.get_all_entries(persona_id=persona_id)
+            self._cached_persona = persona_id
         return self._cached_entries
 
     async def _invalidate_entries(self) -> None:
@@ -118,7 +123,36 @@ class DreamTask:
             logger.warning("L2 记忆库不可用，无法执行梦境")
             return report
 
-        logger.info("🌙 梦境开始...")
+        # 按人格隔离加工：每个 persona 独立跑一遍流水线，避免跨人格合并
+        persona_ids = await l2.get_all_persona_ids() or ["default"]
+        logger.info(f"🌙 梦境开始，待加工 persona：{persona_ids}")
+
+        for persona_id in persona_ids:
+            await self._run_pipeline_for_persona(
+                persona_id, l2, l3, llm, report
+            )
+            await self._invalidate_entries()
+
+        finished_at = datetime.now()
+        report.finished_at = finished_at.isoformat()
+        report.total_duration_ms = int(
+            (finished_at - started_at).total_seconds() * 1000
+        )
+
+        logger.info(f"🌙 {report.summary}")
+        return report
+
+    async def _run_pipeline_for_persona(
+        self,
+        persona_id: str,
+        l2: "L2MemoryAdapter",
+        l3: Optional["L3KGAdapter"],
+        llm: Optional["LLMManager"],
+        report: DreamReport,
+    ) -> None:
+        """对单个 persona 执行完整 6 阶段流水线"""
+        config = get_config()
+        logger.info(f"🌙 persona [{persona_id}] 开始加工...")
 
         phase_order = [
             ("consolidation", self._run_consolidation),
@@ -135,25 +169,18 @@ class DreamTask:
 
             needs_entries = phase_name != "knowledge_extract"
             entries = (
-                await self._get_entries(l2) if (enabled and needs_entries) else None
+                await self._get_entries(l2, persona_id)
+                if (enabled and needs_entries)
+                else None
             )
 
             phase_report = await self._run_phase(
-                phase_name, enabled, phase_func, l2, l3, llm, entries
+                phase_name, enabled, phase_func, l2, l3, llm, entries, persona_id
             )
             report.phases.append(phase_report)
 
             if enabled and phase_name in _PHASES_THAT_MUTATE_ENTRIES:
                 await self._invalidate_entries()
-
-        finished_at = datetime.now()
-        report.finished_at = finished_at.isoformat()
-        report.total_duration_ms = int(
-            (finished_at - started_at).total_seconds() * 1000
-        )
-
-        logger.info(f"🌙 {report.summary}")
-        return report
 
     async def _run_phase(
         self,
@@ -164,6 +191,7 @@ class DreamTask:
         l3: Optional["L3KGAdapter"],
         llm: Optional["LLMManager"],
         entries: Optional[List["MemoryEntry"]] = None,
+        persona_id: str = "default",
     ) -> DreamPhaseReport:
         if not enabled:
             logger.debug(f"阶段 [{phase_name}] 已禁用，跳过")
@@ -173,9 +201,11 @@ class DreamTask:
 
         phase_start = datetime.now()
         try:
-            details = await phase_func(l2, l3, llm, entries)
+            details = await phase_func(l2, l3, llm, entries, persona_id)
             duration_ms = int((datetime.now() - phase_start).total_seconds() * 1000)
-            logger.info(f"阶段 [{phase_name}] 完成，耗时 {duration_ms}ms")
+            logger.info(
+                f"阶段 [{phase_name}] (persona {persona_id}) 完成，耗时 {duration_ms}ms"
+            )
             return DreamPhaseReport(
                 phase=phase_name,
                 enabled=True,
@@ -185,7 +215,7 @@ class DreamTask:
             )
         except Exception as e:
             duration_ms = int((datetime.now() - phase_start).total_seconds() * 1000)
-            logger.error(f"阶段 [{phase_name}] 失败：{e}", exc_info=True)
+            logger.error(f"阶段 [{phase_name}] (persona {persona_id}) 失败：{e}", exc_info=True)
             return DreamPhaseReport(
                 phase=phase_name,
                 enabled=True,
@@ -194,41 +224,41 @@ class DreamTask:
                 error=str(e),
             )
 
-    async def _run_consolidation(self, l2, l3, llm, entries=None):
+    async def _run_consolidation(self, l2, l3, llm, entries=None, persona_id="default"):
         from .consolidation import ConsolidationPhase
 
         phase = ConsolidationPhase()
-        return await phase.execute(l2, l3, llm, entries=entries)
+        return await phase.execute(l2, l3, llm, entries=entries, persona_id=persona_id)
 
-    async def _run_temporal_anchor(self, l2, l3, llm, entries=None):
+    async def _run_temporal_anchor(self, l2, l3, llm, entries=None, persona_id="default"):
         from .temporal_anchor import TemporalAnchorPhase
 
         phase = TemporalAnchorPhase()
-        return await phase.execute(l2, l3, llm, entries=entries)
+        return await phase.execute(l2, l3, llm, entries=entries, persona_id=persona_id)
 
-    async def _run_contradiction(self, l2, l3, llm, entries=None):
+    async def _run_contradiction(self, l2, l3, llm, entries=None, persona_id="default"):
         from .contradiction import ContradictionPhase
 
         phase = ContradictionPhase()
-        return await phase.execute(l2, l3, llm, entries=entries)
+        return await phase.execute(l2, l3, llm, entries=entries, persona_id=persona_id)
 
-    async def _run_pattern_discovery(self, l2, l3, llm, entries=None):
+    async def _run_pattern_discovery(self, l2, l3, llm, entries=None, persona_id="default"):
         from .pattern_discovery import PatternDiscoveryPhase
 
         phase = PatternDiscoveryPhase()
-        return await phase.execute(l2, l3, llm, entries=entries)
+        return await phase.execute(l2, l3, llm, entries=entries, persona_id=persona_id)
 
-    async def _run_knowledge_extract(self, l2, l3, llm, entries=None):
+    async def _run_knowledge_extract(self, l2, l3, llm, entries=None, persona_id="default"):
         from .knowledge_extract import KnowledgeExtractPhase
 
         phase = KnowledgeExtractPhase()
-        return await phase.execute(l2, l3, llm)
+        return await phase.execute(l2, l3, llm, persona_id=persona_id)
 
-    async def _run_pruning(self, l2, l3, llm, entries=None):
+    async def _run_pruning(self, l2, l3, llm, entries=None, persona_id="default"):
         from .pruning import PruningPhase
 
         phase = PruningPhase()
-        return await phase.execute(l2, l3, llm, entries=entries)
+        return await phase.execute(l2, l3, llm, entries=entries, persona_id=persona_id)
 
     def _get_l2(self) -> Optional["L2MemoryAdapter"]:
         adapter = self._component_manager.get_component("l2_memory", L2MemoryAdapter)

@@ -102,6 +102,7 @@ async def _update_profile_names(
     group_name: str,
     user_id: str,
     user_name: str,
+    persona_id: str = "default",
 ) -> None:
     """更新用户昵称和群聊名称（内部函数）
 
@@ -115,6 +116,7 @@ async def _update_profile_names(
         group_name: 群聊名称
         user_id: 用户ID
         user_name: 用户昵称
+        persona_id: 人格ID
     """
     from iris_memory.config import get_config
 
@@ -126,11 +128,11 @@ async def _update_profile_names(
     if not profile_storage:
         return
 
-    group_key = f"group:{group_id}"
+    group_key = f"group:{persona_id}:{group_id}"
     effective_group_id = (
         group_id if config.get("isolation_config.enable_group_isolation") else "default"
     )
-    user_key = f"user:{effective_group_id}:{user_id}"
+    user_key = f"user:{persona_id}:{effective_group_id}:{user_id}"
 
     group_name_changed = group_name and _get_cached_name(group_key) != group_name
     user_name_changed = user_name and _get_cached_name(user_key) != user_name
@@ -145,11 +147,13 @@ async def _update_profile_names(
         user_manager = UserProfileManager(profile_storage)
 
         if group_name_changed:
-            await group_manager.update_group_name(group_id, group_name)
+            await group_manager.update_group_name(group_id, group_name, persona_id)
             _set_cached_name(group_key, group_name)
 
         if user_name_changed:
-            await user_manager.update_user_name(user_id, effective_group_id, user_name)
+            await user_manager.update_user_name(
+                user_id, effective_group_id, user_name, persona_id
+            )
             _set_cached_name(user_key, user_name)
 
     except Exception as e:
@@ -188,6 +192,11 @@ async def _add_to_l1_buffer(
     user_id = adapter.get_user_id(event)
     user_name = adapter.get_user_name(event)
     group_name = adapter.get_group_name(event)
+
+    # 解析 persona_id（用于画像与 L1 消息的隔离命名空间）
+    from iris_memory.core.persona import resolve_persona
+
+    persona_id = await resolve_persona(component_manager, event)
 
     metadata = {}
     if user_name:
@@ -230,12 +239,13 @@ async def _add_to_l1_buffer(
         content=content,
         source=user_id,
         metadata=metadata,
+        persona_id=persona_id,
     )
 
     logger.debug(f"已添加用户消息到群聊 {group_id} 的 L1 Buffer")
 
     await _update_profile_names(
-        component_manager, group_id, group_name, user_id, user_name
+        component_manager, group_id, group_name, user_id, user_name, persona_id
     )
 
 
@@ -269,11 +279,16 @@ async def update_l1_buffer(
     group_id = adapter.get_group_id(event)
     user_id = adapter.get_user_id(event)
 
+    from iris_memory.core.persona import resolve_persona
+
+    persona_id = await resolve_persona(component_manager, event)
+
     await l1_buffer.add_message(
         group_id=group_id,
         role=role,
         content=content,
         source=user_id if role == "user" else "assistant",
+        persona_id=persona_id,
     )
 
     logger.debug(f"已添加 {role} 消息到群聊 {group_id} 的 L1 Buffer")

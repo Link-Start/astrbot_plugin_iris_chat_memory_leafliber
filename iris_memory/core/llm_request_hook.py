@@ -437,13 +437,16 @@ async def _collect_user_profile(
         group_id if config.get("isolation_config.enable_group_isolation") else "default"
     )
 
+    from iris_memory.core.persona import resolve_persona
     from iris_memory.profile import GroupProfileManager, UserProfileManager
+
+    persona_id = await resolve_persona(component_manager, event)
 
     group_manager = GroupProfileManager(profile_storage)
     user_manager = UserProfileManager(profile_storage)
 
-    group_profile = await group_manager.get_or_create(group_id)
-    user_profile = await user_manager.get_or_create(user_id, effective_group_id)
+    group_profile = await group_manager.get_or_create(group_id, persona_id)
+    user_profile = await user_manager.get_or_create(user_id, effective_group_id, persona_id)
 
     profile_text = _format_profiles_for_injection(group_profile, user_profile)
 
@@ -555,6 +558,10 @@ async def _collect_l2_memory(
     adapter = get_adapter(event)
     group_id = adapter.get_group_id(event)
 
+    from iris_memory.core.persona import resolve_persona
+
+    persona_id = await resolve_persona(component_manager, event)
+
     query_text = ""
     if hasattr(event, "message_str") and event.message_str:
         query_text = event.message_str
@@ -579,6 +586,7 @@ async def _collect_l2_memory(
         l2_results = await retriever.retrieve(
             query=search_query,
             group_id=group_id,
+            persona_id=persona_id,
         )
 
         context_text = ""

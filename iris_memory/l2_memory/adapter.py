@@ -291,9 +291,19 @@ class L2MemoryAdapter(Component):
                 group_id TEXT,
                 user_id TEXT,
                 timestamp TEXT,
-                kg_processed INTEGER DEFAULT 0
+                kg_processed INTEGER DEFAULT 0,
+                persona_id TEXT NOT NULL DEFAULT 'default'
             )
         """)
+        # 向后兼容：旧库无 persona_id 列时补列（默认 'default'）
+        cols = {
+            row[1]
+            for row in db.execute("PRAGMA table_info(memories)").fetchall()
+        }
+        if "persona_id" not in cols:
+            db.execute(
+                "ALTER TABLE memories ADD COLUMN persona_id TEXT NOT NULL DEFAULT 'default'"
+            )
         db.execute(
             "CREATE INDEX IF NOT EXISTS idx_memories_group_id ON memories(group_id)"
         )
@@ -305,6 +315,9 @@ class L2MemoryAdapter(Component):
         )
         db.execute(
             "CREATE INDEX IF NOT EXISTS idx_memories_timestamp ON memories(timestamp)"
+        )
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memories_persona_id ON memories(persona_id)"
         )
         db.commit()
         return db
@@ -598,6 +611,7 @@ class L2MemoryAdapter(Component):
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
         skip_dedup: bool = False,
+        persona_id: str = "default",
     ) -> Optional[str]:
         if not self._is_available:
             await self._try_recover()
@@ -619,7 +633,7 @@ class L2MemoryAdapter(Component):
 
         try:
             if not skip_dedup:
-                existing_id = await self._check_similarity(content)
+                existing_id = await self._check_similarity(content, persona_id)
                 if existing_id:
                     logger.debug(f"发现相似记忆，跳过存储：{content[:50]}...")
                     return existing_id
@@ -648,7 +662,7 @@ class L2MemoryAdapter(Component):
                 )
 
                 # 添加到 SQLite
-                self._upsert_db_unlocked(faiss_idx, memory_id, content, metadata)
+                self._upsert_db_unlocked(faiss_idx, memory_id, content, metadata, persona_id)
 
             self._dirty = True
             logger.debug(f"已添加记忆：{memory_id}")
@@ -658,13 +672,15 @@ class L2MemoryAdapter(Component):
             logger.error(f"添加记忆失败：{e}", exc_info=True)
             return None
 
-    async def _check_similarity(self, content: str) -> Optional[str]:
+    async def _check_similarity(
+        self, content: str, persona_id: str = "default"
+    ) -> Optional[str]:
         try:
             vectors = await self._embed([content])
             vector = np.array([vectors[0]], dtype=np.float32)
 
             with self._lock:
-                if self._index.ntotal == 0:
+                if self._index is None or self._index.ntotal == 0:
                     return None
 
                 scores, indices = self._index.search(vector, 1)
@@ -674,9 +690,10 @@ class L2MemoryAdapter(Component):
                 score = float(scores[0][0])
                 if score >= self._similarity_threshold:
                     faiss_idx = int(indices[0][0])
+                    # 去重限定在同一 persona 命名空间内
                     row = self._db.execute(
-                        "SELECT memory_id FROM memories WHERE faiss_idx = ?",
-                        (faiss_idx,),
+                        "SELECT memory_id FROM memories WHERE faiss_idx = ? AND persona_id = ?",
+                        (faiss_idx, persona_id),
                     ).fetchone()
                     if row:
                         return row[0]
@@ -691,7 +708,7 @@ class L2MemoryAdapter(Component):
     # ========================================================================
 
     async def retrieve(
-        self, query: str, group_id: Optional[str] = None, top_k: int = 10
+        self, query: str, group_id: Optional[str] = None, top_k: int = 10, persona_id: str = "default"
     ) -> List[MemorySearchResult]:
         if not self._is_available:
             await self._try_recover()
@@ -710,7 +727,7 @@ class L2MemoryAdapter(Component):
             loop = asyncio.get_event_loop()
             results = await asyncio.wait_for(
                 loop.run_in_executor(
-                    None, lambda: self._search_with_vector(vector_np, group_id, top_k)
+                    None, lambda: self._search_with_vector(vector_np, group_id, top_k, persona_id)
                 ),
                 timeout=timeout_sec,
             )
@@ -723,7 +740,7 @@ class L2MemoryAdapter(Component):
             return []
 
     def _search_with_vector(
-        self, vector: np.ndarray, group_id: Optional[str], top_k: int
+        self, vector: np.ndarray, group_id: Optional[str], top_k: int, persona_id: str = "default"
     ) -> List[MemorySearchResult]:
         """在锁保护下执行 FAISS 搜索 + SQLite 查询
 
@@ -741,18 +758,28 @@ class L2MemoryAdapter(Component):
 
             if group_id:
                 row = self._db.execute(
-                    "SELECT COUNT(*) FROM memories WHERE group_id = ?", (group_id,)
+                    "SELECT COUNT(*) FROM memories WHERE group_id = ? AND persona_id = ?",
+                    (group_id, persona_id),
                 ).fetchone()
                 group_count = row[0]
                 if group_count == 0:
                     logger.debug(
-                        f"群聊隔离过滤：group_id='{group_id}' 在 DB 中无记忆 "
+                        f"隔离过滤：group_id='{group_id}' persona='{persona_id}' 在 DB 中无记忆 "
                         f"(总计 {self._index.ntotal} 条)，跳过检索"
                     )
                     return []
                 n_probe = min(max(group_count, top_k), self._index.ntotal)
             else:
-                n_probe = min(top_k, self._index.ntotal)
+                row = self._db.execute(
+                    "SELECT COUNT(*) FROM memories WHERE persona_id = ?", (persona_id,)
+                ).fetchone()
+                persona_count = row[0]
+                if persona_count == 0:
+                    logger.debug(
+                        f"隔离过滤：persona='{persona_id}' 在 DB 中无记忆，跳过检索"
+                    )
+                    return []
+                n_probe = min(max(persona_count, top_k), self._index.ntotal)
 
             scores, indices = self._index.search(vector, n_probe)
 
@@ -773,7 +800,7 @@ class L2MemoryAdapter(Component):
 
                 score = float(scores[0][i])
                 row = self._db.execute(
-                    "SELECT memory_id, content, metadata, group_id FROM memories WHERE faiss_idx = ?",
+                    "SELECT memory_id, content, metadata, group_id, persona_id FROM memories WHERE faiss_idx = ?",
                     (faiss_idx,),
                 ).fetchone()
 
@@ -781,7 +808,11 @@ class L2MemoryAdapter(Component):
                     db_miss += 1
                     continue
 
-                row_memory_id, row_content, row_metadata_json, row_group_id = row
+                row_memory_id, row_content, row_metadata_json, row_group_id, row_persona_id = row
+
+                if row_persona_id != persona_id:
+                    group_filtered += 1
+                    continue
 
                 if group_id and row_group_id != group_id:
                     group_filtered += 1
@@ -808,7 +839,7 @@ class L2MemoryAdapter(Component):
             return results
 
     def _batch_search_with_vectors(
-        self, vector_matrix: np.ndarray, group_id: Optional[str], top_k: int
+        self, vector_matrix: np.ndarray, group_id: Optional[str], top_k: int, persona_id: str = "default"
     ) -> List[List[MemorySearchResult]]:
         with self._lock:
             if self._index is None or self._db is None:
@@ -818,14 +849,21 @@ class L2MemoryAdapter(Component):
 
             if group_id:
                 row = self._db.execute(
-                    "SELECT COUNT(*) FROM memories WHERE group_id = ?", (group_id,)
+                    "SELECT COUNT(*) FROM memories WHERE group_id = ? AND persona_id = ?",
+                    (group_id, persona_id),
                 ).fetchone()
                 group_count = row[0]
                 if group_count == 0:
                     return [[] for _ in range(len(vector_matrix))]
                 n_probe = min(max(group_count, top_k), self._index.ntotal)
             else:
-                n_probe = min(top_k, self._index.ntotal)
+                row = self._db.execute(
+                    "SELECT COUNT(*) FROM memories WHERE persona_id = ?", (persona_id,)
+                ).fetchone()
+                persona_count = row[0]
+                if persona_count == 0:
+                    return [[] for _ in range(len(vector_matrix))]
+                n_probe = min(max(persona_count, top_k), self._index.ntotal)
 
             all_scores, all_indices = self._index.search(vector_matrix, n_probe)
 
@@ -839,14 +877,17 @@ class L2MemoryAdapter(Component):
 
                     score = float(all_scores[q_idx][i])
                     row = self._db.execute(
-                        "SELECT memory_id, content, metadata, group_id FROM memories WHERE faiss_idx = ?",
+                        "SELECT memory_id, content, metadata, group_id, persona_id FROM memories WHERE faiss_idx = ?",
                         (faiss_idx,),
                     ).fetchone()
 
                     if not row:
                         continue
 
-                    row_memory_id, row_content, row_metadata_json, row_group_id = row
+                    row_memory_id, row_content, row_metadata_json, row_group_id, row_persona_id = row
+
+                    if row_persona_id != persona_id:
+                        continue
 
                     if group_id and row_group_id != group_id:
                         continue
@@ -868,7 +909,7 @@ class L2MemoryAdapter(Component):
             return all_results
 
     async def batch_retrieve(
-        self, queries: List[str], group_id: Optional[str] = None, top_k: int = 10
+        self, queries: List[str], group_id: Optional[str] = None, top_k: int = 10, persona_id: str = "default"
     ) -> List[List[MemorySearchResult]]:
         if not self._is_available or not queries:
             return [[] for _ in queries]
@@ -884,7 +925,7 @@ class L2MemoryAdapter(Component):
             loop = asyncio.get_event_loop()
             results = await asyncio.wait_for(
                 loop.run_in_executor(
-                    None, lambda: self._batch_search_with_vectors(vector_matrix, group_id, top_k)
+                    None, lambda: self._batch_search_with_vectors(vector_matrix, group_id, top_k, persona_id)
                 ),
                 timeout=timeout_sec,
             )
@@ -1115,14 +1156,20 @@ class L2MemoryAdapter(Component):
             logger.error(f"获取条目数失败：{e}")
             return 0
 
-    async def get_all_entries(self) -> List[MemoryEntry]:
+    async def get_all_entries(self, persona_id: Optional[str] = None) -> List[MemoryEntry]:
         if not self._is_available or not self._db:
             return []
 
         try:
-            rows = self._db_execute(
-                "SELECT memory_id, content, metadata FROM memories"
-            ).fetchall()
+            if persona_id is not None:
+                rows = self._db_execute(
+                    "SELECT memory_id, content, metadata FROM memories WHERE persona_id = ?",
+                    (persona_id,),
+                ).fetchall()
+            else:
+                rows = self._db_execute(
+                    "SELECT memory_id, content, metadata FROM memories"
+                ).fetchall()
 
             return [
                 MemoryEntry(
@@ -1136,14 +1183,29 @@ class L2MemoryAdapter(Component):
             logger.error(f"获取所有条目失败：{e}")
             return []
 
-    async def get_entries_by_group(self, group_id: str) -> List[MemoryEntry]:
+    async def get_all_persona_ids(self) -> List[str]:
+        """获取库中所有出现过的 persona_id（供 dream 按人格遍历）"""
+        if not self._is_available or not self._db:
+            return []
+        try:
+            rows = self._db_execute(
+                "SELECT DISTINCT persona_id FROM memories"
+            ).fetchall()
+            return [row[0] for row in rows if row[0]]
+        except Exception as e:
+            logger.error(f"获取 persona 列表失败：{e}")
+            return []
+
+    async def get_entries_by_group(
+        self, group_id: str, persona_id: str = "default"
+    ) -> List[MemoryEntry]:
         if not self._is_available or not self._db:
             return []
 
         try:
             rows = self._db_execute(
-                "SELECT memory_id, content, metadata FROM memories WHERE group_id = ?",
-                (group_id,),
+                "SELECT memory_id, content, metadata FROM memories WHERE group_id = ? AND persona_id = ?",
+                (group_id, persona_id),
             ).fetchall()
 
             return [
@@ -1158,14 +1220,16 @@ class L2MemoryAdapter(Component):
             logger.error(f"获取群聊条目失败：{e}")
             return []
 
-    async def get_entries_by_user(self, user_id: str) -> List[MemoryEntry]:
+    async def get_entries_by_user(
+        self, user_id: str, persona_id: str = "default"
+    ) -> List[MemoryEntry]:
         if not self._is_available or not self._db:
             return []
 
         try:
             rows = self._db_execute(
-                "SELECT memory_id, content, metadata FROM memories WHERE user_id = ?",
-                (user_id,),
+                "SELECT memory_id, content, metadata FROM memories WHERE user_id = ? AND persona_id = ?",
+                (user_id, persona_id),
             ).fetchall()
 
             return [
@@ -1193,18 +1257,19 @@ class L2MemoryAdapter(Component):
             logger.error(f"获取L2统计失败：{e}", exc_info=True)
             return {"total_count": 0, "group_count": 0}
 
-    async def delete_by_group(self, group_id: str) -> int:
+    async def delete_by_group(self, group_id: str, persona_id: str = "default") -> int:
         if not self._is_available:
             return 0
 
         try:
             with self._lock:
                 rows = self._db.execute(
-                    "SELECT faiss_idx FROM memories WHERE group_id = ?", (group_id,)
+                    "SELECT faiss_idx FROM memories WHERE group_id = ? AND persona_id = ?",
+                    (group_id, persona_id),
                 ).fetchall()
 
                 if not rows:
-                    logger.debug(f"群聊 {group_id} 没有记忆记录")
+                    logger.debug(f"群聊 {group_id} (persona {persona_id}) 没有记忆记录")
                     return 0
 
                 faiss_indices = [row[0] for row in rows]
@@ -1214,18 +1279,21 @@ class L2MemoryAdapter(Component):
                 self._free_list.sort()
 
                 self._db.execute(
-                    "DELETE FROM memories WHERE group_id = ?", (group_id,)
+                    "DELETE FROM memories WHERE group_id = ? AND persona_id = ?",
+                    (group_id, persona_id),
                 )
                 self._db.commit()
 
             self._dirty = True
-            logger.info(f"已删除群聊 {group_id} 的 {len(faiss_indices)} 条记忆")
+            logger.info(f"已删除群聊 {group_id} (persona {persona_id}) 的 {len(faiss_indices)} 条记忆")
             return len(faiss_indices)
         except Exception as e:
             logger.error(f"删除群聊记忆失败: {e}", exc_info=True)
             return 0
 
-    async def delete_by_user(self, user_id: str, group_id: Optional[str] = None) -> int:
+    async def delete_by_user(
+        self, user_id: str, group_id: Optional[str] = None, persona_id: str = "default"
+    ) -> int:
         if not self._is_available:
             return 0
 
@@ -1233,12 +1301,13 @@ class L2MemoryAdapter(Component):
             with self._lock:
                 if group_id:
                     rows = self._db.execute(
-                        "SELECT faiss_idx, memory_id, metadata FROM memories WHERE group_id = ?",
-                        (group_id,),
+                        "SELECT faiss_idx, memory_id, metadata FROM memories WHERE group_id = ? AND persona_id = ?",
+                        (group_id, persona_id),
                     ).fetchall()
                 else:
                     rows = self._db.execute(
-                        "SELECT faiss_idx, memory_id, metadata FROM memories"
+                        "SELECT faiss_idx, memory_id, metadata FROM memories WHERE persona_id = ?",
+                        (persona_id,),
                     ).fetchall()
 
                 if not rows:
@@ -1277,24 +1346,45 @@ class L2MemoryAdapter(Component):
             logger.error(f"删除用户记忆失败: {e}", exc_info=True)
             return 0
 
-    async def delete_all(self) -> int:
+    async def delete_all(self, persona_id: Optional[str] = None) -> int:
         if not self._is_available:
             return 0
 
         try:
-            count = self._count_db()
-            if count == 0:
-                return 0
+            with self._lock:
+                if persona_id is not None:
+                    rows = self._db.execute(
+                        "SELECT faiss_idx FROM memories WHERE persona_id = ?", (persona_id,)
+                    ).fetchall()
+                    count = len(rows)
+                    if count == 0:
+                        return 0
+                    faiss_indices = [row[0] for row in rows]
+                    if self._index is not None:
+                        self._index.remove_ids(np.array(faiss_indices, dtype=np.int64))
+                    self._free_list.extend(faiss_indices)
+                    self._free_list.sort()
+                    self._db.execute(
+                        "DELETE FROM memories WHERE persona_id = ?", (persona_id,)
+                    )
+                    self._db.commit()
+                    self._dirty = True
+                    logger.info(f"已删除 persona {persona_id} 的 {count} 条记忆")
+                    return count
 
-            # 重建空索引
-            self._index = self._create_index(self._embedding_dimensions)
+                count = self._count_db()
+                if count == 0:
+                    return 0
 
-            self._db_write("DELETE FROM memories")
+                # 重建空索引
+                self._index = self._create_index(self._embedding_dimensions)
 
-            self._free_list = []
-            self._dirty = True
-            logger.info(f"已删除所有记忆，共 {count} 条")
-            return count
+                self._db_write("DELETE FROM memories")
+
+                self._free_list = []
+                self._dirty = True
+                logger.info(f"已删除所有记忆，共 {count} 条")
+                return count
         except Exception as e:
             logger.error(f"删除所有记忆失败: {e}", exc_info=True)
             return 0
@@ -1327,28 +1417,42 @@ class L2MemoryAdapter(Component):
     # 知识图谱处理相关
     # ========================================================================
 
-    async def get_unprocessed_count(self) -> int:
+    async def get_unprocessed_count(self, persona_id: Optional[str] = None) -> int:
         if not self._is_available or not self._db:
             return 0
 
         try:
-            row = self._db_execute(
-                "SELECT COUNT(*) FROM memories WHERE kg_processed = 0"
-            ).fetchone()
+            if persona_id is not None:
+                row = self._db_execute(
+                    "SELECT COUNT(*) FROM memories WHERE kg_processed = 0 AND persona_id = ?",
+                    (persona_id,),
+                ).fetchone()
+            else:
+                row = self._db_execute(
+                    "SELECT COUNT(*) FROM memories WHERE kg_processed = 0"
+                ).fetchone()
             return row[0]
         except Exception as e:
             logger.error(f"获取未处理记忆数量失败: {e}")
             return 0
 
-    async def get_unprocessed_memories(self, limit: int = 20) -> List[MemoryEntry]:
+    async def get_unprocessed_memories(
+        self, limit: int = 20, persona_id: Optional[str] = None
+    ) -> List[MemoryEntry]:
         if not self._is_available or not self._db:
             return []
 
         try:
-            rows = self._db_execute(
-                "SELECT memory_id, content, metadata FROM memories WHERE kg_processed = 0 LIMIT ?",
-                (limit,),
-            ).fetchall()
+            if persona_id is not None:
+                rows = self._db_execute(
+                    "SELECT memory_id, content, metadata FROM memories WHERE kg_processed = 0 AND persona_id = ? LIMIT ?",
+                    (persona_id, limit),
+                ).fetchall()
+            else:
+                rows = self._db_execute(
+                    "SELECT memory_id, content, metadata FROM memories WHERE kg_processed = 0 LIMIT ?",
+                    (limit,),
+                ).fetchall()
 
             return [
                 MemoryEntry(
@@ -1391,7 +1495,7 @@ class L2MemoryAdapter(Component):
             return False
 
     async def get_latest_memories(
-        self, limit: int = 20, group_id: Optional[str] = None
+        self, limit: int = 20, group_id: Optional[str] = None, persona_id: str = "default"
     ) -> List[MemorySearchResult]:
         if not self._is_available:
             return []
@@ -1399,13 +1503,13 @@ class L2MemoryAdapter(Component):
         try:
             if group_id:
                 rows = self._db_execute(
-                    "SELECT memory_id, content, metadata FROM memories WHERE group_id = ? ORDER BY timestamp DESC LIMIT ?",
-                    (group_id, limit),
+                    "SELECT memory_id, content, metadata FROM memories WHERE group_id = ? AND persona_id = ? ORDER BY timestamp DESC LIMIT ?",
+                    (group_id, persona_id, limit),
                 ).fetchall()
             else:
                 rows = self._db_execute(
-                    "SELECT memory_id, content, metadata FROM memories ORDER BY timestamp DESC LIMIT ?",
-                    (limit,),
+                    "SELECT memory_id, content, metadata FROM memories WHERE persona_id = ? ORDER BY timestamp DESC LIMIT ?",
+                    (persona_id, limit),
                 ).fetchall()
 
             return [
@@ -1584,6 +1688,7 @@ class L2MemoryAdapter(Component):
         memory_id: str,
         content: str,
         metadata: Dict[str, Any],
+        persona_id: str = "default",
     ) -> None:
         """插入或更新 SQLite 记录（调用方需持有 _lock）"""
         group_id = metadata.get("group_id")
@@ -1594,8 +1699,8 @@ class L2MemoryAdapter(Component):
 
         self._db.execute(
             """INSERT OR REPLACE INTO memories
-               (faiss_idx, memory_id, content, metadata, group_id, user_id, timestamp, kg_processed)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (faiss_idx, memory_id, content, metadata, group_id, user_id, timestamp, kg_processed, persona_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 faiss_idx,
                 memory_id,
@@ -1605,6 +1710,7 @@ class L2MemoryAdapter(Component):
                 user_id,
                 timestamp,
                 kg_processed,
+                persona_id,
             ),
         )
         self._db.commit()

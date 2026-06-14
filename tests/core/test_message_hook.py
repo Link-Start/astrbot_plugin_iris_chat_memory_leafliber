@@ -238,7 +238,7 @@ class TestUpdateL1Buffer:
             await update_l1_buffer(event, component_manager, "user", "你好")
 
         buffer.add_message.assert_called_once_with(
-            group_id="group123", role="user", content="你好", source="user456"
+            group_id="group123", role="user", content="你好", source="user456", persona_id="default"
         )
 
     @pytest.mark.asyncio
@@ -262,7 +262,7 @@ class TestUpdateL1Buffer:
             await update_l1_buffer(event, component_manager, "assistant", "你好！")
 
         buffer.add_message.assert_called_once_with(
-            group_id="group123", role="assistant", content="你好！", source="assistant"
+            group_id="group123", role="assistant", content="你好！", source="assistant", persona_id="default"
         )
 
     @pytest.mark.asyncio

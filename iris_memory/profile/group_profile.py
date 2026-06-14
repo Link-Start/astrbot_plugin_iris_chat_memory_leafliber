@@ -38,16 +38,19 @@ class GroupProfileManager:
     def __init__(self, storage: ProfileStorage):
         self._storage = storage
 
-    async def get_or_create(self, group_id: str) -> GroupProfile:
+    async def get_or_create(
+        self, group_id: str, persona_id: str = "default"
+    ) -> GroupProfile:
         """获取或创建群聊画像
 
         Args:
             group_id: 群聊ID
+            persona_id: 人格ID
 
         Returns:
             群聊画像对象
         """
-        profile = await self._storage.get_group_profile(group_id)
+        profile = await self._storage.get_group_profile(group_id, persona_id)
 
         if not profile:
             profile = GroupProfile(group_id=group_id)
@@ -55,21 +58,26 @@ class GroupProfileManager:
 
         return profile
 
-    async def update_group_name(self, group_id: str, group_name: str) -> None:
+    async def update_group_name(
+        self, group_id: str, group_name: str, persona_id: str = "default"
+    ) -> None:
         """更新群聊名称
 
         Args:
             group_id: 群聊ID
             group_name: 群聊名称
+            persona_id: 人格ID
         """
         if not group_name:
             return
 
-        profile = await self.get_or_create(group_id)
+        profile = await self.get_or_create(group_id, persona_id)
 
         if group_name != profile.group_name:
             profile.group_name = group_name
-            await self._storage.save_group_profile(profile, increment_version=True)
+            await self._storage.save_group_profile(
+                profile, increment_version=True, persona_id=persona_id
+            )
             logger.debug(f"更新群聊名称: {group_id} -> {group_name}")
 
     async def update_from_analysis(
@@ -80,6 +88,7 @@ class GroupProfileManager:
         custom_fields: Optional[dict] = None,
         tier: UpdateTier = UpdateTier.MID,
         confidence: float = 0.7,
+        persona_id: str = "default",
     ) -> None:
         """从分析结果更新字段（LLM分析后调用）
 
@@ -93,8 +102,9 @@ class GroupProfileManager:
             custom_fields: 自定义字段字典
             tier: 更新层级
             confidence: 本次分析的整体置信度
+            persona_id: 人格ID
         """
-        profile = await self.get_or_create(group_id)
+        profile = await self.get_or_create(group_id, persona_id)
         updated = False
 
         if interests is not None:
@@ -130,7 +140,9 @@ class GroupProfileManager:
             tracker.record_long_update()
         profile.set_update_tracker(tracker)
 
-        await self._storage.save_group_profile(profile, increment_version=updated)
+        await self._storage.save_group_profile(
+            profile, increment_version=updated, persona_id=persona_id
+        )
         if updated:
             logger.info(f"从分析结果更新群聊画像: {group_id} (tier={tier.value})")
 
@@ -143,6 +155,7 @@ class GroupProfileManager:
         atmosphere_tags: Optional[List[str]] = None,
         custom_fields: Optional[dict] = None,
         confidence: float = 0.8,
+        persona_id: str = "default",
     ) -> None:
         """从长期分析结果更新字段
 
@@ -156,8 +169,9 @@ class GroupProfileManager:
             atmosphere_tags: 氛围标签（如有变化）
             custom_fields: 自定义字段
             confidence: 置信度
+            persona_id: 人格ID
         """
-        profile = await self.get_or_create(group_id)
+        profile = await self.get_or_create(group_id, persona_id)
         updated = False
 
         if long_term_tags is not None:
@@ -214,7 +228,9 @@ class GroupProfileManager:
         tracker.record_long_update()
         profile.set_update_tracker(tracker)
 
-        await self._storage.save_group_profile(profile, increment_version=updated)
+        await self._storage.save_group_profile(
+            profile, increment_version=updated, persona_id=persona_id
+        )
         if updated:
             logger.info(f"从长期分析更新群聊画像: {group_id}")
 
@@ -249,26 +265,30 @@ class GroupProfileManager:
         tracker = profile.get_update_tracker()
         return tracker.should_update_long(interval_hours)
 
-    async def add_long_term_tag(self, group_id: str, tag: str) -> None:
+    async def add_long_term_tag(
+        self, group_id: str, tag: str, persona_id: str = "default"
+    ) -> None:
         """添加长期标签（人工或高质量LLM更新）"""
-        profile = await self.get_or_create(group_id)
+        profile = await self.get_or_create(group_id, persona_id)
 
         if tag not in profile.long_term_tags:
             profile.long_term_tags.append(tag)
             meta = profile.get_field_meta("long_term_tags")
             meta.record_update(1.0, source="manual")
             profile.set_field_meta("long_term_tags", meta)
-            await self._storage.save_group_profile(profile)
+            await self._storage.save_group_profile(profile, persona_id=persona_id)
             logger.info(f"添加群聊长期标签: {group_id} -> {tag}")
 
-    async def add_blacklist_topic(self, group_id: str, topic: str) -> None:
+    async def add_blacklist_topic(
+        self, group_id: str, topic: str, persona_id: str = "default"
+    ) -> None:
         """添加禁忌话题"""
-        profile = await self.get_or_create(group_id)
+        profile = await self.get_or_create(group_id, persona_id)
 
         if topic not in profile.blacklist_topics:
             profile.blacklist_topics.append(topic)
             meta = profile.get_field_meta("blacklist_topics")
             meta.record_update(1.0, source="manual")
             profile.set_field_meta("blacklist_topics", meta)
-            await self._storage.save_group_profile(profile)
+            await self._storage.save_group_profile(profile, persona_id=persona_id)
             logger.info(f"添加群聊禁忌话题: {group_id} -> {topic}")

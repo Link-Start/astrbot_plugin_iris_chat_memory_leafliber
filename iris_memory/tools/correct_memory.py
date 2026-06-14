@@ -75,8 +75,14 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
             if not l2_adapter or not l2_adapter._is_available:
                 return "L2记忆库当前不可用"
 
+            from iris_memory.core.persona import resolve_persona
+
+            persona_id = await resolve_persona(manager, event)
+
             try:
-                results = await l2_adapter.retrieve(query=memory_id, top_k=1)
+                results = await l2_adapter.retrieve(
+                    query=memory_id, top_k=1, persona_id=persona_id
+                )
 
                 if not results:
                     return f"未找到ID为 {memory_id} 的记忆"
@@ -103,7 +109,9 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
                     }
                 )
 
-                await l2_adapter.add_memory(content=correction, metadata=new_metadata)
+                await l2_adapter.add_memory(
+                    content=correction, metadata=new_metadata, persona_id=persona_id
+                )
 
                 logger.info(
                     f"用户修正记忆: user={user_id}, memory_id={memory_id}, "

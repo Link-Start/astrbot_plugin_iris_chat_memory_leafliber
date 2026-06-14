@@ -39,6 +39,7 @@ class ContradictionPhase:
         l3: Optional["L3KGAdapter"],
         llm: Optional["LLMManager"],
         entries: Optional[List["MemoryEntry"]] = None,
+        persona_id: str = "default",
     ) -> dict:
         config = get_config()
         self._similarity_floor = cast(
@@ -55,7 +56,7 @@ class ContradictionPhase:
 
         try:
             if entries is None:
-                entries = await l2.get_all_entries()
+                entries = await l2.get_all_entries(persona_id=persona_id)
 
             if len(entries) < 2:
                 logger.debug("记忆数量不足，无需矛盾检测")
@@ -63,7 +64,9 @@ class ContradictionPhase:
 
             logger.info(f"开始检测 {len(entries)} 条记忆的逻辑矛盾...")
 
-            candidate_groups = await self._find_contradiction_candidates(entries, l2)
+            candidate_groups = await self._find_contradiction_candidates(
+                entries, l2, persona_id
+            )
 
             if not candidate_groups:
                 logger.debug("未发现矛盾候选")
@@ -110,6 +113,7 @@ class ContradictionPhase:
         self,
         entries: List["MemoryEntry"],
         l2: "L2MemoryAdapter",
+        persona_id: str = "default",
     ) -> List[List["MemoryEntry"]]:
         config = get_config()
         enable_group_isolation = bool(
@@ -123,7 +127,9 @@ class ContradictionPhase:
             group_id = entry.group_id if enable_group_isolation else None
 
             try:
-                results = await l2.retrieve(entry.content, group_id=group_id, top_k=5)
+                results = await l2.retrieve(
+                    entry.content, group_id=group_id, top_k=5, persona_id=persona_id
+                )
             except Exception as e:
                 logger.debug(f"检索矛盾候选失败：{e}")
                 continue

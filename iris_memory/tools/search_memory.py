@@ -85,10 +85,15 @@ class SearchMemoryTool(FunctionTool[AstrAgentContext]):
             if not l2_adapter or not l2_adapter._is_available:
                 return "L2记忆库当前不可用"
 
+            from iris_memory.core.persona import resolve_persona
+
+            persona_id = await resolve_persona(manager, event)
+
             results: List[MemorySearchResult] = await l2_adapter.retrieve(
                 query=query,
                 top_k=top_k,
                 group_id=group_id,
+                persona_id=persona_id,
             )
 
             if not results:

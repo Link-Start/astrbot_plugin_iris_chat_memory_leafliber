@@ -12,6 +12,7 @@ from .components import (
     SystemStatus,
     InitMode,
 )
+from .persona import PersonaResolver, resolve_persona
 from .llm_request_hook import preprocess_llm_request
 from .message_hook import handle_user_message, update_l1_buffer
 from .lifecycle import (
@@ -32,6 +33,8 @@ __all__ = [
     "ComponentInitResult",
     "SystemStatus",
     "InitMode",
+    "PersonaResolver",
+    "resolve_persona",
     "preprocess_llm_request",
     "handle_user_message",
     "update_l1_buffer",

@@ -71,6 +71,34 @@ class TestContextMessage:
         assert msg.token_count == 3
         assert msg.metadata == {"test": "value"}
 
+    def test_persona_id_roundtrip(self):
+        """persona_id 序列化往返"""
+        msg = ContextMessage(
+            role="user",
+            content="测试",
+            timestamp=datetime(2024, 1, 1),
+            token_count=1,
+            source="u1",
+            persona_id="yuki",
+        )
+        data = msg.to_dict()
+        assert data["persona_id"] == "yuki"
+
+        restored = ContextMessage.from_dict(data)
+        assert restored.persona_id == "yuki"
+
+    def test_from_dict_without_persona_defaults(self):
+        """旧数据无 persona_id 字段时回退 default"""
+        data = {
+            "role": "user",
+            "content": "x",
+            "timestamp": "2024-01-01T12:00:00",
+            "token_count": 1,
+            "source": "u1",
+        }
+        msg = ContextMessage.from_dict(data)
+        assert msg.persona_id == "default"
+
 
 class TestSegmentedMessageQueue:
     """SegmentedMessageQueue 三段式队列测试

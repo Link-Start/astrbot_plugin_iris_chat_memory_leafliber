@@ -32,6 +32,7 @@ class ContextMessage:
     token_count: int
     source: str
     metadata: Dict[str, Any] = field(default_factory=dict)
+    persona_id: str = "default"
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式
@@ -46,6 +47,7 @@ class ContextMessage:
             "token_count": self.token_count,
             "source": self.source,
             "metadata": self.metadata,
+            "persona_id": self.persona_id,
         }
 
     @classmethod
@@ -77,6 +79,7 @@ class ContextMessage:
             token_count=data["token_count"],
             source=data["source"],
             metadata=data.get("metadata", {}),
+            persona_id=data.get("persona_id", "default"),
         )
 
 

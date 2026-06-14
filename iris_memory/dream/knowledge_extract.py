@@ -32,6 +32,7 @@ class KnowledgeExtractPhase:
         l2: "L2MemoryAdapter",
         l3: Optional["L3KGAdapter"],
         llm: Optional["LLMManager"],
+        persona_id: str = "default",
     ) -> dict:
         config = get_config()
 
@@ -54,7 +55,7 @@ class KnowledgeExtractPhase:
         min_unprocessed = cast(
             int, config.get("dream_knowledge_extract_min_unprocessed")
         )
-        unprocessed_count = await l2.get_unprocessed_count()
+        unprocessed_count = await l2.get_unprocessed_count(persona_id=persona_id)
 
         if unprocessed_count < min_unprocessed:
             logger.debug(
@@ -70,7 +71,9 @@ class KnowledgeExtractPhase:
 
         batch_size = cast(int, config.get("dream_knowledge_extract_batch_size"))
 
-        unprocessed_memories = await l2.get_unprocessed_memories(limit=batch_size)
+        unprocessed_memories = await l2.get_unprocessed_memories(
+            limit=batch_size, persona_id=persona_id
+        )
 
         if not unprocessed_memories:
             logger.debug("没有未处理的记忆")

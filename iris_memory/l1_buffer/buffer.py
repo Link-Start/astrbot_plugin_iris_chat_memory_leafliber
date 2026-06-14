@@ -168,6 +168,7 @@ class L1Buffer(Component):
         content: str,
         source: str,
         metadata: Optional[Dict] = None,
+        persona_id: str = "default",
     ) -> bool:
         if not self._is_available:
             logger.warning("L1 缓冲不可用，跳过消息添加")
@@ -195,6 +196,7 @@ class L1Buffer(Component):
             token_count=token_count,
             source=source,
             metadata=metadata or {},
+            persona_id=persona_id,
         )
 
         queue = self._get_or_create_queue(group_id)
@@ -428,6 +430,9 @@ class L1Buffer(Component):
             group_manager = GroupProfileManager(profile_storage)
             user_manager = UserProfileManager(profile_storage)
 
+            # 从消息中取 persona（取最新消息的 persona——会话切换时以最近活跃为准）
+            persona_id = messages[-1].persona_id if messages else "default"
+
             user_messages_by_id: dict[str, list[str]] = {}
             for msg in messages:
                 if msg.role == "user" and msg.source:
@@ -439,20 +444,20 @@ class L1Buffer(Component):
                 else "default"
             )
 
-            group_profile_obj = await group_manager.get_or_create(group_id)
+            group_profile_obj = await group_manager.get_or_create(group_id, persona_id)
             if group_manager.should_update_mid(group_profile_obj):
                 await self._update_group_mid_term(
-                    group_id, messages, group_manager, profile_storage
+                    group_id, messages, group_manager, profile_storage, persona_id
                 )
 
             if group_manager.should_update_long(group_profile_obj):
                 await self._update_group_long_term(
-                    group_id, messages, group_manager, profile_storage
+                    group_id, messages, group_manager, profile_storage, persona_id
                 )
 
             for user_id, user_msgs in user_messages_by_id.items():
                 user_profile_obj = await user_manager.get_or_create(
-                    user_id, effective_group_id
+                    user_id, effective_group_id, persona_id
                 )
 
                 if user_manager.should_update_mid(user_profile_obj):
@@ -463,6 +468,7 @@ class L1Buffer(Component):
                         user_manager,
                         user_profile_obj,
                         profile_storage,
+                        persona_id,
                     )
 
                 if user_manager.should_update_long(user_profile_obj):
@@ -473,6 +479,7 @@ class L1Buffer(Component):
                         user_manager,
                         user_profile_obj,
                         profile_storage,
+                        persona_id,
                     )
 
             logger.debug(f"总结后更新画像完成: {group_id}")
@@ -486,6 +493,7 @@ class L1Buffer(Component):
         messages: list[ContextMessage],
         group_manager: GroupProfileManager,
         profile_storage: ProfileStorage,
+        persona_id: str = "default",
     ) -> None:
         assert self._component_manager is not None
         llm_manager = self._component_manager.get_component("llm_manager")
@@ -499,7 +507,7 @@ class L1Buffer(Component):
 
             assert isinstance(llm_manager, LLMManager)
             analyzer = ProfileAnalyzer(llm_manager)
-            group_profile_obj = await group_manager.get_or_create(group_id)
+            group_profile_obj = await group_manager.get_or_create(group_id, persona_id)
             from iris_memory.profile.models import profile_to_dict
 
             current_profile_dict = profile_to_dict(group_profile_obj)
@@ -517,6 +525,7 @@ class L1Buffer(Component):
                     custom_fields=_as_str_dict(result.get("custom_fields")),
                     tier=UpdateTier.MID,
                     confidence=0.7,
+                    persona_id=persona_id,
                 )
                 logger.info(f"群聊画像中期更新完成: {group_id}")
 
@@ -529,6 +538,7 @@ class L1Buffer(Component):
         messages: list[ContextMessage],
         group_manager: GroupProfileManager,
         profile_storage: ProfileStorage,
+        persona_id: str = "default",
     ) -> None:
         assert self._component_manager is not None
         llm_manager = self._component_manager.get_component("llm_manager")
@@ -542,7 +552,7 @@ class L1Buffer(Component):
 
             assert isinstance(llm_manager, LLMManager)
             analyzer = ProfileAnalyzer(llm_manager)
-            group_profile_obj = await group_manager.get_or_create(group_id)
+            group_profile_obj = await group_manager.get_or_create(group_id, persona_id)
             from iris_memory.profile.models import profile_to_dict
 
             current_profile_dict = profile_to_dict(group_profile_obj)
@@ -561,6 +571,7 @@ class L1Buffer(Component):
                     atmosphere_tags=_as_str_list(result.get("atmosphere_tags")),
                     custom_fields=_as_str_dict(result.get("custom_fields")),
                     confidence=0.8,
+                    persona_id=persona_id,
                 )
                 logger.info(f"群聊画像长期更新完成: {group_id}")
 
@@ -575,6 +586,7 @@ class L1Buffer(Component):
         user_manager: UserProfileManager,
         user_profile_obj: UserProfile,
         profile_storage: ProfileStorage,
+        persona_id: str = "default",
     ) -> None:
         assert self._component_manager is not None
         llm_manager = self._component_manager.get_component("llm_manager")
@@ -605,6 +617,7 @@ class L1Buffer(Component):
                     custom_fields=_as_str_dict(result.get("custom_fields")),
                     tier=UpdateTier.MID,
                     confidence=0.7,
+                    persona_id=persona_id,
                 )
                 logger.info(f"用户画像中期更新完成: {user_id}")
 
@@ -619,6 +632,7 @@ class L1Buffer(Component):
         user_manager: UserProfileManager,
         user_profile_obj: UserProfile,
         profile_storage: ProfileStorage,
+        persona_id: str = "default",
     ) -> None:
         assert self._component_manager is not None
         llm_manager = self._component_manager.get_component("llm_manager")
@@ -654,6 +668,7 @@ class L1Buffer(Component):
                     emotional_baseline=_as_str(result.get("emotional_baseline")),
                     custom_fields=_as_str_dict(result.get("custom_fields")),
                     confidence=0.8,
+                    persona_id=persona_id,
                 )
                 logger.info(f"用户画像长期更新完成: {user_id}")
 
@@ -681,6 +696,9 @@ class L1Buffer(Component):
             from .summarizer import parse_summary_response, confidence_to_float
 
             retriever = MemoryRetriever(self._component_manager)
+
+            # 从消息取 persona（取最新消息的 persona）
+            persona_id = messages[-1].persona_id if messages else "default"
 
             name_to_id = self._build_name_to_id_map(messages)
             active_users = list(
@@ -747,7 +765,7 @@ class L1Buffer(Component):
                 if active_users:
                     metadata["active_users"] = ",".join(active_users)
 
-                memory_id = await retriever.add_from_summary(content, metadata)
+                memory_id = await retriever.add_from_summary(content, metadata, persona_id)
                 if memory_id:
                     memory_ids.append(memory_id)
 

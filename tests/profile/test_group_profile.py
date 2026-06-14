@@ -35,7 +35,7 @@ class TestGroupProfileManager:
 
         assert profile.group_id == "group_123"
         assert profile.group_name == "测试群"
-        mock_storage.get_group_profile.assert_called_once_with("group_123")
+        mock_storage.get_group_profile.assert_called_once_with("group_123", "default")
 
     @pytest.mark.asyncio
     async def test_get_or_create_new(self, manager, mock_storage):
@@ -45,7 +45,7 @@ class TestGroupProfileManager:
 
         assert profile.group_id == "group_123"
         assert profile.group_name == ""
-        mock_storage.get_group_profile.assert_called_once_with("group_123")
+        mock_storage.get_group_profile.assert_called_once_with("group_123", "default")
 
     @pytest.mark.asyncio
     async def test_update_group_name(self, manager, mock_storage):

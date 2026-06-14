@@ -55,6 +55,7 @@ class PatternDiscoveryPhase:
         l3: Optional["L3KGAdapter"],
         llm: Optional["LLMManager"],
         entries: Optional[list] = None,
+        persona_id: str = "default",
     ) -> dict:
         config = get_config()
         self._sample_size = cast(int, config.get("dream_pattern_sample_size"))
@@ -66,7 +67,7 @@ class PatternDiscoveryPhase:
 
         try:
             if entries is None:
-                entries = await l2.get_all_entries()
+                entries = await l2.get_all_entries(persona_id=persona_id)
 
             if not entries:
                 logger.debug("L2 记忆库为空，跳过模式挖掘")
@@ -104,14 +105,18 @@ class PatternDiscoveryPhase:
                         if pattern.get("confidence") == "low":
                             continue
 
-                        is_dup = await self._check_duplicate(pattern["description"], l2)
+                        is_dup = await self._check_duplicate(
+                            pattern["description"], l2, persona_id
+                        )
                         if is_dup:
                             logger.debug(
                                 f"模式已存在，跳过：{pattern['description'][:50]}"
                             )
                             continue
 
-                        written = await self._write_pattern(pattern, group_key, l2, l3)
+                        written = await self._write_pattern(
+                            pattern, group_key, l2, l3, persona_id
+                        )
                         if written:
                             patterns_written += 1
 
@@ -232,9 +237,11 @@ CONFIDENCE: <high/medium/low>
 
         return patterns
 
-    async def _check_duplicate(self, description: str, l2: "L2MemoryAdapter") -> bool:
+    async def _check_duplicate(
+        self, description: str, l2: "L2MemoryAdapter", persona_id: str = "default"
+    ) -> bool:
         try:
-            results = await l2.retrieve(description, top_k=3)
+            results = await l2.retrieve(description, top_k=3, persona_id=persona_id)
             for result in results:
                 if (
                     result.score > 0.9
@@ -251,6 +258,7 @@ CONFIDENCE: <high/medium/low>
         group_key: str,
         l2: "L2MemoryAdapter",
         l3: Optional["L3KGAdapter"],
+        persona_id: str = "default",
     ) -> bool:
         description = pattern["description"]
         node_type = pattern.get("type", "Trait")
@@ -267,6 +275,7 @@ CONFIDENCE: <high/medium/low>
                 "evidence": pattern.get("evidence", ""),
                 "pattern_type": node_type,
             },
+            persona_id=persona_id,
         )
 
         if not new_id:

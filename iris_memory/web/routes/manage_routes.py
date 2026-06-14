@@ -57,6 +57,7 @@ async def delete_l2_memory():
 
         data = await request.get_json()
         scope = data.get("scope", "all")
+        persona_id = data.get("persona", "default")
 
         if scope == "group":
             group_id = data.get("group_id")
@@ -64,11 +65,11 @@ async def delete_l2_memory():
                 return jsonify(
                     {"success": False, "error": "scope=group 时必须提供 group_id"}
                 ), 400
-            count = await l2_adapter.delete_by_group(group_id)
-            logger.info(f"已删除群聊 {group_id} 的 L2 记忆：{count} 条")
+            count = await l2_adapter.delete_by_group(group_id, persona_id)
+            logger.info(f"已删除群聊 {group_id} (persona {persona_id}) 的 L2 记忆：{count} 条")
         elif scope == "all":
-            count = await l2_adapter.delete_all()
-            logger.info(f"已删除所有 L2 记忆：{count} 条")
+            count = await l2_adapter.delete_all(persona_id)
+            logger.info(f"已删除 persona {persona_id} 的 L2 记忆：{count} 条")
         else:
             return jsonify(
                 {

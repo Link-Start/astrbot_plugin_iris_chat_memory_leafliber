@@ -89,6 +89,7 @@ class ConsolidationPhase:
         l3: Optional["L3KGAdapter"],
         llm: Optional["LLMManager"],
         entries: Optional[List["MemoryEntry"]] = None,
+        persona_id: str = "default",
     ) -> dict:
         config = get_config()
         self._similarity_threshold = cast(
@@ -109,7 +110,7 @@ class ConsolidationPhase:
 
         try:
             if entries is None:
-                entries = await l2.get_all_entries()
+                entries = await l2.get_all_entries(persona_id=persona_id)
 
             if len(entries) < 2:
                 logger.debug("记忆数量不足，无需合并")
@@ -119,7 +120,9 @@ class ConsolidationPhase:
 
             logger.info(f"开始分析 {len(entries)} 条记忆的相似度...")
 
-            merge_groups = await self._find_merge_groups(entries, entry_index, l2)
+            merge_groups = await self._find_merge_groups(
+                entries, entry_index, l2, persona_id
+            )
 
             if not merge_groups:
                 logger.debug("未发现相似记忆，无需合并")
@@ -138,7 +141,7 @@ class ConsolidationPhase:
                     continue
 
                 try:
-                    m, d = await self._merge_group(group_entries, l2, llm)
+                    m, d = await self._merge_group(group_entries, l2, llm, persona_id)
                     merged_count += m
                     deleted_count += d
                 except Exception as e:
@@ -158,6 +161,7 @@ class ConsolidationPhase:
         entries: List["MemoryEntry"],
         entry_index: Dict[str, "MemoryEntry"],
         adapter: "L2MemoryAdapter",
+        persona_id: str = "default",
     ) -> List[List[str]]:
         config = get_config()
         enable_group_isolation = bool(
@@ -192,7 +196,7 @@ class ConsolidationPhase:
 
                 try:
                     results_batch = await adapter.batch_retrieve(
-                        queries=queries, group_id=gid, top_k=5
+                        queries=queries, group_id=gid, top_k=5, persona_id=persona_id
                     )
 
                     for query_id, results in zip(query_ids, results_batch):
@@ -240,6 +244,7 @@ class ConsolidationPhase:
         entries: List["MemoryEntry"],
         l2_adapter: "L2MemoryAdapter",
         llm_manager: "LLMManager",
+        persona_id: str = "default",
     ) -> tuple:
         ids_to_delete = [e.id for e in entries]
 
@@ -277,6 +282,7 @@ class ConsolidationPhase:
                 "merged_from": merged_from,
             },
             skip_dedup=True,
+            persona_id=persona_id,
         )
 
         if new_id:
@@ -292,6 +298,7 @@ class ConsolidationPhase:
                         entry.content,
                         metadata=entry.metadata,
                         skip_dedup=True,
+                        persona_id=persona_id,
                     )
                     if rid:
                         rollback_count += 1

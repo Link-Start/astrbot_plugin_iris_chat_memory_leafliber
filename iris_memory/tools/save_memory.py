@@ -97,6 +97,10 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
             if not l2_adapter or not l2_adapter.is_available:
                 return "L2记忆库当前不可用"
 
+            from iris_memory.core.persona import resolve_persona
+
+            persona_id = await resolve_persona(manager, event)
+
             now = datetime.now().isoformat()
 
             metadata = {
@@ -111,7 +115,7 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
                 "tags": tags,
             }
 
-            memory_id = await l2_adapter.add_memory(content, metadata)
+            memory_id = await l2_adapter.add_memory(content, metadata, persona_id=persona_id)
 
             if not memory_id:
                 return "保存记忆失败：可能存在重复记忆或写入异常"

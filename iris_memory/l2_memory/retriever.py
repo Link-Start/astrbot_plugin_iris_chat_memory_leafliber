@@ -61,7 +61,11 @@ class MemoryRetriever:
         return self._adapter
 
     async def retrieve(
-        self, query: str, group_id: Optional[str] = None, top_k: Optional[int] = None
+        self,
+        query: str,
+        group_id: Optional[str] = None,
+        top_k: Optional[int] = None,
+        persona_id: str = "default",
     ) -> List[MemorySearchResult]:
         """检索记忆
 
@@ -71,6 +75,7 @@ class MemoryRetriever:
             query: 查询文本
             group_id: 群聊 ID（可选，用于隔离检索）
             top_k: 返回数量，默认从配置读取
+            persona_id: 人格ID（用于隔离检索）
 
         Returns:
             检索结果列表
@@ -96,7 +101,7 @@ class MemoryRetriever:
         if not enable_group_isolation:
             group_id = None
 
-        results = await adapter.retrieve(query, group_id, top_k)
+        results = await adapter.retrieve(query, group_id, top_k, persona_id)
 
         relevance_threshold = config.get("l2_memory.relevance_threshold", 0.3)
         if relevance_threshold > 0:
@@ -118,7 +123,10 @@ class MemoryRetriever:
         return results
 
     async def add_from_summary(
-        self, summary_content: str, metadata: Optional[Dict[str, Any]] = None
+        self,
+        summary_content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        persona_id: str = "default",
     ) -> Optional[str]:
         """从总结写入记忆
 
@@ -127,6 +135,7 @@ class MemoryRetriever:
         Args:
             summary_content: 总结内容
             metadata: 元数据（group_id、user_id 等）
+            persona_id: 人格ID
 
         Returns:
             记忆 ID，失败时返回 None
@@ -136,7 +145,7 @@ class MemoryRetriever:
             logger.warning("L2 记忆库不可用，跳过写入记忆")
             return None
 
-        memory_id = await adapter.add_memory(summary_content, metadata)
+        memory_id = await adapter.add_memory(summary_content, metadata, persona_id=persona_id)
 
         if memory_id:
             logger.info(f"已从总结写入记忆：{memory_id}")

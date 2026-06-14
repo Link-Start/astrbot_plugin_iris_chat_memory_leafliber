@@ -101,6 +101,7 @@ class TemporalAnchorPhase:
         l3: Optional["L3KGAdapter"],
         llm: Optional["LLMManager"],
         entries: Optional[list] = None,
+        persona_id: str = "default",
     ) -> dict:
         config = get_config()
         self._batch_size = cast(int, config.get("dream_temporal_anchor_batch_size"))
@@ -111,7 +112,7 @@ class TemporalAnchorPhase:
 
         try:
             if entries is None:
-                entries = await l2.get_all_entries()
+                entries = await l2.get_all_entries(persona_id=persona_id)
 
             if not entries:
                 logger.debug("L2 记忆库为空，跳过时间锚定")

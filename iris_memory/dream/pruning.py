@@ -48,13 +48,14 @@ class PruningPhase:
         l3: Optional["L3KGAdapter"],
         llm: Optional["LLMManager"],
         entries: Optional[list] = None,
+        persona_id: str = "default",
     ) -> dict:
         config = get_config()
         self._batch_size = cast(int, config.get("eviction_batch_size"))
 
         if entries is None:
             if l2.is_available:
-                entries = await l2.get_all_entries()
+                entries = await l2.get_all_entries(persona_id=persona_id)
             else:
                 entries = []
 

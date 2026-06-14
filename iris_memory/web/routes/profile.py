@@ -47,11 +47,12 @@ async def get_group_profile():
         if not group_id:
             return jsonify({"success": False, "error": "缺少 group_id 参数"}), 400
 
+        persona_id = request.args.get("persona", "default")
         profile_storage, error = get_profile_storage()
         if error:
             return error
 
-        profile = await profile_storage.get_group_profile(group_id)
+        profile = await profile_storage.get_group_profile(group_id, persona_id)
 
         if not profile:
             return jsonify({"success": True, "profile": {}})
@@ -77,11 +78,12 @@ async def update_group_profile():
         if not data:
             return jsonify({"success": False, "error": "请求体不能为空"}), 400
 
+        persona_id = request.args.get("persona", data.get("persona", "default"))
         profile_storage, error = get_profile_storage()
         if error:
             return error
 
-        success = await profile_storage.update_group_profile(group_id, data)
+        success = await profile_storage.update_group_profile(group_id, data, persona_id)
 
         if success:
             logger.info(f"更新群聊画像成功：group_id={group_id}")
@@ -101,11 +103,12 @@ async def get_user_profile():
 
         group_id = request.args.get("group_id")
 
+        persona_id = request.args.get("persona", "default")
         profile_storage, error = get_profile_storage()
         if error:
             return error
 
-        profile = await profile_storage.get_user_profile(user_id, group_id)
+        profile = await profile_storage.get_user_profile(user_id, group_id, persona_id)
 
         if not profile:
             return jsonify({"success": True, "profile": {}})
@@ -132,12 +135,16 @@ async def update_user_profile():
         if not data:
             return jsonify({"success": False, "error": "请求体不能为空"}), 400
 
+        persona_id = request.args.get("persona", data.get("persona", "default"))
         profile_storage, error = get_profile_storage()
         if error:
             return error
 
         success = await profile_storage.update_user_profile(
-            user_id=user_id, group_id=group_id or "default", updates=data
+            user_id=user_id,
+            group_id=group_id or "default",
+            updates=data,
+            persona_id=persona_id,
         )
 
         if success:
@@ -157,11 +164,12 @@ async def delete_group_profile():
         ).get("group_id")
         if not group_id:
             return jsonify({"success": False, "error": "缺少 group_id 参数"}), 400
+        persona_id = request.args.get("persona", "default")
         profile_storage, error = get_profile_storage()
         if error:
             return error
 
-        success = await profile_storage.delete_group_profile(group_id)
+        success = await profile_storage.delete_group_profile(group_id, persona_id)
 
         if success:
             logger.info(f"删除群聊画像成功：group_id={group_id}")
@@ -182,12 +190,13 @@ async def delete_user_profile():
             return jsonify({"success": False, "error": "缺少 user_id 参数"}), 400
 
         group_id = request.args.get("group_id", "default")
+        persona_id = request.args.get("persona", "default")
 
         profile_storage, error = get_profile_storage()
         if error:
             return error
 
-        success = await profile_storage.delete_user_profile(user_id, group_id)
+        success = await profile_storage.delete_user_profile(user_id, group_id, persona_id)
 
         if success:
             logger.info(f"删除用户画像成功：user_id={user_id}, group_id={group_id}")
@@ -201,11 +210,12 @@ async def delete_user_profile():
 
 async def list_group_profiles():
     try:
+        persona_id = request.args.get("persona", "default")
         profile_storage, error = get_profile_storage()
         if error:
             return error
 
-        groups = await profile_storage.list_groups()
+        groups = await profile_storage.list_groups(persona_id)
 
         return jsonify({"success": True, "groups": groups})
 
@@ -216,12 +226,13 @@ async def list_group_profiles():
 async def list_user_profiles():
     try:
         group_id = request.args.get("group_id", "default")
+        persona_id = request.args.get("persona", "default")
 
         profile_storage, error = get_profile_storage()
         if error:
             return error
 
-        users = await profile_storage.list_users(group_id)
+        users = await profile_storage.list_users(group_id, persona_id)
 
         return jsonify({"success": True, "users": users})
 
