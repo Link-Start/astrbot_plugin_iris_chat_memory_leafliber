@@ -14,6 +14,7 @@ Iris Chat Memory - LLM 调用管理器
 from typing import Optional, Dict, List, Any, TYPE_CHECKING
 from datetime import datetime
 from collections import deque
+import asyncio
 import uuid
 import time
 
@@ -99,6 +100,7 @@ class LLMManager(Component):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         contexts: Optional[List[Dict[str, str]]] = None,
+        timeout: Optional[float] = None,
         **kwargs,
     ) -> str:
         """生成文本响应
@@ -110,6 +112,7 @@ class LLMManager(Component):
             temperature: 温度参数（暂不支持，AstrBot 内部处理）
             max_tokens: 最大输出 Token 数（暂不支持，AstrBot 内部处理）
             contexts: 上下文消息列表
+            timeout: 调用超时（秒），None 使用配置 llm_call_timeout_ms，<=0 不超时
             **kwargs: 其他参数
 
         Returns:
@@ -117,6 +120,7 @@ class LLMManager(Component):
 
         Raises:
             RuntimeError: LLMManager 未初始化
+            asyncio.TimeoutError: LLM 调用超时
             Exception: LLM 调用失败
         """
         if not self._is_available:
@@ -135,6 +139,8 @@ class LLMManager(Component):
                 f"或在 AstrBot 中配置默认 Provider。"
             )
 
+        timeout_sec = self._resolve_call_timeout(timeout)
+
         start_time = time.time()
         call_id = str(uuid.uuid4())
 
@@ -143,10 +149,13 @@ class LLMManager(Component):
                 f"LLM 调用开始：module={module}, provider={actual_provider_id}"
             )
 
-            llm_resp: "LLMResponse" = await self._context.llm_generate(
-                chat_provider_id=actual_provider_id,
-                prompt=prompt,
-                contexts=contexts or [],
+            llm_resp: "LLMResponse" = await self._call_with_timeout(
+                self._context.llm_generate(
+                    chat_provider_id=actual_provider_id,
+                    prompt=prompt,
+                    contexts=contexts or [],
+                ),
+                timeout_sec,
             )
 
             response_text = llm_resp.completion_text or ""
@@ -189,6 +198,28 @@ class LLMManager(Component):
 
             return response_text
 
+        except asyncio.TimeoutError:
+            duration_ms = int((time.time() - start_time) * 1000)
+            log = CallLog(
+                call_id=call_id,
+                timestamp=datetime.now(),
+                module=module,
+                provider_id=actual_provider_id or "default",
+                prompt=self._truncate_text(prompt, 500),
+                response="",
+                input_tokens=0,
+                output_tokens=0,
+                duration_ms=duration_ms,
+                success=False,
+                error_message=f"LLM 调用超时({timeout_sec:.1f}s)",
+            )
+            self._call_logs.append(log)
+            logger.warning(
+                f"LLM 调用超时：module={module}, "
+                f"timeout={timeout_sec:.1f}s, duration={duration_ms}ms"
+            )
+            raise
+
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
             log = CallLog(
@@ -216,6 +247,7 @@ class LLMManager(Component):
         provider_id: Optional[str] = None,
         contexts: Optional[List[Dict[str, Any]]] = None,
         system_prompt: Optional[str] = None,
+        timeout: Optional[float] = None,
         **kwargs,
     ) -> str:
         """直接调用 Provider 生成文本响应（绕过 on_llm_request 钩子）
@@ -233,6 +265,7 @@ class LLMManager(Component):
             provider_id: Provider ID（留空使用模块配置或默认）
             contexts: 上下文消息列表
             system_prompt: 系统提示词（可选）
+            timeout: 调用超时（秒），None 使用配置 llm_call_timeout_ms，<=0 不超时
             **kwargs: 其他参数
 
         Returns:
@@ -240,6 +273,7 @@ class LLMManager(Component):
 
         Raises:
             RuntimeError: LLMManager 未初始化或 Provider 不可用
+            asyncio.TimeoutError: LLM 调用超时
             Exception: LLM 调用失败
         """
         if not self._is_available:
@@ -261,6 +295,8 @@ class LLMManager(Component):
                 f"请检查 AstrBot 中该 Provider 是否已启用。"
             )
 
+        timeout_sec = self._resolve_call_timeout(timeout)
+
         start_time = time.time()
         call_id = str(uuid.uuid4())
 
@@ -269,10 +305,13 @@ class LLMManager(Component):
                 f"LLM 直接调用开始：module={module}, provider={actual_provider_id}"
             )
 
-            llm_resp: "LLMResponse" = await provider.text_chat(
-                prompt=prompt,
-                contexts=contexts or [],
-                system_prompt=system_prompt,
+            llm_resp: "LLMResponse" = await self._call_with_timeout(
+                provider.text_chat(
+                    prompt=prompt,
+                    contexts=contexts or [],
+                    system_prompt=system_prompt,
+                ),
+                timeout_sec,
             )
 
             response_text = llm_resp.completion_text or ""
@@ -315,6 +354,28 @@ class LLMManager(Component):
 
             return response_text
 
+        except asyncio.TimeoutError:
+            duration_ms = int((time.time() - start_time) * 1000)
+            log = CallLog(
+                call_id=call_id,
+                timestamp=datetime.now(),
+                module=module,
+                provider_id=actual_provider_id,
+                prompt=self._truncate_text(prompt, 500),
+                response="",
+                input_tokens=0,
+                output_tokens=0,
+                duration_ms=duration_ms,
+                success=False,
+                error_message=f"LLM 直接调用超时({timeout_sec:.1f}s)",
+            )
+            self._call_logs.append(log)
+            logger.warning(
+                f"LLM 直接调用超时：module={module}, "
+                f"timeout={timeout_sec:.1f}s, duration={duration_ms}ms"
+            )
+            raise
+
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
             log = CallLog(
@@ -334,6 +395,44 @@ class LLMManager(Component):
 
             logger.error(f"LLM 直接调用失败：module={module}, error={e}")
             raise
+
+    async def _call_with_timeout(self, coro, timeout_sec: Optional[float]):
+        """执行协程，可选超时
+
+        Args:
+            coro: 待执行的协程
+            timeout_sec: 超时秒数，None 表示不超时
+
+        Returns:
+            协程结果
+
+        Raises:
+            asyncio.TimeoutError: 超时
+        """
+        if timeout_sec is not None:
+            return await asyncio.wait_for(coro, timeout=timeout_sec)
+        return await coro
+
+    def _resolve_call_timeout(self, timeout: Optional[float]) -> Optional[float]:
+        """解析 LLM 调用超时秒数
+
+        优先级：调用方传入 timeout > 配置 llm_call_timeout_ms > 不超时
+
+        Args:
+            timeout: 调用方传入的超时（秒），None 表示用配置默认
+
+        Returns:
+            超时秒数，None 表示不超时
+        """
+        if timeout is not None:
+            return timeout if timeout > 0 else None
+        config = get_config()
+        timeout_ms = config.get("llm_call_timeout_ms", 60000)
+        if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool):
+            return None
+        if timeout_ms <= 0:
+            return None
+        return timeout_ms / 1000.0
 
     def _get_provider_instance(self, provider_id: str) -> Optional["Provider"]:
         """获取 Provider 实例

@@ -2,6 +2,8 @@
 LLM 管理器测试
 """
 
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -193,3 +195,100 @@ class TestLLMManager:
 
         with pytest.raises(RuntimeError, match="LLMManager 未初始化"):
             await manager.generate("Hello", module="test")
+
+    def _timeout_config(self):
+        """返回带短超时的 config.get side_effect"""
+        return lambda key, default=None: {
+            "call_log_max_entries": 100,
+            "llm_call_timeout_ms": 100,
+        }.get(key, default)
+
+    @pytest.mark.asyncio
+    async def test_generate_direct_timeout(self, mock_context, mock_storage):
+        """provider 卡住时，generate_direct 在配置超时后抛 TimeoutError"""
+        with patch("iris_memory.llm.manager.get_config") as mock_cfg:
+            mock_cfg.return_value.get.side_effect = self._timeout_config()
+
+            manager = LLMManager(mock_context, mock_storage)
+            await manager.initialize()
+
+            async def slow_text_chat(**kw):
+                await asyncio.sleep(10)
+
+            slow_provider = MagicMock()
+            slow_provider.text_chat = slow_text_chat
+            manager._get_provider_instance = MagicMock(return_value=slow_provider)
+
+            with pytest.raises(asyncio.TimeoutError):
+                await manager.generate_direct(prompt="Hi", module="test")
+
+            logs = manager.get_recent_call_logs()
+            assert len(logs) == 1
+            assert logs[0]["success"] is False
+            assert "超时" in logs[0]["error_message"]
+
+    @pytest.mark.asyncio
+    async def test_generate_timeout(self, mock_context, mock_storage):
+        """provider 卡住时，generate 同样在配置超时后抛 TimeoutError"""
+        with patch("iris_memory.llm.manager.get_config") as mock_cfg:
+            mock_cfg.return_value.get.side_effect = self._timeout_config()
+
+            manager = LLMManager(mock_context, mock_storage)
+            await manager.initialize()
+
+            async def slow_llm_generate(**kw):
+                await asyncio.sleep(10)
+
+            mock_context.llm_generate = slow_llm_generate
+
+            with pytest.raises(asyncio.TimeoutError):
+                await manager.generate(prompt="Hi", module="test")
+
+    @pytest.mark.asyncio
+    async def test_generate_direct_timeout_disabled(self, mock_context, mock_storage):
+        """timeout=0（显式禁用）时不超时，调用正常完成"""
+        with patch("iris_memory.llm.manager.get_config") as mock_cfg:
+            mock_cfg.return_value.get.side_effect = self._timeout_config()
+
+            manager = LLMManager(mock_context, mock_storage)
+            await manager.initialize()
+
+            async def fast_text_chat(**kw):
+                await asyncio.sleep(0.3)
+                resp = MagicMock()
+                resp.completion_text = "Test response"
+                resp.usage = None
+                return resp
+
+            fast_provider = MagicMock()
+            fast_provider.text_chat = fast_text_chat
+            manager._get_provider_instance = MagicMock(return_value=fast_provider)
+
+            response = await manager.generate_direct(
+                prompt="Hi", module="test", timeout=0
+            )
+            assert response == "Test response"
+
+    @pytest.mark.asyncio
+    async def test_generate_direct_explicit_timeout_override(
+        self, mock_context, mock_storage
+    ):
+        """显式 timeout 参数覆盖全局配置"""
+        with patch("iris_memory.llm.manager.get_config") as mock_cfg:
+            mock_cfg.return_value.get.side_effect = lambda key, default=None: {
+                "call_log_max_entries": 100,
+                "llm_call_timeout_ms": 60000,
+            }.get(key, default)
+
+            manager = LLMManager(mock_context, mock_storage)
+            await manager.initialize()
+
+            async def slow_text_chat(**kw):
+                await asyncio.sleep(10)
+
+            slow_provider = MagicMock()
+            slow_provider.text_chat = slow_text_chat
+            manager._get_provider_instance = MagicMock(return_value=slow_provider)
+
+            with pytest.raises(asyncio.TimeoutError):
+                await manager.generate_direct(prompt="Hi", module="test", timeout=0.1)

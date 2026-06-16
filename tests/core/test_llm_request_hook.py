@@ -1,5 +1,7 @@
 """测试 LLM 请求钩子处理模块"""
 
+import asyncio
+
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 from contextlib import ExitStack
@@ -156,7 +158,10 @@ class TestInjectToExtraUserContentParts:
         req.extra_user_content_parts = []
         _inject_to_extra_user_content_parts(req, "对话", "", "", "")
         assert len(req.extra_user_content_parts) == 1
-        assert req.extra_user_content_parts[0].text == "<iris:l1_context>\n对话\n</iris:l1_context>"
+        assert (
+            req.extra_user_content_parts[0].text
+            == "<iris:l1_context>\n对话\n</iris:l1_context>"
+        )
 
 
 class TestBuildImageMap:
@@ -815,3 +820,93 @@ class TestExtraUserContentPartsInjection:
         assert "<iris:profile>" in text
         assert "<iris:l3_kg>" in text
         assert "<iris:l2_memory>" in text
+
+
+class TestParseImagesTimeout:
+    """测试图片解析整体超时（方案1：防止 on_llm_request 钩子阻塞会话锁）"""
+
+    @pytest.mark.asyncio
+    async def test_parse_timeout_marks_failed_and_does_not_block(self):
+        """provider 卡死时，整体超时后函数返回不阻塞，未完成图片标记失败"""
+        from iris_memory.core.llm_request_hook import _parse_images_if_related_mode
+        from iris_memory.image import ImageParseStatus
+
+        def config_get(key, default=None):
+            return {
+                "l1_buffer.image_parsing.enable": True,
+                "image_skip_on_passive_trigger": False,
+                "l1_buffer.image_parsing.mode": "related",
+                "image_max_parse_per_request": 3,
+                "image_max_concurrent_parse": 2,
+                "image_parse_timeout_ms": 100,
+                "l1_buffer.image_parsing.provider": "",
+            }.get(key, default)
+
+        img1 = MagicMock()
+        img1.image_hash = "ph:aaaa1111bbbb2222"
+        img1.image_info = MagicMock()
+        img1.image_info.has_url = True
+        img2 = MagicMock()
+        img2.image_hash = "ph:cccc3333dddd4444"
+        img2.image_info = MagicMock()
+        img2.image_info.has_url = True
+
+        l1_buffer = MagicMock()
+        l1_buffer.is_available = True
+        l1_buffer.get_images.return_value = [img1, img2]
+        l1_buffer.replace_image_placeholder = MagicMock()
+        l1_buffer.mark_image_parsed = MagicMock()
+
+        cache_manager = MagicMock()
+        cache_manager.is_available = True
+        cache_manager.get_cache = AsyncMock(return_value=None)
+
+        quota_manager = MagicMock()
+        quota_manager.is_available = True
+        quota_manager.check_quota = AsyncMock(return_value=True)
+        quota_manager.use_quota = AsyncMock(return_value=True)
+
+        llm_manager = MagicMock()
+        llm_manager.is_available = True
+
+        cm = MagicMock()
+        cm.get_available_component = MagicMock(
+            side_effect=lambda name: {
+                "l1_buffer": l1_buffer,
+                "image_cache": cache_manager,
+                "image_quota": quota_manager,
+                "llm_manager": llm_manager,
+            }.get(name)
+        )
+
+        adapter = MagicMock()
+        adapter.get_group_id = MagicMock(return_value="group1")
+
+        event = MagicMock()
+
+        async def slow_parse(*a, **kw):
+            await asyncio.sleep(10)
+
+        with (
+            patch("iris_memory.config.get_config") as mock_cfg,
+            patch("iris_memory.platform.get_adapter", return_value=adapter),
+            patch("iris_memory.image.ImageParser") as mock_parser_cls,
+            patch(
+                "iris_memory.image.recorder_bridge.get_recorder_bridge",
+                return_value=None,
+            ),
+        ):
+            mock_cfg.return_value.get.side_effect = config_get
+            mock_parser_cls.return_value.parse = slow_parse
+
+            await asyncio.wait_for(
+                _parse_images_if_related_mode(event, MagicMock(), cm),
+                timeout=5.0,
+            )
+
+        failed_calls = [
+            c
+            for c in l1_buffer.mark_image_parsed.call_args_list
+            if c.args[2] == ImageParseStatus.FAILED
+        ]
+        assert len(failed_calls) == 2

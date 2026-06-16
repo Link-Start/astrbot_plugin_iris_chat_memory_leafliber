@@ -1000,8 +1000,34 @@ async def _parse_images_if_related_mode(
             result = await parser.parse(img_item.image_info)
             return (img_item, result)
 
-    parse_tasks = [parse_with_semaphore(img) for img in images_to_parse]
-    parse_results = await asyncio.gather(*parse_tasks)
+    parse_timeout_ms = cast(int, config.get("image_parse_timeout_ms", 30000))
+
+    task_to_img: dict = {}
+    for img in images_to_parse:
+        task_to_img[asyncio.ensure_future(parse_with_semaphore(img))] = img
+
+    if parse_timeout_ms and parse_timeout_ms > 0:
+        done, pending = await asyncio.wait(
+            task_to_img, timeout=parse_timeout_ms / 1000.0
+        )
+    else:
+        done, pending = await asyncio.wait(task_to_img)
+
+    if pending:
+        for t in pending:
+            t.cancel()
+            img_item = task_to_img[t]
+            l1_buffer.mark_image_parsed(
+                group_id, img_item.image_hash, ImageParseStatus.FAILED
+            )
+            placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
+            l1_buffer.replace_image_placeholder(group_id, placeholder, "")
+        logger.warning(
+            f"图片解析整体超时（{parse_timeout_ms}ms），"
+            f"{len(pending)}/{len(images_to_parse)} 张未完成，已标记失败"
+        )
+
+    parse_results = [t.result() for t in done]
 
     success_count = 0
     for img_item, result in parse_results:

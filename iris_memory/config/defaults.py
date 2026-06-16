@@ -209,6 +209,13 @@ class HiddenConfig:
         default=100,
         metadata={"description": "调用日志最大保留条数", "group": "LLM 调用管理"},
     )
+    llm_call_timeout_ms: int = field(
+        default=60000,
+        metadata={
+            "description": "LLM 调用全局超时(ms)，0 表示不限制。兜底防止 provider 卡死阻塞会话锁",
+            "group": "LLM 调用管理",
+        },
+    )
 
     # 梦境任务参数
     dream_task_interval_hours: int = field(
@@ -324,6 +331,13 @@ class HiddenConfig:
     image_skip_on_passive_trigger: bool = field(
         default=True,
         metadata={"description": "被动触发时跳过图片解析", "group": "图片处理"},
+    )
+    image_parse_timeout_ms: int = field(
+        default=30000,
+        metadata={
+            "description": "单次请求图片解析整体超时(ms)，0 表示不限制",
+            "group": "图片处理",
+        },
     )
 
     # 图片去重参数
