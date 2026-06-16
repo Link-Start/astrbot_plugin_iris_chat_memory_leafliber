@@ -2,7 +2,7 @@
 
 from pydantic import Field
 from pydantic.dataclasses import dataclass
-from astrbot.core.agent.tool import FunctionTool
+from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
 from iris_memory.core import get_logger, get_component_manager
@@ -78,7 +78,7 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
         }
     )
 
-    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> str:
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
         """执行保存知识操作
 
         Args:

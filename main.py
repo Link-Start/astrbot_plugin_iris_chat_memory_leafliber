@@ -131,8 +131,7 @@ class IrisChatMemoryPlugin(Star):
                 SearchKnowledgeGraphTool(),
                 GetProfileTool(),
             ]
-            for tool in tools:
-                self.context.add_llm_tools(tool)
+            self.context.add_llm_tools(*tools)
             logger.info(f"已注册 {len(tools)} 个 LLM Tool")
         except Exception as e:
             logger.error(f"注册 LLM Tool 失败：{e}", exc_info=True)
