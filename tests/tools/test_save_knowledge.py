@@ -48,6 +48,15 @@ async def test_save_knowledge_basic(
     )
     monkeypatch.setattr("iris_memory.utils.sanitize_input", lambda x, source="": x)
 
+    mock_platform_adapter = Mock()
+    mock_platform_adapter.get_group_id = Mock(return_value="group_1")
+    monkeypatch.setattr(
+        "iris_memory.platform.get_adapter", Mock(return_value=mock_platform_adapter)
+    )
+    mock_config = Mock()
+    mock_config.get = Mock(return_value=False)
+    monkeypatch.setattr("iris_memory.config.get_config", lambda: mock_config)
+
     nodes = [
         {
             "label": "Person",
@@ -72,6 +81,15 @@ async def test_save_knowledge_with_edges(
         lambda: mock_component_manager,
     )
     monkeypatch.setattr("iris_memory.utils.sanitize_input", lambda x, source="": x)
+
+    mock_platform_adapter = Mock()
+    mock_platform_adapter.get_group_id = Mock(return_value="group_1")
+    monkeypatch.setattr(
+        "iris_memory.platform.get_adapter", Mock(return_value=mock_platform_adapter)
+    )
+    mock_config = Mock()
+    mock_config.get = Mock(return_value=False)
+    monkeypatch.setattr("iris_memory.config.get_config", lambda: mock_config)
 
     nodes = [
         {

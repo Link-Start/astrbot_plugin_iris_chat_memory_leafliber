@@ -4,8 +4,7 @@
 """
 
 import pytest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from typing import List
+from unittest.mock import Mock, AsyncMock, patch
 
 from iris_memory.image import ImageInfo, ParseResult
 from iris_memory.core.message_hook import handle_user_message
@@ -58,6 +57,7 @@ class TestImageParsingIntegration:
         manager.is_available = True
         manager.check_quota = AsyncMock(return_value=True)
         manager.use_quota = AsyncMock(return_value=True)
+        manager.release_quota = AsyncMock(return_value=0)
         return manager
 
     @pytest.fixture

@@ -117,7 +117,7 @@ class TestOneBot11Adapter:
         event.message_obj.group_id = "group_123"
         event.message_obj.sender = Mock()
 
-        assert adapter.is_group_message(event) == True
+        assert adapter.is_group_message(event)
 
     def test_is_group_message_false(self):
         """测试群聊判断 - 私聊"""
@@ -128,7 +128,7 @@ class TestOneBot11Adapter:
         event.message_obj.group_id = ""
         event.message_obj.sender = Mock()
 
-        assert adapter.is_group_message(event) == False
+        assert not adapter.is_group_message(event)
 
     def test_get_reply_info_with_reply_segment(self):
         """测试从数组格式消息段提取回复信息"""

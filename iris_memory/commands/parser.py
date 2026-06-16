@@ -4,6 +4,7 @@ Iris Chat Memory - 指令解析器
 解析用户输入的指令文本，提取参数和子指令。
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import Optional, Tuple, TYPE_CHECKING
 
@@ -60,11 +61,13 @@ class CommandParser:
         """
         text = text.strip()
 
-        iris_mem_index = text.lower().find(cls.PREFIX)
-        if iris_mem_index == -1:
+        # 用单词边界匹配，避免正文出现 "iris_memory" 等子串被误判为指令
+        match = re.search(r"\b" + re.escape(cls.PREFIX) + r"\b", text.lower())
+        if not match:
             return ParsedCommand(
                 module="", is_valid=False, error_message="不是有效的 iris_mem 指令"
             )
+        iris_mem_index = match.start()
 
         text_after_prefix = text[iris_mem_index + len(cls.PREFIX) :].strip()
         parts = text_after_prefix.split()

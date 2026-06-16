@@ -14,6 +14,7 @@ from .forgetting import (
     should_evict,
 )
 from .input_sanitizer import sanitize_input, is_injection_attempt
+from .persistence import atomic_write_text, atomic_write_json
 
 __all__ = [
     # Token 计数
@@ -29,4 +30,7 @@ __all__ = [
     # 输入清理
     "sanitize_input",
     "is_injection_attempt",
+    # 原子持久化
+    "atomic_write_text",
+    "atomic_write_json",
 ]

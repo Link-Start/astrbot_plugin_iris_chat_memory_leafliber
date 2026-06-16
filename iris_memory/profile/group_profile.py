@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
-from .storage import ProfileStorage
+from .storage import ProfileStorage, profile_lock
 from .models import (
     GroupProfile,
     UpdateTier,
@@ -58,6 +58,7 @@ class GroupProfileManager:
 
         return profile
 
+    @profile_lock("group")
     async def update_group_name(
         self, group_id: str, group_name: str, persona_id: str = "default"
     ) -> None:
@@ -80,6 +81,7 @@ class GroupProfileManager:
             )
             logger.debug(f"更新群聊名称: {group_id} -> {group_name}")
 
+    @profile_lock("group")
     async def update_from_analysis(
         self,
         group_id: str,
@@ -146,6 +148,7 @@ class GroupProfileManager:
         if updated:
             logger.info(f"从分析结果更新群聊画像: {group_id} (tier={tier.value})")
 
+    @profile_lock("group")
     async def update_long_term_from_analysis(
         self,
         group_id: str,
@@ -265,6 +268,7 @@ class GroupProfileManager:
         tracker = profile.get_update_tracker()
         return tracker.should_update_long(interval_hours)
 
+    @profile_lock("group")
     async def add_long_term_tag(
         self, group_id: str, tag: str, persona_id: str = "default"
     ) -> None:
@@ -279,6 +283,7 @@ class GroupProfileManager:
             await self._storage.save_group_profile(profile, persona_id=persona_id)
             logger.info(f"添加群聊长期标签: {group_id} -> {tag}")
 
+    @profile_lock("group")
     async def add_blacklist_topic(
         self, group_id: str, topic: str, persona_id: str = "default"
     ) -> None:

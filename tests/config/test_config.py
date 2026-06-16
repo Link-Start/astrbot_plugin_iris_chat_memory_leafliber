@@ -1,7 +1,6 @@
 """配置系统测试"""
 
 from pathlib import Path
-from unittest.mock import Mock
 from iris_memory.config import Config, init_config, get_config
 from iris_memory.config.hidden_config import HiddenConfigManager
 from iris_memory.config.defaults import Defaults, HiddenConfig
@@ -20,7 +19,7 @@ class TestConfig:
 
         config = Config(astrbot_config, hidden_manager, defaults, tmp_path)
 
-        assert config.get("l1_buffer.enable") == True
+        assert config.get("l1_buffer.enable")
 
     def test_get_with_default(self, tmp_path: Path):
         astrbot_config = {}
@@ -46,7 +45,7 @@ class TestConfig:
 
         config.set_hidden("debug_mode", True)
 
-        assert config.get("debug_mode") == True
+        assert config.get("debug_mode")
 
     def test_config_priority(self, tmp_path: Path):
         astrbot_config = {

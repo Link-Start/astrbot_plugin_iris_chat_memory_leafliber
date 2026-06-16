@@ -27,7 +27,7 @@ class TestL3KGAdapter:
         astrbot_config.__getitem__ = Mock(return_value={"enable": True})
         astrbot_config.__contains__ = Mock(return_value=True)
 
-        config = init_config(astrbot_config, temp_dir)
+        init_config(astrbot_config, temp_dir)
 
         adapter = L3KGAdapter()
         await adapter.initialize()

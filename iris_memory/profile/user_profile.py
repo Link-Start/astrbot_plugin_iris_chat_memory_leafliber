@@ -9,7 +9,7 @@ from typing import List, Optional, Dict
 
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
-from .storage import ProfileStorage
+from .storage import ProfileStorage, profile_lock
 from .models import (
     UserProfile,
     UpdateTier,
@@ -60,6 +60,7 @@ class UserProfileManager:
 
         return profile
 
+    @profile_lock("user")
     async def update_user_name(
         self,
         user_id: str,
@@ -89,6 +90,7 @@ class UserProfileManager:
             )
             logger.debug(f"更新用户昵称: {user_id} -> {user_name}")
 
+    @profile_lock("user")
     async def update_from_analysis(
         self,
         user_id: str,
@@ -220,6 +222,7 @@ class UserProfileManager:
                 f"从分析结果更新用户画像: {user_id} (群聊: {group_id}, tier={tier.value})"
             )
 
+    @profile_lock("user")
     async def update_long_term_from_analysis(
         self,
         user_id: str,
@@ -426,6 +429,7 @@ class UserProfileManager:
         tracker = profile.get_update_tracker()
         return tracker.should_update_long(interval_hours)
 
+    @profile_lock("user")
     async def set_bot_relationship(
         self,
         user_id: str,
@@ -442,6 +446,7 @@ class UserProfileManager:
         await self._storage.save_user_profile(profile, group_id, persona_id=persona_id)
         logger.info(f"设置用户对bot的关系: {user_id} -> {relationship}")
 
+    @profile_lock("user")
     async def add_important_date(
         self,
         user_id: str,
@@ -464,6 +469,7 @@ class UserProfileManager:
             )
             logger.info(f"添加用户重要日期: {user_id} -> {date} ({description})")
 
+    @profile_lock("user")
     async def add_taboo_topic(
         self,
         user_id: str,
@@ -484,6 +490,7 @@ class UserProfileManager:
             )
             logger.info(f"添加用户禁忌话题: {user_id} -> {topic}")
 
+    @profile_lock("user")
     async def add_important_event(
         self,
         user_id: str,

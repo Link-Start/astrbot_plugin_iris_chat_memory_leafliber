@@ -9,12 +9,15 @@ Iris Chat Memory - L2 记忆导入导出
 """
 
 import json
+import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Callable
 from dataclasses import dataclass, asdict
 
 from iris_memory.core import get_logger
+from iris_memory.utils import atomic_write_json
 from .models import MemoryEntry
 from .adapter import L2MemoryAdapter
 
@@ -197,10 +200,10 @@ class MemoryExporter:
             },
         )
 
-        # 写入文件
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(asdict(export_data), f, ensure_ascii=False, indent=indent)
+        # 原子写入：避免写入中途崩溃导致导出文件截断损坏
+        atomic_write_json(
+            file_path, asdict(export_data), ensure_ascii=False, indent=indent
+        )
 
         file_size = file_path.stat().st_size
 
@@ -421,15 +424,15 @@ class MemoryImporter:
                 import_time=datetime.now().isoformat(),
             )
 
-        # 复用文件导入逻辑
-        temp_file = Path("_temp_import.json")
-        with open(temp_file, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-
-        stats = await self.import_from_file(temp_file, skip_duplicates)
-
-        # 清理临时文件
-        temp_file.unlink()
+        # 复用文件导入逻辑，使用唯一临时文件避免并发导入互相覆盖
+        fd, tmp_name = tempfile.mkstemp(suffix=".json", prefix="iris_import_")
+        temp_file = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            stats = await self.import_from_file(temp_file, skip_duplicates)
+        finally:
+            temp_file.unlink(missing_ok=True)
 
         return stats
 

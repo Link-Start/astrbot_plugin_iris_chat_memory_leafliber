@@ -14,7 +14,7 @@ class TestProfileStorage:
     def mock_context(self):
         """创建模拟的 AstrBotContext"""
         context = MagicMock()
-        context.get_kv_data = AsyncMock()
+        context.get_kv_data = AsyncMock(return_value=[])
         context.put_kv_data = AsyncMock()
         return context
 

@@ -1055,6 +1055,9 @@ async def _parse_images_if_related_mode(
             f"图片解析整体超时（{parse_timeout_ms}ms），"
             f"{len(pending)}/{len(images_to_parse)} 张未完成，已标记失败"
         )
+        # 等待被取消的任务真正结束，避免任务泄漏与 "Task was destroyed but
+        # it is pending" 警告，并确保 parse_with_semaphore 内的 httpx 连接等资源被回收
+        await asyncio.gather(*pending, return_exceptions=True)
 
     parse_results = [t.result() for t in done]
 
@@ -1105,6 +1108,12 @@ async def _parse_images_if_related_mode(
         )
 
         success_count += 1
+
+    # 退还解析失败/跳过/超时的预扣配额，避免静默耗尽
+    if quota_manager and quota_manager.is_available:
+        failed_count = len(images_to_parse) - success_count
+        if failed_count > 0:
+            await quota_manager.release_quota(failed_count)
 
     total_replaced = success_count + len(cached_results)
     if total_replaced > 0:

@@ -26,6 +26,9 @@ from iris_memory.l3_kg.models import GraphNode, GraphEdge
 
 logger = get_logger("dream.pattern_discovery")
 
+# 置信度级别排序，用于按 dream_pattern_min_confidence 过滤低置信度模式
+_CONFIDENCE_LEVEL = {"low": 0, "medium": 1, "high": 2}
+
 # 模式允许映射到的节点类型 → 对应关系边
 _TYPE_TO_RELATION = {
     "Trait": "HAS_TRAIT",
@@ -101,8 +104,12 @@ class PatternDiscoveryPhase:
                     patterns = await self._extract_patterns(sample, llm)
                     patterns_found += len(patterns)
 
+                    min_level = _CONFIDENCE_LEVEL.get(self._min_confidence, 1)
                     for pattern in patterns:
-                        if pattern.get("confidence") == "low":
+                        conf_level = _CONFIDENCE_LEVEL.get(
+                            pattern.get("confidence", "medium"), 1
+                        )
+                        if conf_level < min_level:
                             continue
 
                         is_dup = await self._check_duplicate(

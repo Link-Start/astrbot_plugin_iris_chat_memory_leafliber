@@ -7,6 +7,9 @@ Iris Chat Memory - AstrBot 分层记忆插件
 - L3: 知识图谱（SQLite）
 """
 
+# iris_memory 必须在 sys.path 插入后再导入，故 import 不在文件顶部
+# ruff: noqa: E402
+
 import sys
 from pathlib import Path
 from typing import Optional
@@ -19,7 +22,7 @@ from iris_memory.config import init_config, Config
 
 from astrbot.api import AstrBotConfig
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.star import Context, Star, StarTools, register
+from astrbot.api.star import Context, Star, StarTools
 
 from iris_memory.core import (
     ComponentManager,

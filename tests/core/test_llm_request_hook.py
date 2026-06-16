@@ -865,6 +865,7 @@ class TestParseImagesTimeout:
         quota_manager.is_available = True
         quota_manager.check_quota = AsyncMock(return_value=True)
         quota_manager.use_quota = AsyncMock(return_value=True)
+        quota_manager.release_quota = AsyncMock(return_value=0)
 
         llm_manager = MagicMock()
         llm_manager.is_available = True

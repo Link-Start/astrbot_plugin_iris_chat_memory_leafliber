@@ -176,6 +176,14 @@ async def initialize_components(component_manager: Optional[ComponentManager]) -
 
     except Exception as e:
         logger.error(f"组件初始化失败：{e}", exc_info=True)
+        # 即使初始化抛异常，仍尝试注入引用与启动不依赖后台组件的定时任务，
+        # 避免异常路径下调度任务完全不注册的静默降级；
+        # 任务内部会检查所需组件可用性，不可用则自动跳过。
+        try:
+            _inject_component_manager(component_manager)
+            _start_scheduled_tasks_immediate(component_manager)
+        except Exception as task_err:
+            logger.warning(f"异常路径下启动定时任务失败：{task_err}")
         return True
 
 

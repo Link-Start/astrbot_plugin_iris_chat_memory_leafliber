@@ -10,7 +10,7 @@ TemporalAnchorPhase 时间锚定测试
 
 import pytest
 from datetime import datetime
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, patch
 
 from iris_memory.dream.temporal_anchor import (
     TemporalAnchorPhase,

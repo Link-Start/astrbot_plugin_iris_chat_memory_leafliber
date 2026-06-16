@@ -82,7 +82,7 @@ class TestLLMManager:
         manager = LLMManager(mock_context, mock_storage)
         await manager.initialize()
 
-        response = await manager.generate(
+        await manager.generate(
             prompt="Hello", module="l1_summarizer", provider_id="gpt-4o"
         )
 

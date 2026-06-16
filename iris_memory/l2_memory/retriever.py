@@ -8,6 +8,7 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING
 
 from iris_memory.core import get_logger, ComponentManager
 from iris_memory.config import get_config
+from iris_memory.utils import count_tokens
 from .models import MemorySearchResult
 from .adapter import L2MemoryAdapter
 
@@ -222,7 +223,7 @@ class MemoryRetriever:
 
         for memory in memories:
             content = memory.entry.content
-            memory_tokens = len(content) // 2 + 1 if content else 0
+            memory_tokens = count_tokens(content) if content else 0
 
             if total_tokens + memory_tokens > max_tokens:
                 if not trimmed:

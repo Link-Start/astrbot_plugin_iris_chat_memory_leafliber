@@ -24,6 +24,7 @@ import numpy as np
 
 from iris_memory.core import Component, get_logger, InitMode
 from iris_memory.config import get_config
+from iris_memory.utils import atomic_write_json
 from .models import MemoryEntry, MemorySearchResult
 
 logger = get_logger("l2_memory.adapter")
@@ -339,9 +340,7 @@ class L2MemoryAdapter(Component):
             "free_list": self._free_list,
         }
         meta_path = self._persist_dir / "index_meta.json"
-        meta_path.write_text(
-            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        atomic_write_json(meta_path, meta, ensure_ascii=False, indent=2)
 
     async def shutdown(self) -> None:
         """关闭数据库连接并保存 FAISS 索引
@@ -629,22 +628,24 @@ class L2MemoryAdapter(Component):
             metadata["last_access_time"] = datetime.now().isoformat()
 
         try:
-            if not skip_dedup:
-                existing_id = await self._check_similarity(content, persona_id)
-                if existing_id:
-                    logger.debug(f"发现相似记忆，跳过存储：{content[:50]}...")
-                    return existing_id
+            # 计算嵌入（在锁外，嵌入计算是无状态的）
+            vectors = await self._embed([content])
+            vector_np = np.array([vectors[0]], dtype=np.float32)
 
             memory_id = f"mem_{uuid.uuid4().hex[:12]}"
 
-            # 计算嵌入（在锁外，嵌入计算是无状态的）
-            vectors = await self._embed([content])
-            vector = vectors[0]
-
-            # FAISS + SQLite 操作需要在同一个锁内完成以保证一致性
+            # 去重检查、FAISS 写入、SQLite 写入必须在同一把锁内完成，
+            # 消除“检查通过 → 释放锁 → 另一并发写入通过检查 → 重新取锁写入”
+            # 的 TOCTOU 竞态；同时避免原先 _check_similarity 与写入各 embed 一次的重复计算。
             with self._lock:
                 if self._index is None or self._db is None:
                     return None
+
+                if not skip_dedup:
+                    existing_id = self._find_similar_unlocked(vector_np, persona_id)
+                    if existing_id:
+                        logger.debug(f"发现相似记忆，跳过存储：{content[:50]}...")
+                        return existing_id
 
                 # 分配 FAISS 槽位
                 if self._free_list:
@@ -654,7 +655,7 @@ class L2MemoryAdapter(Component):
 
                 # 添加到 FAISS
                 self._index.add_with_ids(
-                    np.array([vector], dtype=np.float32),
+                    vector_np,
                     np.array([faiss_idx], dtype=np.int64),
                 )
 
@@ -671,36 +672,33 @@ class L2MemoryAdapter(Component):
             logger.error(f"添加记忆失败：{e}", exc_info=True)
             return None
 
-    async def _check_similarity(
-        self, content: str, persona_id: str = "default"
+    def _find_similar_unlocked(
+        self, vector: np.ndarray, persona_id: str = "default"
     ) -> Optional[str]:
-        try:
-            vectors = await self._embed([content])
-            vector = np.array([vectors[0]], dtype=np.float32)
+        """在已持有 ``_lock`` 的情况下查找相似记忆（供 add_memory 去重）。
 
-            with self._lock:
-                if self._index is None or self._index.ntotal == 0:
-                    return None
-
-                scores, indices = self._index.search(vector, 1)
-                if indices[0][0] < 0:
-                    return None
-
-                score = float(scores[0][0])
-                if score >= self._similarity_threshold:
-                    faiss_idx = int(indices[0][0])
-                    # 去重限定在同一 persona 命名空间内
-                    row = self._db.execute(
-                        "SELECT memory_id FROM memories WHERE faiss_idx = ? AND persona_id = ?",
-                        (faiss_idx, persona_id),
-                    ).fetchone()
-                    if row:
-                        return row[0]
-
+        与写入操作处于同一临界区，保证“检查相似 → 写入”的原子性，
+        避免并发写入相同内容时双双通过去重。去重限定在同一 persona 命名空间内。
+        """
+        if self._index is None or self._index.ntotal == 0:
             return None
-        except Exception as e:
-            logger.warning(f"相似度检查失败：{e}")
+
+        scores, indices = self._index.search(vector, 1)
+        if indices[0][0] < 0:
             return None
+
+        score = float(scores[0][0])
+        if score < self._similarity_threshold:
+            return None
+
+        faiss_idx = int(indices[0][0])
+        row = self._db.execute(
+            "SELECT memory_id FROM memories WHERE faiss_idx = ? AND persona_id = ?",
+            (faiss_idx, persona_id),
+        ).fetchone()
+        if row:
+            return row[0]
+        return None
 
     # ========================================================================
     # 记忆检索
@@ -1160,20 +1158,22 @@ class L2MemoryAdapter(Component):
             return False
 
         try:
-            # 关闭数据库
-            if self._db:
-                self._db.close()
-                self._db = None
+            # 取锁后再关闭/清理，避免与并发的检索/写入交错导致 SQLite 错误
+            with self._lock:
+                # 关闭数据库
+                if self._db:
+                    self._db.close()
+                    self._db = None
 
-            # 删除所有文件
-            import shutil
+                # 删除所有文件
+                import shutil
 
-            if self._persist_dir.exists():
-                shutil.rmtree(self._persist_dir)
+                if self._persist_dir.exists():
+                    shutil.rmtree(self._persist_dir)
 
-            self._index = None
-            self._free_list = []
-            self._dirty = False
+                self._index = None
+                self._free_list = []
+                self._dirty = False
             logger.info(f"已删除 collection: {self._persona_id}")
             return True
         except Exception as e:
@@ -1183,6 +1183,45 @@ class L2MemoryAdapter(Component):
     # ========================================================================
     # 容量管理
     # ========================================================================
+
+    async def get_entry_by_id(
+        self,
+        memory_id: str,
+        persona_id: Optional[str] = None,
+    ) -> Optional[MemoryEntry]:
+        """按 memory_id 精确查询单条记忆。
+
+        供 correct_memory 等需要按 ID 定位（而非语义检索）的场景使用，
+        避免用 memory_id 作为语义查询导致误命中不相关记忆。若指定
+        persona_id 则同时限定命名空间。
+        """
+        if not self._is_available or not self._db:
+            return None
+
+        try:
+            with self._lock:
+                if persona_id is not None:
+                    row = self._db.execute(
+                        "SELECT memory_id, content, metadata FROM memories WHERE memory_id = ? AND persona_id = ?",
+                        (memory_id, persona_id),
+                    ).fetchone()
+                else:
+                    row = self._db.execute(
+                        "SELECT memory_id, content, metadata FROM memories WHERE memory_id = ?",
+                        (memory_id,),
+                    ).fetchone()
+
+            if not row:
+                return None
+
+            return MemoryEntry(
+                id=row[0],
+                content=row[1],
+                metadata=json.loads(row[2]),
+            )
+        except Exception as e:
+            logger.error(f"按 ID 查询记忆失败：{e}")
+            return None
 
     async def get_entry_count(self) -> int:
         if not self._is_available or not self._db:

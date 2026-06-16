@@ -110,7 +110,7 @@ async def get_hidden_config():
 
     except Exception as e:
         logger.error(f"获取隐藏配置失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def update_hidden_config():
@@ -137,7 +137,7 @@ async def update_hidden_config():
 
     except Exception as e:
         logger.error(f"更新隐藏配置失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def delete_hidden_config_item():
@@ -163,7 +163,7 @@ async def delete_hidden_config_item():
 
     except Exception as e:
         logger.error(f"删除隐藏配置项失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def reset_hidden_config():
@@ -177,7 +177,7 @@ async def reset_hidden_config():
 
     except Exception as e:
         logger.error(f"重置隐藏配置失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 def register_hidden_config_routes(context) -> None:

@@ -7,6 +7,9 @@ Iris Chat Memory - 画像存储组件
 
 from typing import Optional, TYPE_CHECKING, Set
 import asyncio
+import functools
+import inspect
+from contextlib import asynccontextmanager
 
 from iris_memory.core import Component, get_logger
 from iris_memory.core.storage import KVStorage
@@ -50,6 +53,37 @@ USER_PROFILE_WRITABLE_FIELDS: Set[str] = {
 }
 
 
+def profile_lock(kind: str):
+    """装饰器：为画像 read-modify-write 操作按命名空间串行化加锁。
+
+    kind="user" 时按 (persona, group, user) 维度加锁，kind="group" 时按
+    (persona, group) 维度加锁，确保同一画像的并发「读→改→写」不会交错、
+    丢失彼此的更新。通过签名绑定提取参数，被装饰方法体无需任何改动。
+    """
+
+    def decorator(func):
+        sig = inspect.signature(func)
+
+        @functools.wraps(func)
+        async def wrapper(self, *args, **kwargs):
+            bound = sig.bind(self, *args, **kwargs)
+            bound.apply_defaults()
+            persona_id = bound.arguments.get("persona_id", "default")
+            if kind == "user":
+                user_id = bound.arguments.get("user_id")
+                group_id = bound.arguments.get("group_id", "default")
+                async with self._storage.lock_user(user_id, group_id, persona_id):
+                    return await func(self, *args, **kwargs)
+            else:
+                group_id = bound.arguments.get("group_id")
+                async with self._storage.lock_group(group_id, persona_id):
+                    return await func(self, *args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
 class ProfileStorage(Component):
     """画像存储组件
 
@@ -72,6 +106,11 @@ class ProfileStorage(Component):
         """
         super().__init__()
         self._storage = storage
+        # RMW 串行化锁：按画像命名空间（persona/group/user）分配，避免并发丢失更新
+        self._locks: dict = {}
+        self._locks_guard = asyncio.Lock()
+        # 索引列表（user_index/group_index）读-改-写的全局锁
+        self._index_lock = asyncio.Lock()
 
     @property
     def name(self) -> str:
@@ -244,6 +283,33 @@ class ProfileStorage(Component):
 
         return ""
 
+    async def _get_lock(self, key: str) -> asyncio.Lock:
+        """获取（或创建）指定命名空间的 RMW 锁。"""
+        async with self._locks_guard:
+            lock = self._locks.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._locks[key] = lock
+            return lock
+
+    @asynccontextmanager
+    async def lock_group(self, group_id: str, persona_id: str = "default"):
+        """群聊画像 RMW 串行化锁。同一 (persona, group) 的读-改-写不会被并发交错。"""
+        persona_id = self._effective_persona(persona_id)
+        lock = await self._get_lock(f"group:{persona_id}:{group_id}")
+        async with lock:
+            yield
+
+    @asynccontextmanager
+    async def lock_user(
+        self, user_id: str, group_id: str = "default", persona_id: str = "default"
+    ):
+        """用户画像 RMW 串行化锁。同一 (persona, group, user) 的读-改-写不会被并发交错。"""
+        persona_id = self._effective_persona(persona_id)
+        lock = await self._get_lock(f"user:{persona_id}:{group_id}:{user_id}")
+        async with lock:
+            yield
+
     async def update_group_profile(
         self, group_id: str, updates: dict, persona_id: str = "default"
     ) -> bool:
@@ -384,10 +450,11 @@ class ProfileStorage(Component):
     async def _add_to_group_index(self, group_id: str, persona_id: str) -> None:
         index_key = f"group_index:{persona_id}"
         try:
-            group_ids = await self._storage.get_kv_data(index_key, [])
-            if group_id not in group_ids:
-                group_ids.append(group_id)
-                await self._storage.put_kv_data(index_key, group_ids)
+            async with self._index_lock:
+                group_ids = await self._storage.get_kv_data(index_key, [])
+                if group_id not in group_ids:
+                    group_ids.append(group_id)
+                    await self._storage.put_kv_data(index_key, group_ids)
         except Exception as e:
             logger.error(f"更新群聊索引失败: {e}")
 
@@ -396,10 +463,11 @@ class ProfileStorage(Component):
     ) -> None:
         index_key = f"user_index:{persona_id}:{group_id}"
         try:
-            user_ids = await self._storage.get_kv_data(index_key, [])
-            if user_id not in user_ids:
-                user_ids.append(user_id)
-                await self._storage.put_kv_data(index_key, user_ids)
+            async with self._index_lock:
+                user_ids = await self._storage.get_kv_data(index_key, [])
+                if user_id not in user_ids:
+                    user_ids.append(user_id)
+                    await self._storage.put_kv_data(index_key, user_ids)
         except Exception as e:
             logger.error(f"更新用户索引失败: {e}")
 

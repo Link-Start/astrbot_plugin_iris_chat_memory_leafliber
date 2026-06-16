@@ -192,7 +192,7 @@ MERGED: <合并后的正确记忆内容>
 
             response = response.strip()
 
-            if "NO_CONFLICT" in response.upper():
+            if response.upper().startswith("NO_CONFLICT"):
                 return None
 
             if "RESOLVED:" not in response or "MERGED:" not in response:

@@ -225,7 +225,7 @@ class TestShouldEvict:
         with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
             result = should_evict(entry, threshold=0.3, retention_days=30)
 
-            assert result == True
+            assert result
 
     def test_should_not_evict_recent(self, mock_config):
         """测试不应淘汰的近期记忆"""
@@ -242,7 +242,7 @@ class TestShouldEvict:
         with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
             result = should_evict(entry, threshold=0.3, retention_days=30)
 
-            assert result == False
+            assert not result
 
     def test_should_not_evict_within_retention(self, mock_config):
         """测试在保留期内不应淘汰"""
@@ -260,7 +260,7 @@ class TestShouldEvict:
             result = should_evict(entry, threshold=0.3, retention_days=30)
 
             # 虽然分数低，但在保留期内，不应淘汰
-            assert result == False
+            assert not result
 
     def test_should_evict_no_access_time(self, mock_config):
         """测试无访问记录应该淘汰"""
@@ -274,4 +274,4 @@ class TestShouldEvict:
             result = should_evict(entry, threshold=0.3, retention_days=30)
 
             # 无访问记录且分数低，应该淘汰
-            assert result == True
+            assert result

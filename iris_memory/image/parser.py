@@ -8,6 +8,9 @@ Iris Chat Memory - 图片解析器
 from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING
 import asyncio
+import ipaddress
+import socket
+from urllib.parse import urlparse
 
 import httpx
 import re
@@ -110,11 +113,46 @@ class ImageParser:
 
         return None
 
+    async def _is_safe_url(self, url: str) -> bool:
+        """校验 URL 是否安全（防 SSRF）。
+
+        仅允许 http/https；对主机（含 DNS 解析的全部地址）要求为全局可达地址，
+        拒绝任何私网、环回、链路本地、云元数据、保留、组播、未指定等地址。
+        """
+        try:
+            parsed = urlparse(url)
+        except Exception:
+            return False
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        # 直接 IP 字面量
+        try:
+            return ipaddress.ip_address(hostname).is_global
+        except ValueError:
+            pass
+        # 主机名：解析全部地址，任一非全局即拒绝（防御解析到内网）
+        try:
+            infos = await asyncio.to_thread(socket.getaddrinfo, hostname, None)
+        except OSError:
+            return False
+        for info in infos:
+            try:
+                ip = ipaddress.ip_address(info[4][0])
+            except (ValueError, IndexError):
+                continue
+            if not ip.is_global:
+                return False
+        return True
+
     async def _check_url_accessible(self, url: str) -> bool:
         """检查网络图片 URL 是否可达且有内容
 
         通过流式 GET 请求读取少量数据验证 URL 返回了有效内容，
-        避免 LLM 调用因图片不可下载而浪费 token。
+        避免 LLM 调用因图片不可下载而浪费 token。同时校验目标主机非
+        内网/保留地址以防 SSRF，并禁用自动重定向（防止重定向到内网）。
 
         Args:
             url: 图片 URL
@@ -122,9 +160,14 @@ class ImageParser:
         Returns:
             URL 是否可访问且有内容
         """
+        if not await self._is_safe_url(url):
+            logger.warning(
+                f"图片 URL 主机不安全（内网/保留地址），拒绝访问：{url[:80]}"
+            )
+            return False
         try:
-            async with httpx.AsyncClient(timeout=8) as client:
-                async with client.stream("GET", url, follow_redirects=True) as resp:
+            async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
+                async with client.stream("GET", url) as resp:
                     if resp.status_code >= 400:
                         logger.debug(f"图片 URL 返回 {resp.status_code}：{url[:80]}")
                         return False

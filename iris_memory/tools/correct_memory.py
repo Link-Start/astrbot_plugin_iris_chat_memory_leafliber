@@ -67,6 +67,7 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
 
             adapter = get_adapter(event)
             user_id = adapter.get_user_id(event)
+            group_id = adapter.get_group_id(event)
 
             manager = get_component_manager()
             l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
@@ -79,49 +80,64 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
 
             persona_id = await resolve_persona(manager, event)
 
-            try:
-                results = await l2_adapter.retrieve(
-                    query=memory_id, top_k=1, persona_id=persona_id
-                )
+            # 按 ID 精确定位原记忆（而非语义检索），避免 memory_id 无语义导致误命中不相关记忆
+            original_entry = await l2_adapter.get_entry_by_id(memory_id, persona_id)
+            if not original_entry:
+                return f"未找到ID为 {memory_id} 的记忆"
 
-                if not results:
-                    return f"未找到ID为 {memory_id} 的记忆"
+            original_content = original_entry.content
 
-                original_memory = results[0].entry
-                original_content = original_memory.content
+            # 群聊隔离校验：开启群记忆隔离时仅允许修正本群记忆，防止跨群越权改写
+            from iris_memory.config import get_config
 
-            except Exception as e:
-                logger.error(f"检索原始记忆失败：{e}")
-                return f"无法检索原始记忆：{str(e)}"
+            config = get_config()
+            if (
+                config.get("isolation_config.enable_group_memory_isolation")
+                and group_id
+                and original_entry.group_id
+                and original_entry.group_id != group_id
+            ):
+                return "无权修正其他群聊的记忆"
 
+            now = datetime.now().isoformat()
+            new_metadata = original_entry.metadata.copy()
+            new_metadata.update(
+                {
+                    "corrected": True,
+                    "correction_time": now,
+                    "correction_reason": reason,
+                    "corrected_by": user_id,
+                    "confidence": 1.0,
+                }
+            )
+
+            # 先写入修正后的记忆，确认成功后再删除原记忆。
+            # 这样即使写入失败，原记忆仍在，不会造成数据丢失。
+            # skip_dedup=True：修正内容可能与原记忆或其他记忆相似，不应被去重跳过。
+            new_id = await l2_adapter.add_memory(
+                content=correction,
+                metadata=new_metadata,
+                persona_id=persona_id,
+                skip_dedup=True,
+            )
+            if not new_id:
+                logger.error(f"写入修正记忆失败，原记忆未改动: memory_id={memory_id}")
+                return "写入修正记忆失败，原记忆未改动"
+
+            # 新记忆已入库，删除旧记忆。此时即使失败也仅留下重复条目，不会丢数据。
             try:
                 await l2_adapter.delete_entries([memory_id])
-
-                now = datetime.now().isoformat()
-                new_metadata = original_memory.metadata.copy()
-                new_metadata.update(
-                    {
-                        "corrected": True,
-                        "correction_time": now,
-                        "correction_reason": reason,
-                        "corrected_by": user_id,
-                        "confidence": 1.0,
-                    }
-                )
-
-                await l2_adapter.add_memory(
-                    content=correction, metadata=new_metadata, persona_id=persona_id
-                )
-
-                logger.info(
-                    f"用户修正记忆: user={user_id}, memory_id={memory_id}, "
-                    f"original={original_content[:30]}..., "
-                    f"corrected={correction[:30]}..."
-                )
-
             except Exception as e:
-                logger.error(f"更新L2记忆失败：{e}", exc_info=True)
-                return f"更新L2记忆失败：{str(e)}"
+                logger.warning(
+                    f"删除旧记忆失败（新记忆已写入，存在重复）: "
+                    f"memory_id={memory_id}, {e}"
+                )
+
+            logger.info(
+                f"用户修正记忆: user={user_id}, memory_id={memory_id} -> {new_id}, "
+                f"original={original_content[:30]}..., "
+                f"corrected={correction[:30]}..."
+            )
 
             kg_message = ""
 

@@ -44,7 +44,7 @@ async def clear_l1_buffer():
 
     except Exception as e:
         logger.error(f"清空 L1 缓冲失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def delete_l2_memory():
@@ -84,7 +84,7 @@ async def delete_l2_memory():
 
     except Exception as e:
         logger.error(f"删除 L2 记忆失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def delete_l3_kg():
@@ -121,7 +121,7 @@ async def delete_l3_kg():
 
     except Exception as e:
         logger.error(f"删除 L3 图谱失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def merge_l3_duplicates():
@@ -148,7 +148,7 @@ async def merge_l3_duplicates():
 
     except Exception as e:
         logger.error(f"合并重复节点失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def delete_profile():
@@ -207,7 +207,7 @@ async def delete_profile():
 
     except Exception as e:
         logger.error(f"删除画像失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def trigger_task():
@@ -265,7 +265,7 @@ async def trigger_task():
 
     except Exception as e:
         logger.error(f"触发任务失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def get_tasks_status():
@@ -287,7 +287,7 @@ async def get_tasks_status():
 
     except Exception as e:
         logger.error(f"获取任务状态失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 def register_manage_routes(context) -> None:

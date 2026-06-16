@@ -59,7 +59,7 @@ async def get_token_stats():
 
     except Exception as e:
         logger.error(f"获取 Token 统计失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def get_memory_stats():
@@ -99,7 +99,7 @@ async def get_memory_stats():
 
     except Exception as e:
         logger.error(f"获取记忆统计失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def get_kg_stats():
@@ -118,7 +118,7 @@ async def get_kg_stats():
 
     except Exception as e:
         logger.error(f"获取图谱统计失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def get_system_stats():
@@ -142,7 +142,7 @@ async def get_system_stats():
 
     except Exception as e:
         logger.error(f"获取系统统计失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def get_all_stats():
@@ -234,7 +234,7 @@ async def get_all_stats():
 
     except Exception as e:
         logger.error(f"获取所有统计失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 def register_stats_routes(context) -> None:

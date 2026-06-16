@@ -124,6 +124,18 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
             if not nodes:
                 return "未提供任何节点"
 
+            # 解析群聊隔离上下文：开启群记忆隔离时，知识节点绑定到当前群，
+            # 避免跨群写入污染其他群的图谱（与 search_knowledge_graph 对齐）
+            event = context.context.event
+            from iris_memory.platform import get_adapter
+
+            adapter = get_adapter(event)
+            group_id = adapter.get_group_id(event)
+            from iris_memory.config import get_config
+
+            if not get_config().get("isolation_config.enable_group_memory_isolation"):
+                group_id = None
+
             # 构建 GraphNode 对象
             graph_nodes = []
             for node_data in nodes:
@@ -133,6 +145,7 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
                     name=node_data["name"],
                     content=node_data["content"],
                     confidence=node_data.get("confidence", 1.0),
+                    group_id=group_id,
                 )
                 node.id = node.generate_id()
                 graph_nodes.append(node)

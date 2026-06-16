@@ -191,6 +191,29 @@ class ImageQuotaManager(Component):
 
             return True
 
+    async def release_quota(self, count: int = 1) -> int:
+        """退还配额（图片解析失败/跳过/超时时回补预扣额度）
+
+        Args:
+            count: 退还数量
+
+        Returns:
+            实际退还数量
+        """
+        if not self._is_available or count <= 0:
+            return 0
+        async with self._lock:
+            if not self._quota_status:
+                return 0
+            actual = self._quota_status.release(count)
+            if actual > 0:
+                await self._save_quota_status()
+                logger.debug(
+                    f"退还配额：count={actual}, "
+                    f"used={self._quota_status.used}/{self._quota_status.total}"
+                )
+            return actual
+
     async def reset_quota(self) -> None:
         """重置配额"""
         async with self._lock:

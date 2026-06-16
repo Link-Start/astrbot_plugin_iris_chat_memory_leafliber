@@ -65,7 +65,7 @@ async def export_l2_memory():
 
     except Exception as e:
         logger.error(f"导出 L2 记忆失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def import_l2_memory():
@@ -129,7 +129,7 @@ async def import_l2_memory():
         return jsonify({"success": False, "error": f"JSON 解析失败：{e}"}), 400
     except Exception as e:
         logger.error(f"导入 L2 记忆失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def export_l3_kg():
@@ -156,7 +156,7 @@ async def export_l3_kg():
 
     except Exception as e:
         logger.error(f"导出 L3 知识图谱失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def import_l3_kg():
@@ -199,7 +199,7 @@ async def import_l3_kg():
         return jsonify({"success": False, "error": f"JSON 解析失败：{e}"}), 400
     except Exception as e:
         logger.error(f"导入 L3 知识图谱失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def export_profiles():
@@ -226,7 +226,7 @@ async def export_profiles():
 
     except Exception as e:
         logger.error(f"导出画像失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def import_profiles():
@@ -269,7 +269,7 @@ async def import_profiles():
         return jsonify({"success": False, "error": f"JSON 解析失败：{e}"}), 400
     except Exception as e:
         logger.error(f"导入画像失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def export_all():
@@ -292,7 +292,7 @@ async def export_all():
                 result["l2_memory"] = json.loads(export_json)
             except Exception as e:
                 logger.warning(f"全量导出 L2 失败：{e}")
-                result["l2_memory"] = {"error": str(e)}
+                result["l2_memory"] = {"error": "内部错误，详见服务日志"}
 
         l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
         if l3_adapter and l3_adapter.is_available:
@@ -300,7 +300,7 @@ async def export_all():
                 result["l3_kg"] = await l3_adapter.export_all()
             except Exception as e:
                 logger.warning(f"全量导出 L3 失败：{e}")
-                result["l3_kg"] = {"error": str(e)}
+                result["l3_kg"] = {"error": "内部错误，详见服务日志"}
 
         profile_storage = manager.get_component("profile", ProfileStorage)
         if profile_storage and profile_storage.is_available:
@@ -308,7 +308,7 @@ async def export_all():
                 result["profiles"] = await profile_storage.export_all()
             except Exception as e:
                 logger.warning(f"全量导出画像失败：{e}")
-                result["profiles"] = {"error": str(e)}
+                result["profiles"] = {"error": "内部错误，详见服务日志"}
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"iris_full_backup_{timestamp}.json"
@@ -324,7 +324,7 @@ async def export_all():
 
     except Exception as e:
         logger.error(f"全量导出失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 async def import_all():
@@ -368,7 +368,8 @@ async def import_all():
                         "error_count": stats.error_count,
                     }
                 except Exception as e:
-                    result["l2_memory"] = {"error": str(e)}
+                    logger.warning(f"全量导入 L2 记忆失败：{e}")
+                    result["l2_memory"] = {"error": "内部错误，详见服务日志"}
             else:
                 result["l2_memory"] = {"error": "L2 记忆库不可用"}
 
@@ -382,7 +383,8 @@ async def import_all():
                     )
                     result["l3_kg"] = stats
                 except Exception as e:
-                    result["l3_kg"] = {"error": str(e)}
+                    logger.warning(f"全量导入 L3 图谱失败：{e}")
+                    result["l3_kg"] = {"error": "内部错误，详见服务日志"}
             else:
                 result["l3_kg"] = {"error": "L3 知识图谱不可用"}
 
@@ -396,7 +398,8 @@ async def import_all():
                     )
                     result["profiles"] = stats
                 except Exception as e:
-                    result["profiles"] = {"error": str(e)}
+                    logger.warning(f"全量导入画像失败：{e}")
+                    result["profiles"] = {"error": "内部错误，详见服务日志"}
             else:
                 result["profiles"] = {"error": "画像系统不可用"}
 
@@ -408,7 +411,7 @@ async def import_all():
         return jsonify({"success": False, "error": f"JSON 解析失败：{e}"}), 400
     except Exception as e:
         logger.error(f"全量导入失败：{e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
 def register_data_routes(context) -> None:

@@ -119,7 +119,7 @@ class TestL2MemoryAdapter:
     async def test_add_memory_success(self, mock_faiss_adapter):
         """测试添加记忆成功"""
         adapter = mock_faiss_adapter
-        adapter._check_similarity = AsyncMock(return_value=None)
+        adapter._find_similar_unlocked = Mock(return_value=None)
 
         # Mock _embed
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
@@ -139,7 +139,10 @@ class TestL2MemoryAdapter:
     async def test_add_memory_duplicate(self, mock_faiss_adapter):
         """测试添加重复记忆"""
         adapter = mock_faiss_adapter
-        adapter._check_similarity = AsyncMock(return_value="mem_existing")
+        adapter._find_similar_unlocked = Mock(return_value="mem_existing")
+
+        # Mock _embed（新逻辑在锁内去重前先计算嵌入）
+        adapter._embed = AsyncMock(return_value=[[0.1] * 8])
 
         memory_id = await adapter.add_memory(
             "测试记忆内容", metadata={"group_id": "group_123"}
@@ -232,7 +235,7 @@ class TestL2MemoryAdapter:
 
         # 先添加一条记忆
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
-        adapter._check_similarity = AsyncMock(return_value=None)
+        adapter._find_similar_unlocked = Mock(return_value=None)
         memory_id = await adapter.add_memory("测试", metadata={"group_id": "g1"})
         assert memory_id is not None
 
@@ -270,7 +273,7 @@ class TestL2MemoryAdapter:
         """测试更新访问信息"""
         adapter = mock_faiss_adapter
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
-        adapter._check_similarity = AsyncMock(return_value=None)
+        adapter._find_similar_unlocked = Mock(return_value=None)
 
         memory_id = await adapter.add_memory("测试", metadata={"group_id": "g1"})
         assert memory_id is not None
@@ -290,7 +293,7 @@ class TestL2MemoryAdapter:
         """测试获取统计信息"""
         adapter = mock_faiss_adapter
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
-        adapter._check_similarity = AsyncMock(return_value=None)
+        adapter._find_similar_unlocked = Mock(return_value=None)
 
         await adapter.add_memory("测试1", metadata={"group_id": "g1"})
         await adapter.add_memory("测试2", metadata={"group_id": "g2"})
@@ -304,7 +307,7 @@ class TestL2MemoryAdapter:
         """测试按群聊获取条目"""
         adapter = mock_faiss_adapter
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
-        adapter._check_similarity = AsyncMock(return_value=None)
+        adapter._find_similar_unlocked = Mock(return_value=None)
 
         await adapter.add_memory("测试1", metadata={"group_id": "g1"})
         await adapter.add_memory("测试2", metadata={"group_id": "g2"})
@@ -318,7 +321,7 @@ class TestL2MemoryAdapter:
         """测试获取最新记忆"""
         adapter = mock_faiss_adapter
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
-        adapter._check_similarity = AsyncMock(return_value=None)
+        adapter._find_similar_unlocked = Mock(return_value=None)
 
         await adapter.add_memory(
             "旧记忆", metadata={"group_id": "g1", "timestamp": "2024-01-01T00:00:00"}
@@ -336,7 +339,7 @@ class TestL2MemoryAdapter:
         """测试获取未处理记忆"""
         adapter = mock_faiss_adapter
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
-        adapter._check_similarity = AsyncMock(return_value=None)
+        adapter._find_similar_unlocked = Mock(return_value=None)
 
         await adapter.add_memory("未处理", metadata={"group_id": "g1"})
         await adapter.add_memory(
@@ -352,7 +355,7 @@ class TestL2MemoryAdapter:
         """测试标记记忆为已处理"""
         adapter = mock_faiss_adapter
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
-        adapter._check_similarity = AsyncMock(return_value=None)
+        adapter._find_similar_unlocked = Mock(return_value=None)
 
         memory_id = await adapter.add_memory("测试", metadata={"group_id": "g1"})
         result = await adapter.mark_memories_processed([memory_id])
@@ -369,7 +372,7 @@ class TestL2MemoryAdapter:
         """测试按群聊删除"""
         adapter = mock_faiss_adapter
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
-        adapter._check_similarity = AsyncMock(return_value=None)
+        adapter._find_similar_unlocked = Mock(return_value=None)
 
         await adapter.add_memory("g1 记忆", metadata={"group_id": "g1"})
         await adapter.add_memory("g2 记忆", metadata={"group_id": "g2"})
@@ -383,7 +386,7 @@ class TestL2MemoryAdapter:
         """测试删除所有记忆"""
         adapter = mock_faiss_adapter
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
-        adapter._check_similarity = AsyncMock(return_value=None)
+        adapter._find_similar_unlocked = Mock(return_value=None)
 
         await adapter.add_memory("测试1", metadata={"group_id": "g1"})
         await adapter.add_memory("测试2", metadata={"group_id": "g2"})
@@ -398,7 +401,7 @@ class TestL2MemoryAdapter:
         """测试更新记忆内容"""
         adapter = mock_faiss_adapter
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
-        adapter._check_similarity = AsyncMock(return_value=None)
+        adapter._find_similar_unlocked = Mock(return_value=None)
 
         memory_id = await adapter.add_memory("旧内容", metadata={"group_id": "g1"})
         result = await adapter.update_content(memory_id, "新内容")
@@ -413,7 +416,7 @@ class TestL2MemoryAdapter:
         """测试更新元数据"""
         adapter = mock_faiss_adapter
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
-        adapter._check_similarity = AsyncMock(return_value=None)
+        adapter._find_similar_unlocked = Mock(return_value=None)
 
         memory_id = await adapter.add_memory(
             "测试", metadata={"group_id": "g1", "confidence": 0.5}
@@ -436,7 +439,7 @@ class TestL2MemoryAdapter:
         """测试 free-list 槽位复用"""
         adapter = mock_faiss_adapter
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
-        adapter._check_similarity = AsyncMock(return_value=None)
+        adapter._find_similar_unlocked = Mock(return_value=None)
 
         mid1 = await adapter.add_memory("记忆1", metadata={"group_id": "g1"})
         await adapter.add_memory("记忆2", metadata={"group_id": "g1"})

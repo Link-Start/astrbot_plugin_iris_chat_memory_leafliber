@@ -619,4 +619,10 @@ async def _parse_images_if_enabled(
 
         success_count += 1
 
+    # 退还解析失败的预扣配额，避免静默耗尽
+    if quota_manager and quota_manager.is_available:
+        failed_count = len(images_to_parse) - success_count
+        if failed_count > 0:
+            await quota_manager.release_quota(failed_count)
+
     logger.info(f"已解析 {success_count}/{len(images_to_parse)} 张图片")

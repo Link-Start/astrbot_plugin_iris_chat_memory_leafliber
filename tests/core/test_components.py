@@ -44,8 +44,8 @@ class TestSystemStatus:
         status.register_module("l1_buffer", default_available=False)
         status.register_module("l2_memory", default_available=True)
 
-        assert status.is_module_available("l1_buffer") == False
-        assert status.is_module_available("l2_memory") == True
+        assert not status.is_module_available("l1_buffer")
+        assert status.is_module_available("l2_memory")
 
     def test_set_available(self):
         """测试设置可用性"""
@@ -54,11 +54,11 @@ class TestSystemStatus:
 
         # 设置为可用
         status.set_available("l2_memory", True)
-        assert status.is_module_available("l2_memory") == True
+        assert status.is_module_available("l2_memory")
 
         # 设置为不可用
         status.set_available("l2_memory", False)
-        assert status.is_module_available("l2_memory") == False
+        assert not status.is_module_available("l2_memory")
 
     def test_get_available_modules(self):
         """测试获取可用模块列表"""
@@ -92,15 +92,15 @@ class TestSystemStatus:
 
         result = status.to_dict()
 
-        assert result["l1_buffer_available"] == True
-        assert result["l2_memory_available"] == False
+        assert result["l1_buffer_available"]
+        assert not result["l2_memory_available"]
 
     def test_is_module_available_nonexistent(self):
         """测试查询不存在的模块"""
         status = SystemStatus()
 
         # 不存在的模块应该返回 False
-        assert status.is_module_available("nonexistent") == False
+        assert not status.is_module_available("nonexistent")
 
 
 class TestComponentManager:
@@ -115,8 +115,8 @@ class TestComponentManager:
         manager = ComponentManager((component1, component2))
 
         # 验证模块已注册
-        assert manager.status.is_module_available("l1_buffer") == False
-        assert manager.status.is_module_available("l2_memory") == False
+        assert not manager.status.is_module_available("l1_buffer")
+        assert not manager.status.is_module_available("l2_memory")
 
         # 初始化
         results = await manager.initialize_all()
@@ -126,14 +126,14 @@ class TestComponentManager:
         assert all(r.success for r in results)
 
         # 验证组件状态
-        assert component1.is_available == True
-        assert component2.is_available == True
-        assert component1.initialize_called == True
-        assert component2.initialize_called == True
+        assert component1.is_available
+        assert component2.is_available
+        assert component1.initialize_called
+        assert component2.initialize_called
 
         # 验证系统状态
-        assert manager.status.is_module_available("l1_buffer") == True
-        assert manager.status.is_module_available("l2_memory") == True
+        assert manager.status.is_module_available("l1_buffer")
+        assert manager.status.is_module_available("l2_memory")
 
     @pytest.mark.asyncio
     async def test_initialize_partial_failure(self):
@@ -146,17 +146,17 @@ class TestComponentManager:
 
         # 验证结果
         assert len(results) == 2
-        assert results[0].success == True
-        assert results[1].success == False
+        assert results[0].success
+        assert not results[1].success
         assert "初始化失败" in results[1].error_message
 
         # 验证组件状态
-        assert component1.is_available == True
-        assert component2.is_available == False
+        assert component1.is_available
+        assert not component2.is_available
 
         # 验证系统状态
-        assert manager.status.is_module_available("l1_buffer") == True
-        assert manager.status.is_module_available("l2_memory") == False
+        assert manager.status.is_module_available("l1_buffer")
+        assert not manager.status.is_module_available("l2_memory")
 
     @pytest.mark.asyncio
     async def test_initialize_all_failure(self):
@@ -172,8 +172,8 @@ class TestComponentManager:
         assert all(not r.success for r in results)
 
         # 验证系统状态
-        assert manager.status.is_module_available("l1_buffer") == False
-        assert manager.status.is_module_available("l2_memory") == False
+        assert not manager.status.is_module_available("l1_buffer")
+        assert not manager.status.is_module_available("l2_memory")
 
     @pytest.mark.asyncio
     async def test_initialize_twice_raises_error(self):
@@ -200,14 +200,14 @@ class TestComponentManager:
         await manager.shutdown_all()
 
         # 验证组件状态
-        assert component1.shutdown_called == True
-        assert component2.shutdown_called == True
-        assert component1.is_available == False
-        assert component2.is_available == False
+        assert component1.shutdown_called
+        assert component2.shutdown_called
+        assert not component1.is_available
+        assert not component2.is_available
 
         # 验证系统状态已重置
-        assert manager.status.is_module_available("l1_buffer") == False
-        assert manager.status.is_module_available("l2_memory") == False
+        assert not manager.status.is_module_available("l1_buffer")
+        assert not manager.status.is_module_available("l2_memory")
 
     @pytest.mark.asyncio
     async def test_shutdown_without_initialize(self):
@@ -218,7 +218,7 @@ class TestComponentManager:
         # 未初始化时关闭应该正常执行
         await manager.shutdown_all()
 
-        assert component.shutdown_called == False
+        assert not component.shutdown_called
 
     @pytest.mark.asyncio
     async def test_shutdown_partial_failure(self):
@@ -239,7 +239,7 @@ class TestComponentManager:
         await manager.shutdown_all()
 
         # 第一个组件应该已关闭
-        assert component1.shutdown_called == True
+        assert component1.shutdown_called
 
     def test_get_component(self):
         """测试按名称获取组件"""
@@ -295,7 +295,7 @@ class TestComponentInitResult:
         result = ComponentInitResult("l1_buffer", True)
 
         assert result.name == "l1_buffer"
-        assert result.success == True
+        assert result.success
         assert result.error_message is None
 
     def test_failure_result(self):
@@ -303,5 +303,5 @@ class TestComponentInitResult:
         result = ComponentInitResult("l2_memory", False, "初始化失败")
 
         assert result.name == "l2_memory"
-        assert result.success == False
+        assert not result.success
         assert result.error_message == "初始化失败"

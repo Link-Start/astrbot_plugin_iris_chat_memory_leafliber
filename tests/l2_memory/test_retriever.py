@@ -152,7 +152,7 @@ class TestMemoryRetriever:
         retriever = MemoryRetriever(mock_manager)
         result = await retriever.update_access("mem_001")
 
-        assert result == True
+        assert result
 
     @pytest.mark.asyncio
     async def test_retrieve_for_context(self, mock_manager, mock_config):

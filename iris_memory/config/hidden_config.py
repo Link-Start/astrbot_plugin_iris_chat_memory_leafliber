@@ -90,8 +90,9 @@ class HiddenConfigManager:
     def _persist(self) -> None:
         """持久化隐藏配置到文件"""
         try:
-            with open(self._path, "w", encoding="utf-8") as f:
-                json.dump(self._cache, f, indent=2, ensure_ascii=False)
+            from iris_memory.utils import atomic_write_json
+
+            atomic_write_json(self._path, self._cache, ensure_ascii=False, indent=2)
             logger.debug(f"隐藏配置已持久化到 {self._path}")
         except Exception as e:
             logger.error(f"持久化隐藏配置失败: {e}")
@@ -105,8 +106,9 @@ class HiddenConfigManager:
             self._dirty = False
 
         try:
-            with open(self._path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+            from iris_memory.utils import atomic_write_json
+
+            atomic_write_json(self._path, data, ensure_ascii=False, indent=2)
             logger.debug(f"隐藏配置已持久化到 {self._path}")
         except Exception as e:
             logger.error(f"持久化隐藏配置失败: {e}")

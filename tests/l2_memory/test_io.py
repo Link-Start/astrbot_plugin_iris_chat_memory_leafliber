@@ -304,7 +304,7 @@ class TestMemoryImporter:
             calls = mock_adapter.add_memory.call_args_list
             for call in calls:
                 metadata = call[0][1]
-                assert metadata.get("imported") == True
+                assert metadata.get("imported")
         finally:
             sample_export_file.unlink()
 

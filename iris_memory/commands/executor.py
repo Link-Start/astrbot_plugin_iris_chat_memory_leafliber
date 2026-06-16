@@ -62,4 +62,4 @@ async def execute_command(event: "AstrMessageEvent") -> Optional[str]:
         return result.message
     except Exception as e:
         logger.error(f"执行指令失败: {e}", exc_info=True)
-        return f"❌ 执行指令失败: {e}"
+        return "❌ 执行指令失败，详见服务日志"

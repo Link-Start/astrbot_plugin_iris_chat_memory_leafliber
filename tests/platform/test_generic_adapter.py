@@ -1,7 +1,7 @@
 """通用平台适配器测试"""
 
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock
 from iris_memory.platform.generic import GenericAdapter
 from iris_memory.platform.base import ReplyInfo
 

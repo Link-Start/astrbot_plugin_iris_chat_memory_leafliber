@@ -150,16 +150,17 @@ class ImageCacheManager(Component):
             image_hash: 图片 hash
         """
         try:
-            meta = await self._storage.get_kv_data(self.KV_KEY_META, {})
-            if "hashes" not in meta:
-                meta["hashes"] = []
+            async with self._lock:
+                meta = await self._storage.get_kv_data(self.KV_KEY_META, {})
+                if "hashes" not in meta:
+                    meta["hashes"] = []
 
-            if image_hash not in meta["hashes"]:
-                meta["hashes"].append(image_hash)
-                await self._storage.put_kv_data(self.KV_KEY_META, meta)
+                if image_hash not in meta["hashes"]:
+                    meta["hashes"].append(image_hash)
+                    await self._storage.put_kv_data(self.KV_KEY_META, meta)
 
         except Exception as e:
-            logger.warning(f"更新缓存元数据失败：{e}")
+            logger.warning(f"更新缓存元数据失败: {e}")
 
     async def _remove_from_meta(self, image_hash: str) -> None:
         """从元数据索引中移除缓存键
@@ -168,13 +169,14 @@ class ImageCacheManager(Component):
             image_hash: 图片 hash
         """
         try:
-            meta = await self._storage.get_kv_data(self.KV_KEY_META, {})
-            if "hashes" in meta and image_hash in meta["hashes"]:
-                meta["hashes"].remove(image_hash)
-                await self._storage.put_kv_data(self.KV_KEY_META, meta)
+            async with self._lock:
+                meta = await self._storage.get_kv_data(self.KV_KEY_META, {})
+                if "hashes" in meta and image_hash in meta["hashes"]:
+                    meta["hashes"].remove(image_hash)
+                    await self._storage.put_kv_data(self.KV_KEY_META, meta)
 
         except Exception as e:
-            logger.warning(f"更新缓存元数据失败：{e}")
+            logger.warning(f"更新缓存元数据失败: {e}")
 
     async def _save_cache(self, cache: ImageParseCache) -> None:
         """保存缓存到 KV 存储

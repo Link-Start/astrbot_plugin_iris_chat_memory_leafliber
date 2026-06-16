@@ -119,9 +119,7 @@ class TestL1LLMIntegration:
             await llm_manager.initialize()
 
             # 调用 generate
-            response = await llm_manager.generate(
-                prompt="测试提示", module="l1_summarizer"
-            )
+            await llm_manager.generate(prompt="测试提示", module="l1_summarizer")
 
             # 验证 Token 统计
             stats = await llm_manager.get_token_stats("l1_summarizer")

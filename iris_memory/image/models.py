@@ -308,6 +308,18 @@ class QuotaStatus:
         self.used += count
         return True
 
+    def release(self, count: int = 1) -> int:
+        """退还配额（解析失败/跳过时回补，避免预扣导致静默耗尽）
+
+        Returns:
+            实际退还数量（不超过已用额度）
+        """
+        if count <= 0:
+            return 0
+        actual = min(count, self.used)
+        self.used -= actual
+        return actual
+
     def reset(self, date: str, total: int) -> None:
         """重置配额
 

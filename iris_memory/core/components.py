@@ -722,20 +722,22 @@ class ComponentManager:
     def _update_status(self) -> None:
         """更新系统状态
 
-        根据各组件的可用性更新 SystemStatus。
-        保留当前全局状态，避免后台组件初始化时重置。
+        根据各组件的可用性更新 SystemStatus。先在局部构建完整的新状态对象，
+        再原子替换 self._status，避免后台组件并发完成初始化时读到半重建的
+        中间状态（如某组件刚初始化成功却被报为不可用）。
         """
         previous_global = self._status.global_status
-        self._status = SystemStatus()
+        new_status = SystemStatus()
         for component in self._components:
-            self._status.register_module(component.name, default_available=False)
-            self._status.set_state(component.name, component.get_state())
+            new_status.register_module(component.name, default_available=False)
+            new_status.set_state(component.name, component.get_state())
 
         for component in self._components:
             if component.is_available:
-                self._status.set_available(component.name, True)
+                new_status.set_available(component.name, True)
 
-        self._status.set_global_status(previous_global)
+        new_status.set_global_status(previous_global)
+        self._status = new_status
 
     async def shutdown_all(self) -> None:
         """关闭所有组件
