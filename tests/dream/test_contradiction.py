@@ -17,16 +17,17 @@ from iris_memory.dream.contradiction import ContradictionPhase
 
 def _mock_config():
     mock = Mock()
-    mock.get = Mock(side_effect=lambda key, default=None: {
-        "dream_contradiction_similarity_floor": 0.55,
-        "dream_contradiction_similarity_ceiling": 0.85,
-        "dream_contradiction_max_groups": 20,
-    }.get(key, default))
+    mock.get = Mock(
+        side_effect=lambda key, default=None: {
+            "dream_contradiction_similarity_floor": 0.55,
+            "dream_contradiction_similarity_ceiling": 0.85,
+            "dream_contradiction_max_groups": 20,
+        }.get(key, default)
+    )
     return mock
 
 
 class TestContradictionPhase:
-
     @pytest.fixture
     def phase(self):
         return ContradictionPhase()
@@ -38,7 +39,9 @@ class TestContradictionPhase:
         l3 = None
         llm = None
 
-        with patch("iris_memory.dream.contradiction.get_config", return_value=_mock_config()):
+        with patch(
+            "iris_memory.dream.contradiction.get_config", return_value=_mock_config()
+        ):
             result = await phase.execute(l2, l3, llm)
 
         assert result["groups_checked"] == 0
@@ -52,7 +55,9 @@ class TestContradictionPhase:
         l3 = None
         llm = Mock()
 
-        with patch("iris_memory.dream.contradiction.get_config", return_value=_mock_config()):
+        with patch(
+            "iris_memory.dream.contradiction.get_config", return_value=_mock_config()
+        ):
             result = await phase.execute(l2, l3, llm)
 
         assert result["groups_checked"] == 0

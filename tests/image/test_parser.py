@@ -116,7 +116,9 @@ class TestImageParser:
         assert "不超过80字" in prompt
 
     @pytest.mark.asyncio
-    async def test_parse_with_unable_to_describe_response(self, parser_with_url_check, mock_llm_manager):
+    async def test_parse_with_unable_to_describe_response(
+        self, parser_with_url_check, mock_llm_manager
+    ):
         """测试 LLM 返回无法识别图片内容时的处理"""
         mock_llm_manager.generate_with_images.return_value = (
             "抱歉，我无法查看或分析图片，因为目前没有图片附件上传成功。"
@@ -162,15 +164,9 @@ class TestImageParser:
         assert parser._is_unable_to_describe(
             "我无法分析这张图片，因为这里没有图片显示。"
         )
-        assert parser._is_unable_to_describe(
-            "无法识别图片中的内容"
-        )
-        assert parser._is_unable_to_describe(
-            "没有图片内容可以查看"
-        )
-        assert parser._is_unable_to_describe(
-            "图片加载失败，无法获取图片信息"
-        )
+        assert parser._is_unable_to_describe("无法识别图片中的内容")
+        assert parser._is_unable_to_describe("没有图片内容可以查看")
+        assert parser._is_unable_to_describe("图片加载失败，无法获取图片信息")
 
     def test_is_unable_to_describe_negative(self, parser):
         """测试正常图片描述不被误判（反向用例）"""

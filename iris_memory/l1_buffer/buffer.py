@@ -765,7 +765,9 @@ class L1Buffer(Component):
                 if active_users:
                     metadata["active_users"] = ",".join(active_users)
 
-                memory_id = await retriever.add_from_summary(content, metadata, persona_id)
+                memory_id = await retriever.add_from_summary(
+                    content, metadata, persona_id
+                )
                 if memory_id:
                     memory_ids.append(memory_id)
 

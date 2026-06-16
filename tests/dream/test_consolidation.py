@@ -16,18 +16,19 @@ from iris_memory.dream.consolidation import ConsolidationPhase
 
 def _mock_config():
     mock = Mock()
-    mock.get = Mock(side_effect=lambda key, default=None: {
-        "dream_consolidation_similarity_threshold": 0.85,
-        "dream_consolidation_batch_size": 10,
-        "dream_consolidation_scan_budget": 500,
-        "dream_consolidation_query_batch_size": 50,
-        "dream_consolidation_max_group_size": 5,
-    }.get(key, default))
+    mock.get = Mock(
+        side_effect=lambda key, default=None: {
+            "dream_consolidation_similarity_threshold": 0.85,
+            "dream_consolidation_batch_size": 10,
+            "dream_consolidation_scan_budget": 500,
+            "dream_consolidation_query_batch_size": 50,
+            "dream_consolidation_max_group_size": 5,
+        }.get(key, default)
+    )
     return mock
 
 
 class TestConsolidationPhase:
-
     @pytest.fixture
     def phase(self):
         return ConsolidationPhase()
@@ -39,7 +40,9 @@ class TestConsolidationPhase:
         l3 = None
         llm = None
 
-        with patch("iris_memory.dream.consolidation.get_config", return_value=_mock_config()):
+        with patch(
+            "iris_memory.dream.consolidation.get_config", return_value=_mock_config()
+        ):
             result = await phase.execute(l2, l3, llm)
 
         assert result["merged_groups"] == 0
@@ -53,7 +56,9 @@ class TestConsolidationPhase:
         l3 = None
         llm = Mock()
 
-        with patch("iris_memory.dream.consolidation.get_config", return_value=_mock_config()):
+        with patch(
+            "iris_memory.dream.consolidation.get_config", return_value=_mock_config()
+        ):
             result = await phase.execute(l2, l3, llm)
 
         assert result["merged_groups"] == 0
@@ -66,7 +71,9 @@ class TestConsolidationPhase:
         l3 = None
         llm = None
 
-        with patch("iris_memory.dream.consolidation.get_config", return_value=_mock_config()):
+        with patch(
+            "iris_memory.dream.consolidation.get_config", return_value=_mock_config()
+        ):
             result = await phase.execute(l2, l3, llm)
 
         assert result["merged_groups"] == 0

@@ -145,7 +145,9 @@ class MemoryRetriever:
             logger.warning("L2 记忆库不可用，跳过写入记忆")
             return None
 
-        memory_id = await adapter.add_memory(summary_content, metadata, persona_id=persona_id)
+        memory_id = await adapter.add_memory(
+            summary_content, metadata, persona_id=persona_id
+        )
 
         if memory_id:
             logger.info(f"已从总结写入记忆：{memory_id}")

@@ -459,7 +459,9 @@ class UserProfileManager:
             meta = profile.get_field_meta("important_dates")
             meta.record_update(1.0, source="manual")
             profile.set_field_meta("important_dates", meta)
-            await self._storage.save_user_profile(profile, group_id, persona_id=persona_id)
+            await self._storage.save_user_profile(
+                profile, group_id, persona_id=persona_id
+            )
             logger.info(f"添加用户重要日期: {user_id} -> {date} ({description})")
 
     async def add_taboo_topic(
@@ -477,7 +479,9 @@ class UserProfileManager:
             meta = profile.get_field_meta("taboo_topics")
             meta.record_update(1.0, source="manual")
             profile.set_field_meta("taboo_topics", meta)
-            await self._storage.save_user_profile(profile, group_id, persona_id=persona_id)
+            await self._storage.save_user_profile(
+                profile, group_id, persona_id=persona_id
+            )
             logger.info(f"添加用户禁忌话题: {user_id} -> {topic}")
 
     async def add_important_event(
@@ -495,5 +499,7 @@ class UserProfileManager:
             meta = profile.get_field_meta("important_events")
             meta.record_update(1.0, source="manual")
             profile.set_field_meta("important_events", meta)
-            await self._storage.save_user_profile(profile, group_id, persona_id=persona_id)
+            await self._storage.save_user_profile(
+                profile, group_id, persona_id=persona_id
+            )
             logger.info(f"添加用户重要事件: {user_id} -> {event}")

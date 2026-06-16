@@ -16,9 +16,11 @@ def _make_storage(isolation_on: bool):
     storage._is_available = True
     # 让 get_config 在 storage 模块内返回可控配置
     cfg = Mock()
-    cfg.get = Mock(side_effect=lambda key, default=None: {
-        "isolation_config.enable_persona_isolation": isolation_on,
-    }.get(key, default))
+    cfg.get = Mock(
+        side_effect=lambda key, default=None: {
+            "isolation_config.enable_persona_isolation": isolation_on,
+        }.get(key, default)
+    )
     return storage, cfg
 
 

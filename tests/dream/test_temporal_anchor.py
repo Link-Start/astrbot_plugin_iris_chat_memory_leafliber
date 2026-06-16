@@ -21,7 +21,6 @@ from iris_memory.dream.temporal_anchor import (
 
 
 class TestRelativeTimeResolution:
-
     def test_yesterday(self):
         match = _RELATIVE_TIME_PATTERN.search("昨天我们决定了方案")
         assert match is not None
@@ -62,14 +61,15 @@ class TestRelativeTimeResolution:
 
 def _mock_config():
     mock = Mock()
-    mock.get = Mock(side_effect=lambda key, default=None: {
-        "dream_temporal_anchor_batch_size": 50,
-    }.get(key, default))
+    mock.get = Mock(
+        side_effect=lambda key, default=None: {
+            "dream_temporal_anchor_batch_size": 50,
+        }.get(key, default)
+    )
     return mock
 
 
 class TestTemporalAnchorPhase:
-
     @pytest.fixture
     def phase(self):
         return TemporalAnchorPhase()
@@ -81,7 +81,9 @@ class TestTemporalAnchorPhase:
         l3 = None
         llm = None
 
-        with patch("iris_memory.dream.temporal_anchor.get_config", return_value=_mock_config()):
+        with patch(
+            "iris_memory.dream.temporal_anchor.get_config", return_value=_mock_config()
+        ):
             result = await phase.execute(l2, l3, llm)
 
         assert result["scanned"] == 0
@@ -89,7 +91,6 @@ class TestTemporalAnchorPhase:
 
 
 class TestFormatDate:
-
     def test_format_date_no_leading_zero(self):
         date = datetime(2026, 5, 3)
         result = _format_date(date)

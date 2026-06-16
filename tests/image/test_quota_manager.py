@@ -29,7 +29,9 @@ class TestImageQuotaManager:
         with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
-                side_effect=lambda key: {"l1_buffer.image_parsing.enable": False}.get(key)
+                side_effect=lambda key: {"l1_buffer.image_parsing.enable": False}.get(
+                    key
+                )
             )
             mock_get_config.return_value = mock_config
 

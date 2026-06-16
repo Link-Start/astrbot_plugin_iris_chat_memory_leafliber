@@ -343,7 +343,9 @@ class ProfileStorage(Component):
             logger.error(f"获取群聊列表失败: {e}", exc_info=True)
             return []
 
-    async def list_users(self, group_id: str = "default", persona_id: str = "default") -> list:
+    async def list_users(
+        self, group_id: str = "default", persona_id: str = "default"
+    ) -> list:
         persona_id = self._effective_persona(persona_id)
         index_key = f"user_index:{persona_id}:{group_id}"
 
@@ -429,7 +431,9 @@ class ProfileStorage(Component):
             logger.error(f"删除用户画像失败: {key}, 错误: {e}")
             return False
 
-    async def delete_group_profile(self, group_id: str, persona_id: str = "default") -> bool:
+    async def delete_group_profile(
+        self, group_id: str, persona_id: str = "default"
+    ) -> bool:
         """删除群聊画像
 
         Args:
@@ -551,7 +555,9 @@ class ProfileStorage(Component):
 
             users_without_group = await self.list_users("default", persona_id)
             for u in users_without_group:
-                profile = await self.get_user_profile(u["user_id"], "default", persona_id)
+                profile = await self.get_user_profile(
+                    u["user_id"], "default", persona_id
+                )
                 if profile:
                     already = any(
                         p.get("user_id") == u["user_id"]
@@ -655,7 +661,9 @@ class ProfileStorage(Component):
                     continue
 
                 if skip_duplicates:
-                    existing = await self.get_user_profile(user_id, group_id, persona_id)
+                    existing = await self.get_user_profile(
+                        user_id, group_id, persona_id
+                    )
                     if existing:
                         skipped += 1
                         continue

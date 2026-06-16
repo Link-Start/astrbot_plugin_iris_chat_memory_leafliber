@@ -19,8 +19,7 @@ from iris_memory.config import init_config, Config
 
 from astrbot.api import AstrBotConfig
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.star import Context, Star, register
-from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+from astrbot.api.star import Context, Star, StarTools, register
 
 from iris_memory.core import (
     ComponentManager,
@@ -95,11 +94,7 @@ class IrisChatMemoryPlugin(Star):
         super().__init__(context)
         self.context: Context = context
 
-        data_dir = (
-            Path(get_astrbot_data_path())
-            / "plugin_data"
-            / "astrbot_plugin_iris_chat_memory"
-        )
+        data_dir = StarTools.get_data_dir()
         self.config: Config = init_config(config, data_dir)
         logger.info(f"插件数据目录：{data_dir}")
 

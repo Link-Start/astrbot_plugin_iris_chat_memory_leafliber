@@ -1,7 +1,11 @@
 """L1 数据模型测试"""
 
 from datetime import datetime
-from iris_memory.l1_buffer.models import ContextMessage, SegmentedMessageQueue, MessageQueue
+from iris_memory.l1_buffer.models import (
+    ContextMessage,
+    SegmentedMessageQueue,
+    MessageQueue,
+)
 
 
 class TestContextMessage:

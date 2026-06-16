@@ -46,7 +46,9 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
         }
     )
 
-    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
+    async def call(
+        self, context: ContextWrapper[AstrAgentContext], **kwargs
+    ) -> ToolExecResult:
         """执行保存记忆操作
 
         Args:
@@ -115,7 +117,9 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
                 "tags": tags,
             }
 
-            memory_id = await l2_adapter.add_memory(content, metadata, persona_id=persona_id)
+            memory_id = await l2_adapter.add_memory(
+                content, metadata, persona_id=persona_id
+            )
 
             if not memory_id:
                 return "保存记忆失败：可能存在重复记忆或写入异常"

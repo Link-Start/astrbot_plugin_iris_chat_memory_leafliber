@@ -29,12 +29,39 @@ import re
 
 from iris_memory.core import get_logger
 
-_KG_STOPWORDS = frozenset({
-    "什么", "怎么", "如何", "为什么", "这个", "那个", "今天", "昨天", "明天",
-    "喜欢", "觉得", "想要", "可以", "知道", "一下", "一些", "告诉", "请问",
-    "还是", "的话", "不是", "没有", "现在", "已经", "应该", "可能", "因为",
-    "所以", "但是",
-})
+_KG_STOPWORDS = frozenset(
+    {
+        "什么",
+        "怎么",
+        "如何",
+        "为什么",
+        "这个",
+        "那个",
+        "今天",
+        "昨天",
+        "明天",
+        "喜欢",
+        "觉得",
+        "想要",
+        "可以",
+        "知道",
+        "一下",
+        "一些",
+        "告诉",
+        "请问",
+        "还是",
+        "的话",
+        "不是",
+        "没有",
+        "现在",
+        "已经",
+        "应该",
+        "可能",
+        "因为",
+        "所以",
+        "但是",
+    }
+)
 
 _QUOTED_PATTERN = re.compile(r'[""「」『』]([^""「」『』]+)[""「」『』]')
 _CHINESE_WORD_PATTERN = re.compile(r"[一-龥]{2,6}")
@@ -446,7 +473,9 @@ async def _collect_user_profile(
     user_manager = UserProfileManager(profile_storage)
 
     group_profile = await group_manager.get_or_create(group_id, persona_id)
-    user_profile = await user_manager.get_or_create(user_id, effective_group_id, persona_id)
+    user_profile = await user_manager.get_or_create(
+        user_id, effective_group_id, persona_id
+    )
 
     profile_text = _format_profiles_for_injection(group_profile, user_profile)
 
@@ -1114,9 +1143,7 @@ def _log_final_context(req: "ProviderRequest") -> None:
         )
         import re as _re
 
-        _iris_tag_pattern = _re.compile(
-            r"<iris:(\w+)>\n(.*?)\n</iris:\1>", _re.DOTALL
-        )
+        _iris_tag_pattern = _re.compile(r"<iris:(\w+)>\n(.*?)\n</iris:\1>", _re.DOTALL)
         _section_truncation = 300
 
         for i, part in enumerate(req.extra_user_content_parts, 1):

@@ -17,22 +17,23 @@ from iris_memory.dream.pruning import PruningPhase
 
 def _mock_config():
     mock = Mock()
-    mock.get = Mock(side_effect=lambda key, default=None: {
-        "eviction_batch_size": 100,
-        "node_confidence_threshold": 0.3,
-        "forgetting_threshold": 0.3,
-        "forgetting_threshold_kg": 0.3,
-        "kg_retention_days": 30,
-        "forgetting_llm_confirm_enable": False,
-        "forgetting_llm_confirm_threshold": 0.5,
-        "forgetting_llm_confirm_provider": "",
-        "isolation_config.enable_group_memory_isolation": False,
-    }.get(key, default))
+    mock.get = Mock(
+        side_effect=lambda key, default=None: {
+            "eviction_batch_size": 100,
+            "node_confidence_threshold": 0.3,
+            "forgetting_threshold": 0.3,
+            "forgetting_threshold_kg": 0.3,
+            "kg_retention_days": 30,
+            "forgetting_llm_confirm_enable": False,
+            "forgetting_llm_confirm_threshold": 0.5,
+            "forgetting_llm_confirm_provider": "",
+            "isolation_config.enable_group_memory_isolation": False,
+        }.get(key, default)
+    )
     return mock
 
 
 class TestPruningPhase:
-
     @pytest.fixture
     def phase(self):
         return PruningPhase()
@@ -68,9 +69,11 @@ class TestPruningPhase:
     async def test_llm_confirm_eviction_disabled(self, phase):
         with patch("iris_memory.dream.pruning.get_config") as mock_config:
             mock_config_instance = Mock()
-            mock_config_instance.get = Mock(side_effect=lambda key, default=None: {
-                "forgetting_llm_confirm_enable": False,
-            }.get(key, default))
+            mock_config_instance.get = Mock(
+                side_effect=lambda key, default=None: {
+                    "forgetting_llm_confirm_enable": False,
+                }.get(key, default)
+            )
             mock_config.return_value = mock_config_instance
 
             entries = [("id1", "content1", 0.05), ("id2", "content2", 0.08)]
@@ -84,9 +87,11 @@ class TestPruningPhase:
     async def test_llm_confirm_eviction_no_llm_defaults_to_keep(self, phase):
         with patch("iris_memory.dream.pruning.get_config") as mock_config:
             mock_config_instance = Mock()
-            mock_config_instance.get = Mock(side_effect=lambda key, default=None: {
-                "forgetting_llm_confirm_enable": True,
-            }.get(key, default))
+            mock_config_instance.get = Mock(
+                side_effect=lambda key, default=None: {
+                    "forgetting_llm_confirm_enable": True,
+                }.get(key, default)
+            )
             mock_config.return_value = mock_config_instance
 
             entries = [("id1", "content1", 0.05)]
@@ -98,11 +103,13 @@ class TestPruningPhase:
     async def test_llm_confirm_eviction_llm_failure_defaults_to_keep(self, phase):
         with patch("iris_memory.dream.pruning.get_config") as mock_config:
             mock_config_instance = Mock()
-            mock_config_instance.get = Mock(side_effect=lambda key, default=None: {
-                "forgetting_llm_confirm_enable": True,
-                "forgetting_llm_confirm_threshold": 0.5,
-                "forgetting_llm_confirm_provider": None,
-            }.get(key, default))
+            mock_config_instance.get = Mock(
+                side_effect=lambda key, default=None: {
+                    "forgetting_llm_confirm_enable": True,
+                    "forgetting_llm_confirm_threshold": 0.5,
+                    "forgetting_llm_confirm_provider": None,
+                }.get(key, default)
+            )
             mock_config.return_value = mock_config_instance
 
             llm = Mock()
@@ -117,11 +124,13 @@ class TestPruningPhase:
     async def test_llm_confirm_eviction_high_score_auto_confirm(self, phase):
         with patch("iris_memory.dream.pruning.get_config") as mock_config:
             mock_config_instance = Mock()
-            mock_config_instance.get = Mock(side_effect=lambda key, default=None: {
-                "forgetting_llm_confirm_enable": True,
-                "forgetting_llm_confirm_threshold": 0.5,
-                "forgetting_llm_confirm_provider": None,
-            }.get(key, default))
+            mock_config_instance.get = Mock(
+                side_effect=lambda key, default=None: {
+                    "forgetting_llm_confirm_enable": True,
+                    "forgetting_llm_confirm_threshold": 0.5,
+                    "forgetting_llm_confirm_provider": None,
+                }.get(key, default)
+            )
             mock_config.return_value = mock_config_instance
 
             llm = Mock()

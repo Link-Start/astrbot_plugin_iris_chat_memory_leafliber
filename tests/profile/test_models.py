@@ -193,7 +193,13 @@ class TestMergeCustomFields:
         assert merged["喜欢的食物"] == "烤肉"
 
     def test_max_fields_limit(self):
-        existing = {"家乡": "北京", "宠物": "猫", "职业": "工程师", "年龄": "25", "身高": "175"}
+        existing = {
+            "家乡": "北京",
+            "宠物": "猫",
+            "职业": "工程师",
+            "年龄": "25",
+            "身高": "175",
+        }
         new_fields = {"爱好": "游泳", "学历": "本科", "血型": "A", "星座": "天秤"}
         merged, changed = merge_custom_fields(existing, new_fields, max_fields=7)
         assert len(merged) == 7
@@ -213,7 +219,18 @@ class TestMergeCustomFields:
         assert merged == existing
 
     def test_trimming_keeps_latest(self):
-        existing = {"家乡": "北京", "宠物": "猫", "职业": "工程师", "年龄": "25", "身高": "175", "学历": "本科", "血型": "A", "星座": "天秤", "爱好": "游泳", "特长": "钢琴"}
+        existing = {
+            "家乡": "北京",
+            "宠物": "猫",
+            "职业": "工程师",
+            "年龄": "25",
+            "身高": "175",
+            "学历": "本科",
+            "血型": "A",
+            "星座": "天秤",
+            "爱好": "游泳",
+            "特长": "钢琴",
+        }
         new_fields = {"方言": "粤语"}
         merged, changed = merge_custom_fields(existing, new_fields, max_fields=10)
         assert len(merged) == 10

@@ -35,7 +35,9 @@ class TestUserProfileManager:
 
         assert profile.user_id == "user_456"
         assert profile.user_name == "小明"
-        mock_storage.get_user_profile.assert_called_once_with("user_456", "group_123", "default")
+        mock_storage.get_user_profile.assert_called_once_with(
+            "user_456", "group_123", "default"
+        )
 
     @pytest.mark.asyncio
     async def test_get_or_create_new(self, manager, mock_storage):
@@ -45,7 +47,9 @@ class TestUserProfileManager:
 
         assert profile.user_id == "user_456"
         assert profile.user_name == ""
-        mock_storage.get_user_profile.assert_called_once_with("user_456", "group_123", "default")
+        mock_storage.get_user_profile.assert_called_once_with(
+            "user_456", "group_123", "default"
+        )
 
     @pytest.mark.asyncio
     async def test_update_user_name(self, manager, mock_storage):

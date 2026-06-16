@@ -53,10 +53,12 @@ class TestL2MemoryAdapter:
         mock_index.add_with_ids = fake_add_with_ids
 
         # 模拟 search
-        mock_index.search = Mock(return_value=(
-            np.array([[0.95]]),
-            np.array([[0]]),
-        ))
+        mock_index.search = Mock(
+            return_value=(
+                np.array([[0.95]]),
+                np.array([[0]]),
+            )
+        )
 
         # 模拟 remove_ids
         mock_index.remove_ids = Mock()
@@ -318,8 +320,12 @@ class TestL2MemoryAdapter:
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
         adapter._check_similarity = AsyncMock(return_value=None)
 
-        await adapter.add_memory("旧记忆", metadata={"group_id": "g1", "timestamp": "2024-01-01T00:00:00"})
-        await adapter.add_memory("新记忆", metadata={"group_id": "g1", "timestamp": "2024-12-01T00:00:00"})
+        await adapter.add_memory(
+            "旧记忆", metadata={"group_id": "g1", "timestamp": "2024-01-01T00:00:00"}
+        )
+        await adapter.add_memory(
+            "新记忆", metadata={"group_id": "g1", "timestamp": "2024-12-01T00:00:00"}
+        )
 
         results = await adapter.get_latest_memories(limit=1, group_id="g1")
         assert len(results) == 1
@@ -333,7 +339,9 @@ class TestL2MemoryAdapter:
         adapter._check_similarity = AsyncMock(return_value=None)
 
         await adapter.add_memory("未处理", metadata={"group_id": "g1"})
-        await adapter.add_memory("已处理", metadata={"group_id": "g1", "kg_processed": True})
+        await adapter.add_memory(
+            "已处理", metadata={"group_id": "g1", "kg_processed": True}
+        )
 
         entries = await adapter.get_unprocessed_memories(limit=10)
         assert len(entries) == 1
@@ -407,12 +415,17 @@ class TestL2MemoryAdapter:
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
         adapter._check_similarity = AsyncMock(return_value=None)
 
-        memory_id = await adapter.add_memory("测试", metadata={"group_id": "g1", "confidence": 0.5})
-        result = await adapter.update_metadata(memory_id, {
-            "group_id": "g1",
-            "confidence": 0.9,
-            "timestamp": "2024-01-01T00:00:00",
-        })
+        memory_id = await adapter.add_memory(
+            "测试", metadata={"group_id": "g1", "confidence": 0.5}
+        )
+        result = await adapter.update_metadata(
+            memory_id,
+            {
+                "group_id": "g1",
+                "confidence": 0.9,
+                "timestamp": "2024-01-01T00:00:00",
+            },
+        )
         assert result
 
         entries = await adapter.get_all_entries()

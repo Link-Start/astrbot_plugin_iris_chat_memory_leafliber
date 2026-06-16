@@ -402,7 +402,11 @@ class L3KGAdapter(Component):
                 nodes_map[row["id"]] = dict(row)
 
             for _ in range(max_depth):
-                if not frontier or len(nodes_map) >= max_nodes or len(edges_list) >= max_edges:
+                if (
+                    not frontier
+                    or len(nodes_map) >= max_nodes
+                    or len(edges_list) >= max_edges
+                ):
                     break
 
                 placeholders = ",".join("?" * len(frontier))
@@ -434,9 +438,7 @@ class L3KGAdapter(Component):
                         WHERE source_id IN ({placeholders})
                            OR target_id IN ({placeholders})
                     """
-                    rows = self._db_fetchall(
-                        query, (*frontier, *frontier)
-                    )
+                    rows = self._db_fetchall(query, (*frontier, *frontier))
 
                 next_frontier = []
                 frontier_set = set(frontier)
@@ -452,24 +454,26 @@ class L3KGAdapter(Component):
                     if isinstance(edge_props, str):
                         edge_props = json.loads(edge_props)
 
-                    edges_list.append({
-                        "source": source_id,
-                        "target": target_id,
-                        "_src": source_id,
-                        "_dst": target_id,
-                        "relation_type": row["relation_type"],
-                        "weight": row["weight"],
-                        "confidence": row["confidence"],
-                        "access_count": row["access_count"],
-                        "last_access_time": row["last_access_time"],
-                        "created_time": row["created_time"],
-                        "source_memory_id": row["source_memory_id"],
-                        "properties": edge_props if isinstance(edge_props, dict) else {},
-                    })
-
-                    neighbor_id = (
-                        target_id if source_id in frontier_set else source_id
+                    edges_list.append(
+                        {
+                            "source": source_id,
+                            "target": target_id,
+                            "_src": source_id,
+                            "_dst": target_id,
+                            "relation_type": row["relation_type"],
+                            "weight": row["weight"],
+                            "confidence": row["confidence"],
+                            "access_count": row["access_count"],
+                            "last_access_time": row["last_access_time"],
+                            "created_time": row["created_time"],
+                            "source_memory_id": row["source_memory_id"],
+                            "properties": edge_props
+                            if isinstance(edge_props, dict)
+                            else {},
+                        }
                     )
+
+                    neighbor_id = target_id if source_id in frontier_set else source_id
                     if neighbor_id not in visited and len(nodes_map) < max_nodes:
                         visited.add(neighbor_id)
                         next_frontier.append(neighbor_id)
@@ -533,12 +537,8 @@ class L3KGAdapter(Component):
             }
 
         try:
-            node_count = self._db_fetchone(
-                "SELECT COUNT(*) FROM nodes"
-            )[0]
-            edge_count = self._db_fetchone(
-                "SELECT COUNT(*) FROM edges"
-            )[0]
+            node_count = self._db_fetchone("SELECT COUNT(*) FROM nodes")[0]
+            edge_count = self._db_fetchone("SELECT COUNT(*) FROM edges")[0]
 
             node_types = {}
             for row in self._db_fetchall(
@@ -591,19 +591,21 @@ class L3KGAdapter(Component):
                 props = row["properties"]
                 if isinstance(props, str):
                     props = json.loads(props)
-                nodes.append({
-                    "id": row["id"],
-                    "label": row["label"],
-                    "name": row["name"],
-                    "content": row["content"],
-                    "confidence": row["confidence"],
-                    "access_count": row["access_count"],
-                    "last_access_time": row["last_access_time"],
-                    "created_time": row["created_time"],
-                    "source_memory_id": row["source_memory_id"],
-                    "group_id": row["group_id"],
-                    "properties": props,
-                })
+                nodes.append(
+                    {
+                        "id": row["id"],
+                        "label": row["label"],
+                        "name": row["name"],
+                        "content": row["content"],
+                        "confidence": row["confidence"],
+                        "access_count": row["access_count"],
+                        "last_access_time": row["last_access_time"],
+                        "created_time": row["created_time"],
+                        "source_memory_id": row["source_memory_id"],
+                        "group_id": row["group_id"],
+                        "properties": props,
+                    }
+                )
 
             logger.debug(f"获取到 {len(nodes)} 个节点")
             return nodes
@@ -919,9 +921,7 @@ class L3KGAdapter(Component):
             node_ids_to_query = [node_id]
             all_visited = {node_id}
 
-            seed_row = self._db_fetchone(
-                "SELECT * FROM nodes WHERE id = ?", (node_id,)
-            )
+            seed_row = self._db_fetchone("SELECT * FROM nodes WHERE id = ?", (node_id,))
             if seed_row:
                 nodes_map[node_id] = dict(seed_row)
 
@@ -939,7 +939,7 @@ class L3KGAdapter(Component):
                         (e.source_id IN ({placeholders}) AND n.id = e.target_id)
                         OR (e.target_id IN ({placeholders}) AND n.id = e.source_id)
                     )
-                    WHERE n.id NOT IN ({','.join('?' * len(all_visited))})
+                    WHERE n.id NOT IN ({",".join("?" * len(all_visited))})
                     LIMIT ?""",
                     (*node_ids_to_query, *node_ids_to_query, *all_visited, remaining),
                 )
@@ -977,12 +977,14 @@ class L3KGAdapter(Component):
                     edge_key = f"{row['source_id']}->{row['target_id']}"
                     if edge_key not in seen_edges:
                         seen_edges.add(edge_key)
-                        edges_list.append({
-                            "source": row["source_id"],
-                            "target": row["target_id"],
-                            "relation": row["relation_type"],
-                            "confidence": row["confidence"],
-                        })
+                        edges_list.append(
+                            {
+                                "source": row["source_id"],
+                                "target": row["target_id"],
+                                "relation": row["relation_type"],
+                                "confidence": row["confidence"],
+                            }
+                        )
 
             logger.debug(
                 f"从节点 {node_id} 拓展深度 {depth}，"
@@ -1034,9 +1036,7 @@ class L3KGAdapter(Component):
 
         try:
             placeholders = ",".join("?" * len(node_ids))
-            self._db_write(
-                f"DELETE FROM nodes WHERE id IN ({placeholders})", node_ids
-            )
+            self._db_write(f"DELETE FROM nodes WHERE id IN ({placeholders})", node_ids)
 
             logger.info(f"已淘汰 {len(node_ids)} 个节点及其关联边")
             return len(node_ids)
@@ -1059,9 +1059,7 @@ class L3KGAdapter(Component):
                 logger.debug(f"群聊 {group_id} 没有知识图谱节点")
                 return 0
 
-            self._db_write(
-                "DELETE FROM nodes WHERE group_id = ?", (group_id,)
-            )
+            self._db_write("DELETE FROM nodes WHERE group_id = ?", (group_id,))
 
             logger.info(f"已删除群聊 {group_id} 的 {node_count} 个节点及其关联边")
             return node_count
@@ -1080,10 +1078,12 @@ class L3KGAdapter(Component):
             if count == 0:
                 return 0
 
-            self._db_writes([
-                ("DELETE FROM edges", ()),
-                ("DELETE FROM nodes", ()),
-            ])
+            self._db_writes(
+                [
+                    ("DELETE FROM edges", ()),
+                    ("DELETE FROM nodes", ()),
+                ]
+            )
 
             logger.info(f"已删除所有知识图谱节点，共 {count} 个")
             return count
@@ -1118,9 +1118,7 @@ class L3KGAdapter(Component):
                     (group_id, user_id),
                 )
             else:
-                self._db_write(
-                    "DELETE FROM nodes WHERE name = ?", (user_id,)
-                )
+                self._db_write("DELETE FROM nodes WHERE name = ?", (user_id,))
 
             logger.info(f"已删除用户 {user_id} 的 {node_count} 个知识图谱节点")
             return node_count
@@ -1182,7 +1180,9 @@ class L3KGAdapter(Component):
 
                     source_ids = [
                         x.strip()
-                        for x in merged_properties.get("source_memory_ids", "").split(",")
+                        for x in merged_properties.get("source_memory_ids", "").split(
+                            ","
+                        )
                         if x.strip()
                     ]
                     group_ids = [
@@ -1190,7 +1190,10 @@ class L3KGAdapter(Component):
                         for x in merged_properties.get("group_ids", "").split(",")
                         if x.strip()
                     ]
-                    if keep_node.get("group_id") and keep_node["group_id"] not in group_ids:
+                    if (
+                        keep_node.get("group_id")
+                        and keep_node["group_id"] not in group_ids
+                    ):
                         group_ids.insert(0, keep_node["group_id"])
 
                     dup_ids = []
@@ -1211,7 +1214,9 @@ class L3KGAdapter(Component):
                                     merged_properties[k] = v
                             dup_source_ids = [
                                 x.strip()
-                                for x in dup_props.get("source_memory_ids", "").split(",")
+                                for x in dup_props.get("source_memory_ids", "").split(
+                                    ","
+                                )
                                 if x.strip()
                             ]
                             source_ids.extend(
@@ -1255,8 +1260,16 @@ class L3KGAdapter(Component):
                         )
 
                         for edge_row in dup_edges:
-                            new_source = keep_id if edge_row["source_id"] in dup_ids_set else edge_row["source_id"]
-                            new_target = keep_id if edge_row["target_id"] in dup_ids_set else edge_row["target_id"]
+                            new_source = (
+                                keep_id
+                                if edge_row["source_id"] in dup_ids_set
+                                else edge_row["source_id"]
+                            )
+                            new_target = (
+                                keep_id
+                                if edge_row["target_id"] in dup_ids_set
+                                else edge_row["target_id"]
+                            )
 
                             if new_source == new_target:
                                 continue
@@ -1383,19 +1396,21 @@ class L3KGAdapter(Component):
                 props = row["properties"]
                 if isinstance(props, str):
                     props = json.loads(props)
-                nodes.append({
-                    "id": row["id"],
-                    "label": row["label"],
-                    "name": row["name"],
-                    "content": row["content"],
-                    "confidence": row["confidence"],
-                    "access_count": row["access_count"],
-                    "last_access_time": row["last_access_time"],
-                    "created_time": row["created_time"],
-                    "source_memory_id": row["source_memory_id"],
-                    "group_id": row["group_id"],
-                    "properties": props if isinstance(props, dict) else {},
-                })
+                nodes.append(
+                    {
+                        "id": row["id"],
+                        "label": row["label"],
+                        "name": row["name"],
+                        "content": row["content"],
+                        "confidence": row["confidence"],
+                        "access_count": row["access_count"],
+                        "last_access_time": row["last_access_time"],
+                        "created_time": row["created_time"],
+                        "source_memory_id": row["source_memory_id"],
+                        "group_id": row["group_id"],
+                        "properties": props if isinstance(props, dict) else {},
+                    }
+                )
 
             edge_rows = self._db_fetchall(
                 """SELECT source_id, target_id, relation_type, weight, confidence,
@@ -1409,18 +1424,20 @@ class L3KGAdapter(Component):
                 props = row["properties"]
                 if isinstance(props, str):
                     props = json.loads(props)
-                edges.append({
-                    "source_id": row["source_id"],
-                    "target_id": row["target_id"],
-                    "relation_type": row["relation_type"],
-                    "weight": row["weight"],
-                    "confidence": row["confidence"],
-                    "access_count": row["access_count"],
-                    "last_access_time": row["last_access_time"],
-                    "created_time": row["created_time"],
-                    "source_memory_id": row["source_memory_id"],
-                    "properties": props if isinstance(props, dict) else {},
-                })
+                edges.append(
+                    {
+                        "source_id": row["source_id"],
+                        "target_id": row["target_id"],
+                        "relation_type": row["relation_type"],
+                        "weight": row["weight"],
+                        "confidence": row["confidence"],
+                        "access_count": row["access_count"],
+                        "last_access_time": row["last_access_time"],
+                        "created_time": row["created_time"],
+                        "source_memory_id": row["source_memory_id"],
+                        "properties": props if isinstance(props, dict) else {},
+                    }
+                )
 
             logger.info(f"知识图谱导出完成：{len(nodes)} 个节点，{len(edges)} 条边")
 

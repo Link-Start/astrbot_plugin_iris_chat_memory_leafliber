@@ -92,19 +92,19 @@ async def get_hidden_config():
 
             meta = _FIELD_META.get(key, {})
 
-            items.append({
-                "key": key,
-                "value": current_value,
-                "default": defaults.get(key),
-                "type": _get_field_type(field_obj),
-                "description": meta.get("description", ""),
-                "group": meta.get("group", "其他"),
-                "options": _get_literal_options(field_obj),
-            })
+            items.append(
+                {
+                    "key": key,
+                    "value": current_value,
+                    "default": defaults.get(key),
+                    "type": _get_field_type(field_obj),
+                    "description": meta.get("description", ""),
+                    "group": meta.get("group", "其他"),
+                    "options": _get_literal_options(field_obj),
+                }
+            )
 
-        groups = [
-            {"name": name, "keys": keys} for name, keys in _GROUPS.items()
-        ]
+        groups = [{"name": name, "keys": keys} for name, keys in _GROUPS.items()]
 
         return jsonify({"success": True, "items": items, "groups": groups})
 

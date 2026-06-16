@@ -20,8 +20,12 @@ class TestDreamReport:
     def test_summary_all_succeeded(self):
         report = DreamReport(total_duration_ms=1000)
         report.phases = [
-            DreamPhaseReport(phase="consolidation", enabled=True, success=True, duration_ms=100),
-            DreamPhaseReport(phase="temporal_anchor", enabled=True, success=True, duration_ms=200),
+            DreamPhaseReport(
+                phase="consolidation", enabled=True, success=True, duration_ms=100
+            ),
+            DreamPhaseReport(
+                phase="temporal_anchor", enabled=True, success=True, duration_ms=200
+            ),
         ]
         assert "2 阶段成功" in report.summary
         assert "1000ms" in report.summary
@@ -29,8 +33,16 @@ class TestDreamReport:
     def test_summary_with_failures(self):
         report = DreamReport(total_duration_ms=500)
         report.phases = [
-            DreamPhaseReport(phase="consolidation", enabled=True, success=True, duration_ms=100),
-            DreamPhaseReport(phase="contradiction", enabled=True, success=False, duration_ms=50, error="test error"),
+            DreamPhaseReport(
+                phase="consolidation", enabled=True, success=True, duration_ms=100
+            ),
+            DreamPhaseReport(
+                phase="contradiction",
+                enabled=True,
+                success=False,
+                duration_ms=50,
+                error="test error",
+            ),
         ]
         assert "1 阶段成功" in report.summary
         assert "1 阶段失败" in report.summary
@@ -38,8 +50,12 @@ class TestDreamReport:
     def test_summary_with_skipped(self):
         report = DreamReport(total_duration_ms=200)
         report.phases = [
-            DreamPhaseReport(phase="consolidation", enabled=True, success=True, duration_ms=100),
-            DreamPhaseReport(phase="pattern_discovery", enabled=False, success=True, duration_ms=0),
+            DreamPhaseReport(
+                phase="consolidation", enabled=True, success=True, duration_ms=100
+            ),
+            DreamPhaseReport(
+                phase="pattern_discovery", enabled=False, success=True, duration_ms=0
+            ),
         ]
         assert "1 阶段成功" in report.summary
         assert "1 阶段跳过" in report.summary
@@ -80,9 +96,11 @@ class TestDreamTask:
 
         with patch("iris_memory.dream.dream_task.get_config") as mock_config:
             mock_config_instance = Mock()
-            mock_config_instance.get = Mock(side_effect=lambda key, default=None: {
-                "scheduled_tasks.enable_dream": True,
-            }.get(key, default))
+            mock_config_instance.get = Mock(
+                side_effect=lambda key, default=None: {
+                    "scheduled_tasks.enable_dream": True,
+                }.get(key, default)
+            )
             mock_config.return_value = mock_config_instance
 
             report = await dream_task.execute()

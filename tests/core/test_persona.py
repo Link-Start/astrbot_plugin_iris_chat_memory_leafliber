@@ -12,8 +12,12 @@ def _make_event(umo="umo_1", cached=None):
     extras = {}
     if cached is not None:
         extras["iris_persona_id"] = cached
-    event.get_extra = Mock(side_effect=lambda key, default=None: extras.get(key, default))
-    event.set_extra = Mock(side_effect=lambda key, value: extras.__setitem__(key, value))
+    event.get_extra = Mock(
+        side_effect=lambda key, default=None: extras.get(key, default)
+    )
+    event.set_extra = Mock(
+        side_effect=lambda key, value: extras.__setitem__(key, value)
+    )
     return event
 
 

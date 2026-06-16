@@ -66,7 +66,9 @@ async def delete_l2_memory():
                     {"success": False, "error": "scope=group 时必须提供 group_id"}
                 ), 400
             count = await l2_adapter.delete_by_group(group_id, persona_id)
-            logger.info(f"已删除群聊 {group_id} (persona {persona_id}) 的 L2 记忆：{count} 条")
+            logger.info(
+                f"已删除群聊 {group_id} (persona {persona_id}) 的 L2 记忆：{count} 条"
+            )
         elif scope == "all":
             count = await l2_adapter.delete_all(persona_id)
             logger.info(f"已删除 persona {persona_id} 的 L2 记忆：{count} 条")

@@ -45,7 +45,9 @@ class TestPersonaColumn:
     def test_persona_id_column_exists(self, persona_adapter):
         cols = {
             row[1]
-            for row in persona_adapter._db.execute("PRAGMA table_info(memories)").fetchall()
+            for row in persona_adapter._db.execute(
+                "PRAGMA table_info(memories)"
+            ).fetchall()
         }
         assert "persona_id" in cols
 
@@ -56,7 +58,9 @@ class TestPersonaColumn:
             persona_adapter, "_embed", new=AsyncMock(return_value=[[0.0] * 8])
         ):
             mid = await persona_adapter.add_memory(
-                "content-yuki", metadata={"group_id": "g1"}, persona_id="yuki",
+                "content-yuki",
+                metadata={"group_id": "g1"},
+                persona_id="yuki",
                 skip_dedup=True,
             )
         assert mid is not None
@@ -72,15 +76,9 @@ class TestPersonaFiltering:
         with patch.object(
             persona_adapter, "_embed", new=AsyncMock(return_value=[[0.0] * 8])
         ):
-            await persona_adapter.add_memory(
-                "a", persona_id="yuki", skip_dedup=True
-            )
-            await persona_adapter.add_memory(
-                "b", persona_id="aria", skip_dedup=True
-            )
-            await persona_adapter.add_memory(
-                "c", persona_id="default", skip_dedup=True
-            )
+            await persona_adapter.add_memory("a", persona_id="yuki", skip_dedup=True)
+            await persona_adapter.add_memory("b", persona_id="aria", skip_dedup=True)
+            await persona_adapter.add_memory("c", persona_id="default", skip_dedup=True)
 
         yuki = await persona_adapter.get_all_entries(persona_id="yuki")
         aria = await persona_adapter.get_all_entries(persona_id="aria")

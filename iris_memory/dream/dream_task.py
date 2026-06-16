@@ -128,9 +128,7 @@ class DreamTask:
         logger.info(f"🌙 梦境开始，待加工 persona：{persona_ids}")
 
         for persona_id in persona_ids:
-            await self._run_pipeline_for_persona(
-                persona_id, l2, l3, llm, report
-            )
+            await self._run_pipeline_for_persona(persona_id, l2, l3, llm, report)
             await self._invalidate_entries()
 
         finished_at = datetime.now()
@@ -215,7 +213,9 @@ class DreamTask:
             )
         except Exception as e:
             duration_ms = int((datetime.now() - phase_start).total_seconds() * 1000)
-            logger.error(f"阶段 [{phase_name}] (persona {persona_id}) 失败：{e}", exc_info=True)
+            logger.error(
+                f"阶段 [{phase_name}] (persona {persona_id}) 失败：{e}", exc_info=True
+            )
             return DreamPhaseReport(
                 phase=phase_name,
                 enabled=True,
@@ -230,7 +230,9 @@ class DreamTask:
         phase = ConsolidationPhase()
         return await phase.execute(l2, l3, llm, entries=entries, persona_id=persona_id)
 
-    async def _run_temporal_anchor(self, l2, l3, llm, entries=None, persona_id="default"):
+    async def _run_temporal_anchor(
+        self, l2, l3, llm, entries=None, persona_id="default"
+    ):
         from .temporal_anchor import TemporalAnchorPhase
 
         phase = TemporalAnchorPhase()
@@ -242,13 +244,17 @@ class DreamTask:
         phase = ContradictionPhase()
         return await phase.execute(l2, l3, llm, entries=entries, persona_id=persona_id)
 
-    async def _run_pattern_discovery(self, l2, l3, llm, entries=None, persona_id="default"):
+    async def _run_pattern_discovery(
+        self, l2, l3, llm, entries=None, persona_id="default"
+    ):
         from .pattern_discovery import PatternDiscoveryPhase
 
         phase = PatternDiscoveryPhase()
         return await phase.execute(l2, l3, llm, entries=entries, persona_id=persona_id)
 
-    async def _run_knowledge_extract(self, l2, l3, llm, entries=None, persona_id="default"):
+    async def _run_knowledge_extract(
+        self, l2, l3, llm, entries=None, persona_id="default"
+    ):
         from .knowledge_extract import KnowledgeExtractPhase
 
         phase = KnowledgeExtractPhase()

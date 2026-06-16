@@ -56,8 +56,7 @@ def _try_get_encoder(encoding_name: str = "cl100k_base"):
         return enc
     except Exception as e:
         logger.warning(
-            f"tiktoken 编码器 {encoding_name} 初始化失败：{e}，"
-            f"降级为字符估算"
+            f"tiktoken 编码器 {encoding_name} 初始化失败：{e}，降级为字符估算"
         )
         # 缓存 None 表示已降级，避免反复重试
         _encoder_cache[encoding_name] = None

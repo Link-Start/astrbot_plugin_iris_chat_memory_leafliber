@@ -117,6 +117,7 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 
 ### 其他能力
 
+- **多平台支持**：原生适配 QQ（OneBot11），其他平台自动通过通用适配器降级运行，并支持按需扩展
 - **会话隔离**：群聊记忆隔离、群聊画像隔离、Bot 人格隔离
 - **上下文控制**：自动清理 AstrBot 内置对话历史，确保上下文完全由插件管理
 - **被动触发检测**：区分主动对话和 sampling/主动回复，按需降级图片解析等高消耗操作
@@ -227,6 +228,8 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 | `--group` / `-g` | 操作当前群聊的所有数据 |
 | `--all` / `-a` | 操作所有数据（全局） |
 
+> 每个模块均支持 `/iris_mem <模块> help`（如 `/iris_mem l2 help`）查看该模块可用命令；不带子命令时，`l1`/`l2`/`l3` 等价于查看统计，`profile` 等价于显示当前用户画像。
+
 ## 配置
 
 ### 推荐配置
@@ -262,10 +265,8 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 | `l1_buffer.image_parsing.provider` | 图片解析模型（需支持视觉能力） | `""` |
 | `l1_buffer.image_parsing.mode` | 解析模式（`all` / `related`） | `"related"` |
 | `l1_buffer.image_parsing.daily_quota` | 每日解析限额 | `200` |
-| `l1_buffer.image_parsing.max_parse_per_request` | 单次请求最大解析数 | `5` |
-| `l1_buffer.image_parsing.max_concurrent_parse` | 最大并发解析数 | `3` |
-| `l1_buffer.image_parsing.cache_retention_days` | 缓存保留天数 | `7` |
-| `l1_buffer.image_parsing.skip_on_passive_trigger` | 被动触发时跳过图片解析 | `true` |
+
+> 图片解析的并发、超时、缓存等内部参数见下方 「隐藏配置（高级调优）」 的"图片处理"分组。
 
 </details>
 
@@ -279,9 +280,9 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 | `l2_memory.embedding_provider` | Embedding Provider ID（留空自动选择） | `""` |
 | `l2_memory.embedding_model` | 本地嵌入模型（仅 local 模式） | `"BAAI/bge-small-zh-v1.5"` |
 | `l2_memory.top_k` | 检索 Top-K | `10` |
-| `l2_memory.max_entries` | 最大条目数 | `10000` |
-| `l2_memory.timeout_ms` | 检索超时（毫秒） | `4000` |
 | `l2_memory.relevance_threshold` | 相关性阈值 | `0.3` |
+
+> L2 的最大条目数、检索超时、查询改写等内部参数见下方 「隐藏配置（高级调优）」。
 
 > ⚠️ **切换嵌入模型前请先备份数据！** 更换模型后向量维度可能改变，插件会自动重建记忆库，已有记忆将丢失。可通过 Web 管理界面导出备份。
 
@@ -294,12 +295,8 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 |--------|------|--------|
 | `l3_kg.enable` | 启用 L3 知识图谱 | `true` |
 | `l3_kg.extraction_provider` | 实体提取模型（留空使用默认 Provider） | `""` |
-| `l3_kg.max_nodes` | 最大节点数 | `50000` |
-| `l3_kg.max_edges` | 最大边数 | `100000` |
-| `l3_kg.timeout_ms` | 检索超时（毫秒） | `1500` |
-| `l3_kg.expansion_depth` | 图增强检索路径扩展深度 | `2` |
-| `l3_kg.enable_type_whitelist` | 启用类型白名单约束 | `true` |
-| `l3_kg.max_inject_tokens` | 图谱注入最大 Token 数 | `600` |
+
+> L3 的节点/边上限、检索超时、扩展深度、类型白名单、图谱遗忘等内部参数见下方 「隐藏配置（高级调优）」。
 
 </details>
 
@@ -355,15 +352,20 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 
 隐藏配置不在 WebUI 中展示，用于控制内部行为。存储在 `data/iris_memory/hidden_config.json`，支持运行时热修改。
 
-**Token 预算与 L1 缓冲**
+**Token 预算**
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
-| `token_budget_max_tokens` | `2000` | L2 记忆注入最大 Token 数 |
-| `l1_segment_1_length` | `10` | L1-1 最新段消息数 |
-| `l1_segment_3_length` | `10` | L1-3 缓冲段消息数 |
-| `l1_max_queue_tokens` | `4000` | 队列最大 Token 数 |
-| `l1_max_single_message_tokens` | `500` | 单条消息最大 Token 数 |
+| `token_budget_max_tokens` | `2000` | L2 记忆注入上下文最大 Token 数 |
+
+**L1 缓冲**
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `l1_segment_1_length` | `10` | L1-1 最新段消息数（始终注入上下文） |
+| `l1_segment_3_length` | `10` | L1-3 缓冲段消息数（辅助总结理解） |
+| `l1_max_queue_tokens` | `4000` | 队列最大 Token 数，超限触发总结 |
+| `l1_max_single_message_tokens` | `500` | 单条消息最大 Token 数，超限丢弃 |
 | `l1_inject_max_content_chars` | `200` | 注入时单条消息最大字符数，0 不截断 |
 | `l1_max_memories_per_summary` | `10` | 每次总结写入 L2 的最大记忆条数 |
 
@@ -374,15 +376,27 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 | `forgetting_lambda` | `0.1` | 近因性衰减系数 |
 | `forgetting_threshold` | `0.3` | 遗忘阈值 |
 | `forgetting_immediate_eviction_threshold` | `0.1` | 极端低分直接淘汰阈值 |
-| `forgetting_llm_confirm_enable` | `false` | 启用 LLM 兜底确认遗忘 |
+
+**遗忘确认**
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `forgetting_llm_confirm_enable` | `false` | 启用 LLM 最终兜底确认遗忘 |
 | `forgetting_llm_confirm_provider` | `""` | 确认使用的 Provider（空则使用默认） |
 | `forgetting_llm_confirm_threshold` | `0.15` | 评分低于此值才触发 LLM 确认 |
 
-**L2 检索与去重**
+**L2 记忆**
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | `l2_similarity_threshold` | `0.90` | L2 去重相似度阈值 |
+| `l2_max_entries` | `10000` | L2 最大条目数（预留） |
+| `l2_timeout_ms` | `4000` | L2 检索超时（毫秒） |
+
+**L2 查询改写**
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
 | `l2_query_rewrite_enable` | `true` | 启用 L2 检索查询改写 |
 | `l2_query_rewrite_provider` | `""` | 查询改写使用的 Provider（空则使用默认） |
 | `l2_query_rewrite_timeout_ms` | `3000` | 查询改写超时（毫秒） |
@@ -391,14 +405,26 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
-| `entity_extraction_temperature` | `0.3` | 实体提取温度 |
-| `type_merge_threshold` | `0.8` | 类型合并相似度阈值 |
+| `l3_max_nodes` | `50000` | L3 最大节点数（预留） |
+| `l3_max_edges` | `100000` | L3 最大边数（预留） |
+| `l3_timeout_ms` | `1500` | L3 检索超时（毫秒） |
+| `l3_expansion_depth` | `2` | 图谱检索路径扩展深度 |
+| `l3_enable_type_whitelist` | `true` | 启用 LLM 实体类型白名单约束 |
+| `l3_max_inject_tokens` | `600` | 知识图谱注入上下文最大 Token 数 |
 | `node_confidence_threshold` | `0.3` | 节点最低置信度 |
-| `edge_weight_decay_rate` | `0.01` | 边权重衰减率 |
-| `forgetting_lambda_kg` | `0.01` | 知识图谱遗忘系数 |
 | `forgetting_threshold_kg` | `0.2` | 知识图谱遗忘阈值 |
 | `kg_retention_days` | `30` | 知识图谱保留天数 |
-| `kuzu_query_timeout_ms` | `5000` | KuzuDB 查询超时 |
+| `kg_extraction_semantic_weight` | `0.5` | 知识提取：语义相似记忆权重 |
+| `kg_extraction_same_group_weight` | `0.3` | 知识提取：同群聊记忆权重 |
+| `kg_extraction_same_user_weight` | `0.2` | 知识提取：同用户记忆权重 |
+
+**LLM 调用管理**
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `call_log_max_entries` | `100` | 调用日志最大保留条数 |
+| `llm_call_timeout_ms` | `60000` | LLM 调用全局超时（毫秒，0 不限制），兜底防止 Provider 卡死 |
+| `enable_context_logging` | `false` | 启用 LLM 上下文日志输出 |
 
 **梦境任务**
 
@@ -419,14 +445,13 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 | `dream_knowledge_extract_min_unprocessed` | `10` | 知识提取最小未处理记忆数 |
 | `dream_knowledge_extract_batch_size` | `20` | 知识提取批次大小 |
 | `eviction_batch_size` | `100` | 遗忘清洗批次大小 |
+| `image_cache_cleanup_interval_hours` | `24` | 图片缓存清理任务间隔（小时） |
 
 **画像系统**
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
-| `profile_analysis_interval_hours` | `24` | 分析任务间隔（小时） |
 | `profile_max_messages_for_analysis` | `50` | 分析时最大消息数 |
-| `profile_enable_version_control` | `true` | 启用版本控制 |
 | `profile_mid_update_interval_summaries` | `5` | 中期更新：每隔 N 次总结触发 |
 | `profile_mid_update_interval_hours` | `24.0` | 中期更新：最短间隔（小时） |
 | `profile_long_update_interval_hours` | `168.0` | 长期更新：最短间隔（小时，默认 7 天） |
@@ -435,16 +460,16 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
-| `image_parsing_timeout_ms` | `30000` | 图片解析超时（毫秒） |
-| `image_parsing_max_size_kb` | `4096` | 最大图片大小（KB） |
-| `image_parsing_supported_formats` | `"jpg,jpeg,png,gif,webp"` | 支持的图片格式 |
-| `image_parsing_fallback_on_error` | `true` | 解析失败时是否入队原始消息 |
+| `image_max_parse_per_request` | `5` | 单次请求最大图片解析数 |
+| `image_max_concurrent_parse` | `3` | 最大并发图片解析数 |
+| `image_cache_retention_days` | `7` | 图片解析结果缓存保留天数 |
+| `image_skip_on_passive_trigger` | `true` | 被动触发时跳过图片解析 |
+| `image_parse_timeout_ms` | `30000` | 单次请求图片解析整体超时（毫秒，0 不限制） |
 | `image_phash_enable` | `true` | 启用 pHash 感知哈希去重 |
 | `image_phash_threshold` | `10` | pHash 汉明距离阈值（越小越严格） |
 | `image_filter_enable` | `true` | 启用无效图过滤（纯色/过小） |
 | `image_filter_min_size` | `16` | 最小图片尺寸（像素） |
 | `image_filter_std_threshold` | `5.0` | 纯色检测标准差阈值 |
-| `image_cache_cleanup_interval_hours` | `24` | 图片缓存清理间隔（小时） |
 
 **输入清理**
 
@@ -452,26 +477,6 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 |--------|--------|------|
 | `input_sanitizer_enable` | `true` | 启用 Prompt 注入过滤 |
 | `input_sanitizer_max_length` | `10000` | 输入最大长度 |
-
-**LLM 工具**
-
-| 配置项 | 默认值 | 说明 |
-|--------|--------|------|
-| `tool_memory_max_content_length` | `500` | 记忆内容最大长度 |
-| `tool_correction_require_confirmation` | `false` | 修正需确认 |
-| `tool_timeout_ms` | `2000` | Tool 调用超时 |
-| `tool_read_max_results` | `10` | 读取记忆最大返回数 |
-
-**性能与调试**
-
-| 配置项 | 默认值 | 说明 |
-|--------|--------|------|
-| `chromadb_batch_size` | `100` | ChromaDB 批量写入大小 |
-| `call_log_max_entries` | `100` | 调用日志最大保留条数 |
-| `debug_mode` | `false` | 调试模式 |
-| `verbose_logging` | `false` | 详细日志输出 |
-| `log_level` | `"INFO"` | 日志级别 |
-| `enable_context_logging` | `false` | 启用 LLM 上下文日志输出 |
 
 </details>
 

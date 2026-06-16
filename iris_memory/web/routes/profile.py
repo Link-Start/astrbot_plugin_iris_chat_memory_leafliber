@@ -196,7 +196,9 @@ async def delete_user_profile():
         if error:
             return error
 
-        success = await profile_storage.delete_user_profile(user_id, group_id, persona_id)
+        success = await profile_storage.delete_user_profile(
+            user_id, group_id, persona_id
+        )
 
         if success:
             logger.info(f"删除用户画像成功：user_id={user_id}, group_id={group_id}")

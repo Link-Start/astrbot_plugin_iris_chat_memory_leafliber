@@ -123,7 +123,9 @@ class TestGraphRetriever:
     async def test_format_for_context_truncates_long_content(self, retriever):
         """测试过长描述截断"""
         long_content = "这是一段非常长的描述" * 20
-        nodes = [{"id": "n1", "label": "Person", "name": "Alice", "content": long_content}]
+        nodes = [
+            {"id": "n1", "label": "Person", "name": "Alice", "content": long_content}
+        ]
 
         result = retriever.format_for_context(nodes, [], max_content_length=100)
 

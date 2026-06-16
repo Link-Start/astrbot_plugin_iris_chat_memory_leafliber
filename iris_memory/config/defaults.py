@@ -111,11 +111,17 @@ class HiddenConfig:
     # L1 缓冲内部参数
     l1_segment_1_length: int = field(
         default=10,
-        metadata={"description": "L1-1 最新段消息数（始终注入上下文）", "group": "L1 缓冲"},
+        metadata={
+            "description": "L1-1 最新段消息数（始终注入上下文）",
+            "group": "L1 缓冲",
+        },
     )
     l1_segment_3_length: int = field(
         default=10,
-        metadata={"description": "L1-3 缓冲段消息数（辅助总结理解）", "group": "L1 缓冲"},
+        metadata={
+            "description": "L1-3 缓冲段消息数（辅助总结理解）",
+            "group": "L1 缓冲",
+        },
     )
     l1_max_queue_tokens: int = field(
         default=4000,
@@ -127,7 +133,10 @@ class HiddenConfig:
     )
     l1_inject_max_content_chars: int = field(
         default=200,
-        metadata={"description": "注入时单条消息最大字符数，0 不截断", "group": "L1 缓冲"},
+        metadata={
+            "description": "注入时单条消息最大字符数，0 不截断",
+            "group": "L1 缓冲",
+        },
     )
     l1_max_memories_per_summary: int = field(
         default=10,
@@ -189,7 +198,10 @@ class HiddenConfig:
     )
     l3_max_inject_tokens: int = field(
         default=600,
-        metadata={"description": "知识图谱注入上下文最大 token 数", "group": "L3 知识图谱"},
+        metadata={
+            "description": "知识图谱注入上下文最大 token 数",
+            "group": "L3 知识图谱",
+        },
     )
     node_confidence_threshold: float = field(
         default=0.3,
@@ -381,7 +393,10 @@ class HiddenConfig:
     )
     forgetting_llm_confirm_provider: str = field(
         default="",
-        metadata={"description": "确认使用的 Provider(空则使用默认)", "group": "遗忘确认"},
+        metadata={
+            "description": "确认使用的 Provider(空则使用默认)",
+            "group": "遗忘确认",
+        },
     )
     forgetting_llm_confirm_threshold: float = field(
         default=0.15,
@@ -395,7 +410,10 @@ class HiddenConfig:
     )
     l2_query_rewrite_provider: str = field(
         default="",
-        metadata={"description": "查询改写使用的 Provider(空则使用默认)", "group": "L2 查询改写"},
+        metadata={
+            "description": "查询改写使用的 Provider(空则使用默认)",
+            "group": "L2 查询改写",
+        },
     )
     l2_query_rewrite_timeout_ms: int = field(
         default=3000,
