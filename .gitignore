@@ -174,7 +174,6 @@ __marimo__/
 
 # docs
 docs/
-/*.md
 
 # IDE
 .codebuddy

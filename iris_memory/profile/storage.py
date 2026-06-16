@@ -186,6 +186,7 @@ class ProfileStorage(Component):
             data = profile_to_dict(profile)
             await self._storage.put_kv_data(key, data)
             await self._add_to_group_index(profile.group_id, persona_id)
+            await self._add_to_persona_index(persona_id)
             logger.debug(f"保存群聊画像成功: {key}, version={profile.version}")
 
         except Exception as e:
@@ -245,6 +246,7 @@ class ProfileStorage(Component):
             data = profile_to_dict(profile)
             await self._storage.put_kv_data(key, data)
             await self._add_to_user_index(profile.user_id, group_id, persona_id)
+            await self._add_to_persona_index(persona_id)
             logger.debug(f"保存用户画像成功: {key}, version={profile.version}")
 
         except Exception as e:
@@ -471,6 +473,25 @@ class ProfileStorage(Component):
         except Exception as e:
             logger.error(f"更新用户索引失败: {e}")
 
+    async def _add_to_persona_index(self, persona_id: str) -> None:
+        """记录出现过的 persona_id，供 delete_all 遍历所有命名空间。"""
+        index_key = "persona_index"
+        try:
+            async with self._index_lock:
+                personas = await self._storage.get_kv_data(index_key, [])
+                if persona_id not in personas:
+                    personas.append(persona_id)
+                    await self._storage.put_kv_data(index_key, personas)
+        except Exception as e:
+            logger.error(f"更新 persona 索引失败: {e}")
+
+    async def _get_known_personas(self) -> list:
+        """获取所有已知 persona_id（始终包含 default 兜底）。"""
+        personas = await self._storage.get_kv_data("persona_index", [])
+        if "default" not in personas:
+            personas = ["default", *personas]
+        return personas
+
     async def delete_user_profile(
         self, user_id: str, group_id: str = "default", persona_id: str = "default"
     ) -> bool:
@@ -529,8 +550,7 @@ class ProfileStorage(Component):
     async def delete_all_user_profiles_in_group(self, group_id: str) -> int:
         """删除群聊内所有用户画像
 
-        注意：此方法需要遍历所有键，效率较低。
-        当前实现为占位符，需要 AstrBot KV 存储支持列表功能。
+        通过 persona_index / user_index 遍历，无需 KV 列表功能。
 
         Args:
             group_id: 群聊ID
@@ -538,34 +558,95 @@ class ProfileStorage(Component):
         Returns:
             删除的画像数量
         """
-        logger.warning(
-            "delete_all_user_profiles_in_group 需要 AstrBot KV 存储支持列表功能"
-        )
-        return 0
+        if not self._is_available:
+            return 0
+
+        deleted = 0
+        try:
+            for persona_id in await self._get_known_personas():
+                user_ids = await self._storage.get_kv_data(
+                    f"user_index:{persona_id}:{group_id}", []
+                )
+                for user_id in user_ids:
+                    await self._storage.delete_kv_data(
+                        f"user_profile:{persona_id}:{group_id}:{user_id}"
+                    )
+                    deleted += 1
+                if user_ids:
+                    await self._storage.delete_kv_data(
+                        f"user_index:{persona_id}:{group_id}"
+                    )
+        except Exception as e:
+            logger.error(f"删除群聊内用户画像失败: {e}", exc_info=True)
+
+        logger.info(f"已删除群聊 {group_id} 内 {deleted} 个用户画像")
+        return deleted
 
     async def delete_all_user_profiles(self) -> int:
         """删除所有用户画像
 
-        注意：此方法需要遍历所有键，效率较低。
-        当前实现为占位符，需要 AstrBot KV 存储支持列表功能。
+        通过 persona_index / group_index / user_index 遍历，无需 KV 列表功能。
 
         Returns:
             删除的画像数量
         """
-        logger.warning("delete_all_user_profiles 需要 AstrBot KV 存储支持列表功能")
-        return 0
+        if not self._is_available:
+            return 0
+
+        deleted = 0
+        try:
+            for persona_id in await self._get_known_personas():
+                group_ids = await self._storage.get_kv_data(
+                    f"group_index:{persona_id}", []
+                )
+                for group_id in group_ids:
+                    user_ids = await self._storage.get_kv_data(
+                        f"user_index:{persona_id}:{group_id}", []
+                    )
+                    for user_id in user_ids:
+                        await self._storage.delete_kv_data(
+                            f"user_profile:{persona_id}:{group_id}:{user_id}"
+                        )
+                        deleted += 1
+                    if user_ids:
+                        await self._storage.delete_kv_data(
+                            f"user_index:{persona_id}:{group_id}"
+                        )
+        except Exception as e:
+            logger.error(f"删除所有用户画像失败: {e}", exc_info=True)
+
+        logger.info(f"已删除 {deleted} 个用户画像")
+        return deleted
 
     async def delete_all_group_profiles(self) -> int:
         """删除所有群聊画像
 
-        注意：此方法需要遍历所有键，效率较低。
-        当前实现为占位符，需要 AstrBot KV 存储支持列表功能。
+        通过 persona_index / group_index 遍历，无需 KV 列表功能。
 
         Returns:
             删除的画像数量
         """
-        logger.warning("delete_all_group_profiles 需要 AstrBot KV 存储支持列表功能")
-        return 0
+        if not self._is_available:
+            return 0
+
+        deleted = 0
+        try:
+            for persona_id in await self._get_known_personas():
+                group_ids = await self._storage.get_kv_data(
+                    f"group_index:{persona_id}", []
+                )
+                for group_id in group_ids:
+                    await self._storage.delete_kv_data(
+                        f"group_profile:{persona_id}:{group_id}"
+                    )
+                    deleted += 1
+                if group_ids:
+                    await self._storage.delete_kv_data(f"group_index:{persona_id}")
+        except Exception as e:
+            logger.error(f"删除所有群聊画像失败: {e}", exc_info=True)
+
+        logger.info(f"已删除 {deleted} 个群聊画像")
+        return deleted
 
     async def delete_all_profiles(self) -> dict:
         """删除所有画像（用户画像 + 群聊画像）
