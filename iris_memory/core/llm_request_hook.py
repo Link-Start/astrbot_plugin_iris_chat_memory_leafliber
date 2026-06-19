@@ -325,7 +325,7 @@ async def _collect_l1_context(
         logger.debug(f"群聊 {group_id} 排除当前消息后 L1 上下文为空，跳过注入")
         return ""
 
-    max_content_chars = cast(int, config.get("l1_inject_max_content_chars", 200))
+    max_content_chars = cast(int, config.get("l1_inject_max_content_chars"))
 
     lines = []
     if group_id:
@@ -965,8 +965,8 @@ async def _parse_images_if_related_mode(
         logger.warning("LLM Manager 不可用，跳过图片解析")
         return
 
-    max_parse = config.get("image_max_parse_per_request", 5)
-    max_concurrent = config.get("image_max_concurrent_parse", 3)
+    max_parse = config.get("image_max_parse_per_request")
+    max_concurrent = config.get("image_max_concurrent_parse")
 
     pending_images = l1_buffer.get_images(group_id, limit=max_parse, only_pending=True)
 

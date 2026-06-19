@@ -519,7 +519,7 @@ async def _parse_images_if_enabled(
         logger.warning("LLM Manager 不可用，跳过图片解析")
         return
 
-    max_parse = config.get("image_max_parse_per_request", 5)
+    max_parse = config.get("image_max_parse_per_request")
     pending_images = l1_buffer.get_images(group_id, limit=max_parse, only_pending=True)
 
     if not pending_images:

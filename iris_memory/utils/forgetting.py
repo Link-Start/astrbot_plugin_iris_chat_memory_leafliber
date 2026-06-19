@@ -183,22 +183,15 @@ def calculate_forgetting_score(
     config = get_config()
 
     if weights is None:
-        D = calculate_isolation_degree(entry.metadata)
-        if D > 0:
-            # D>0 档：L2 记忆无 connected_count，此分支实际不触发，保留为预留
-            weights = {
-                "w1": 0.3,
-                "w2": 0.3,
-                "w3": 0.2,
-                "w4": 0.2,
-            }
-        else:
-            weights = {
-                "w1": cast(float, config.get("forgetting_l2_weight_recency", 0.4)),
-                "w2": cast(float, config.get("forgetting_l2_weight_frequency", 0.35)),
-                "w3": cast(float, config.get("forgetting_l2_weight_confidence", 0.25)),
-                "w4": cast(float, config.get("forgetting_l2_weight_isolation", 0.0)),
-            }
+        # L2 记忆无 connected_count，calculate_isolation_degree 恒返回 0，
+        # isolation 权重项不产生实际贡献；权重从隐藏配置读取（fallback 与
+        # dataclass 默认一致，供 config 系统未就绪时兜底）。
+        weights = {
+            "w1": cast(float, config.get("forgetting_l2_weight_recency", 0.4)),
+            "w2": cast(float, config.get("forgetting_l2_weight_frequency", 0.35)),
+            "w3": cast(float, config.get("forgetting_l2_weight_confidence", 0.25)),
+            "w4": cast(float, config.get("forgetting_l2_weight_isolation", 0.0)),
+        }
 
     lambda_decay = float(config.get("forgetting_lambda", 0.1))  # type: ignore[arg-type]
 
@@ -305,7 +298,9 @@ def calculate_kg_forgetting_score(
     - R (Recency): 近因性，衰减系数更低（0.05 vs 0.1）
     - D (Degree): 孤立度 = 1/(connected_count+1)
     - C (Confidence): 置信度
-    - V (Verification): 验证度 = min(1.0, source_memory_count / 5)
+    - V (Verification): 验证度 = min(1.0, log(source_memory_count + 1) / log(6))，
+      source_memory_count 为 0 时取 0；对数曲线使少量来源即可获得较高验证度，
+      与 ``source_memory_count >= 3 永不淘汰`` 的保护阈值相配合。
 
     权重：w1=0.15, w2=0.40, w3=0.15, w4=0.30
     结构重要性（1-D）占 40%，验证度占 30%，远高于 L2。

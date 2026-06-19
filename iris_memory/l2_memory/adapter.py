@@ -99,6 +99,8 @@ class L2MemoryAdapter(Component):
         self._context = context
         self._free_list: List[int] = []
         self._dirty = False
+        self._pending_writes = 0
+        self._checkpointing = False
         self._lock = threading.RLock()
         self._init_mode = InitMode.BACKGROUND
         self._last_recovery_attempt: float = 0.0
@@ -371,6 +373,51 @@ class L2MemoryAdapter(Component):
             self._embedding_source = "provider"
             self._reset_state()
         logger.info("L2 记忆库已关闭")
+
+    def _mark_dirty(self) -> None:
+        """标记索引已修改；累计写入达到阈值时安排异步落盘。
+
+        FAISS 索引此前仅在 shutdown 时整体持久化，运行期进程崩溃会丢失自启动
+        以来的全部向量增量（而 SQLite 走 WAL、commit 即耐久），导致重启后
+        SQLite 有记录但 FAISS 缺向量、索引与元数据不一致。定期 checkpoint 把
+        丢失窗口收敛到最近若干次写入。可在持锁或非持锁上下文中调用。
+        """
+        self._dirty = True
+        self._pending_writes += 1
+        threshold = int(get_config().get("l2_checkpoint_writes") or 0)
+        if threshold <= 0 or self._pending_writes < threshold:
+            return
+        if self._checkpointing:
+            return
+        self._pending_writes = 0
+        self._checkpointing = True
+        try:
+            asyncio.create_task(asyncio.to_thread(self._checkpoint_locked))
+        except RuntimeError:
+            # 无运行中的事件循环（如同步测试上下文），退化为等待下次触发
+            self._checkpointing = False
+
+    def _checkpoint_locked(self) -> None:
+        """持锁将脏 FAISS 索引落盘（供线程池执行）。"""
+        try:
+            with self._lock:
+                if (
+                    self._index is not None
+                    and self._persist_dir is not None
+                    and self._dirty
+                ):
+                    import faiss
+
+                    faiss.write_index(
+                        self._index, str(self._persist_dir / "index.faiss")
+                    )
+                    self._save_meta()
+                    self._dirty = False
+                    logger.debug("FAISS 索引已 checkpoint")
+        except Exception as e:
+            logger.error(f"FAISS checkpoint 失败：{e}")
+        finally:
+            self._checkpointing = False
 
     # ========================================================================
     # 嵌入源初始化
@@ -661,7 +708,7 @@ class L2MemoryAdapter(Component):
                     faiss_idx, memory_id, content, metadata, persona_id
                 )
 
-            self._dirty = True
+            self._mark_dirty()
             logger.debug(f"已添加记忆：{memory_id}")
             return memory_id
 
@@ -717,22 +764,21 @@ class L2MemoryAdapter(Component):
         timeout_ms = config.get("l2_timeout_ms")
         timeout_sec = timeout_ms / 1000.0
 
-        try:
-            # 在主线程中计算嵌入（provider 模式避免 asyncio.run 开销）
+        async def _embed_and_search():
+            # embedding 经 provider 可能走外部 API，与 FAISS 检索一并纳入超时，
+            # 避免 embedding provider 卡死时在 on_llm_request 会话锁内无限挂起
             vector = await self._embed([query])
             vector_np = np.array([vector[0]], dtype=np.float32)
-
             loop = asyncio.get_event_loop()
-            results = await asyncio.wait_for(
-                loop.run_in_executor(
-                    None,
-                    lambda: self._search_with_vector(
-                        vector_np, group_id, top_k, persona_id
-                    ),
+            return await loop.run_in_executor(
+                None,
+                lambda: self._search_with_vector(
+                    vector_np, group_id, top_k, persona_id
                 ),
-                timeout=timeout_sec,
             )
-            return results
+
+        try:
+            return await asyncio.wait_for(_embed_and_search(), timeout=timeout_sec)
         except asyncio.TimeoutError:
             logger.warning(f"L2 记忆检索超时（{timeout_sec}s），跳过")
             return []
@@ -1094,13 +1140,27 @@ class L2MemoryAdapter(Component):
 
             # FAISS + SQLite 操作在同一个锁内完成
             with self._lock:
+                # 重新校验 faiss_idx 归属：嵌入计算在锁外完成，期间该记忆可能被
+                # delete_entries 删除且其槽位被 add_memory 经 free-list 复用。
+                # 若直接写回旧 faiss_idx，会误删并覆盖复用方的新向量，导致
+                # FAISS 与 SQLite 错乱。校验不一致则放弃本次更新。
+                row_now = self._db.execute(
+                    "SELECT faiss_idx FROM memories WHERE memory_id = ?",
+                    (memory_id,),
+                ).fetchone()
+                if not row_now or row_now[0] != faiss_idx:
+                    logger.warning(
+                        f"记忆 {memory_id} 更新期间被并发删除或槽位变更，放弃更新"
+                    )
+                    return False
+
                 self._index.remove_ids(np.array([faiss_idx], dtype=np.int64))
                 self._index.add_with_ids(
                     new_vector, np.array([faiss_idx], dtype=np.int64)
                 )
                 self._upsert_db_unlocked(faiss_idx, memory_id, new_content, metadata)
 
-            self._dirty = True
+            self._mark_dirty()
             logger.info(f"已更新记忆内容：{memory_id}")
             return True
         except Exception as e:
@@ -1143,7 +1203,7 @@ class L2MemoryAdapter(Component):
                 )
                 self._db.commit()
 
-            self._dirty = True
+            self._mark_dirty()
             logger.info(f"已删除 {len(faiss_indices)} 条记忆")
             return True
         except Exception as e:
@@ -1324,9 +1384,12 @@ class L2MemoryAdapter(Component):
             return {"total_count": 0, "group_count": 0}
 
         try:
-            row = self._db_execute(
-                "SELECT COUNT(*), COUNT(DISTINCT group_id) FROM memories"
-            ).fetchone()
+            # 走线程池，避免在事件循环线程持同步锁、与 executor 中的长 FAISS
+            # 检索争用而阻塞整个插件
+            row = await asyncio.to_thread(
+                self._db_fetchone,
+                "SELECT COUNT(*), COUNT(DISTINCT group_id) FROM memories",
+            )
             return {"total_count": row[0], "group_count": row[1]}
         except Exception as e:
             logger.error(f"获取L2统计失败：{e}", exc_info=True)
@@ -1359,7 +1422,7 @@ class L2MemoryAdapter(Component):
                 )
                 self._db.commit()
 
-            self._dirty = True
+            self._mark_dirty()
             logger.info(
                 f"已删除群聊 {group_id} (persona {persona_id}) 的 {len(faiss_indices)} 条记忆"
             )
@@ -1420,7 +1483,7 @@ class L2MemoryAdapter(Component):
                 )
                 self._db.commit()
 
-            self._dirty = True
+            self._mark_dirty()
             logger.info(f"已删除用户 {user_id} 的 {len(ids_to_delete)} 条记忆")
             return len(ids_to_delete)
         except Exception as e:
@@ -1450,7 +1513,7 @@ class L2MemoryAdapter(Component):
                         "DELETE FROM memories WHERE persona_id = ?", (persona_id,)
                     )
                     self._db.commit()
-                    self._dirty = True
+                    self._mark_dirty()
                     logger.info(f"已删除 persona {persona_id} 的 {count} 条记忆")
                     return count
 
@@ -1464,7 +1527,7 @@ class L2MemoryAdapter(Component):
                 self._db_write("DELETE FROM memories")
 
                 self._free_list = []
-                self._dirty = True
+                self._mark_dirty()
                 logger.info(f"已删除所有记忆，共 {count} 条")
                 return count
         except Exception as e:
@@ -1719,6 +1782,20 @@ class L2MemoryAdapter(Component):
         """线程安全的 DB 执行（用于 SELECT）"""
         with self._lock:
             return self._db.execute(sql, params)
+
+    def _db_fetchone(self, sql: str, params=()) -> Optional[tuple]:
+        """线程安全的 DB 查询：持锁内完成 execute + fetchone，返回数据行。
+
+        与 _db_execute 不同，数据在锁内取出，避免 cursor 在锁外 fetch 时
+        受并发写影响；适合配合 asyncio.to_thread 把读路径移出事件循环。
+        """
+        with self._lock:
+            return self._db.execute(sql, params).fetchone()
+
+    def _db_fetchall(self, sql: str, params=()) -> List[tuple]:
+        """线程安全的 DB 查询：持锁内完成 execute + fetchall，返回数据行列表。"""
+        with self._lock:
+            return self._db.execute(sql, params).fetchall()
 
     def _db_write(self, sql: str, params=()):
         """线程安全的 DB 写入（INSERT/UPDATE/DELETE + COMMIT）"""

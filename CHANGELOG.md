@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-19
+
 ### 安全
 
 - **修复图片 URL 的 SSRF 漏洞**：图片可达性检查新增主机安全校验（仅允许 http/https，通过 DNS 解析拒绝私网 / 环回 / 链路本地 / 云元数据等非全局地址），并禁用自动重定向，防止恶意用户构造图片 URL 探测内网。
@@ -30,6 +32,10 @@
   - 模式挖掘启用此前被忽略的 `dream_pattern_min_confidence` 配置阈值过滤低置信度模式。
 - **Token 预算估算偏小**：L2 检索的 Token 估算改用 `count_tokens`，修正原先 `len//2+1` 对中文严重偏小导致预算超用。
 - **指令误触发**：`/iris_mem` 指令前缀改用单词边界匹配，避免正文出现「iris_memory」等子串被误判为指令。
+- **隐藏配置默认值不一致与热修改盲区**：
+  - `forgetting_threshold_kg` 代码 fallback（0.3）与 dataclass 默认（0.2）矛盾，统一为 0.2；
+  - `profile_max_messages_for_analysis` 此前群聊 / 用户画像共用同一键、fallback 不一致（50/30），拆分为 `profile_max_messages_for_analysis`（群聊，50）与 `profile_max_messages_for_user_analysis`（用户，30）；
+  - `l2_similarity_threshold` 此前仅在 L2 adapter 初始化时缓存，运行时热修改不生效；改为去重时实时读取，恢复「支持热修改」承诺。
 
 ### 变更
 
@@ -40,6 +46,10 @@
   - 配套：精简 `CorrectMemoryTool` 节点更新逻辑；`SearchKnowledgeGraphTool` 改用新的 `search` 方法；L2 adapter 新增 `get_entry_by_id` 精确查询能力。
   - 测试与依赖同步更新：`tests/l2_memory/test_adapter.py` 调整用例，`requirements.txt` 移除 `chromadb`、`kuzu`，新增 `faiss-cpu`。
 - **统一原子持久化**：新增 `iris_memory/utils/persistence.py`（写入临时文件 → `fsync` → `os.replace`），替换 L2 导出 / 导入、隐藏配置、L2 索引元数据等处此前的非原子覆盖写，避免写入中途崩溃导致文件截断与数据丢失（部分加载逻辑此前会静默丢弃全部数据回到默认）。
+- **隐藏配置系统优化**：
+  - 默认值调整：`l1_inject_max_content_chars` 200→300（减少注入截断丢信息）、`l2_similarity_threshold` 0.90→0.87（减少重复记忆堆积）、`image_max_parse_per_request` 5→3（与 `image_max_concurrent_parse` 对齐，形成「每批 3 张」统一批次语义）；
+  - 硬编码可配化：将遗忘评分权重（L2 四项 + KG 四项）、L2 保留天数 `l2_retention_days`、KG 衰减系数 `forgetting_lambda_kg`、合并检索 `dream_consolidation_query_top_k` 共 11 项原硬编码魔法数字提升为隐藏配置项；
+  - 死代码清理：移除从未被读取的预留配置 `l2_max_entries`、`l3_max_nodes`、`l3_max_edges`。
 
 ### 开发与质量
 

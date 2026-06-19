@@ -181,6 +181,13 @@ class HiddenConfig:
             "group": "遗忘算法",
         },
     )
+    l2_checkpoint_writes: int = field(
+        default=50,
+        metadata={
+            "description": "L2 FAISS 索引每 N 次写入异步落盘一次，收敛崩溃丢失窗口（0=禁用，仅关闭时保存）",
+            "group": "持久化",
+        },
+    )
 
     # L3 知识图谱遗忘评分权重 S = w_recency·R + w_structure·(1-D) + w_confidence·C + w_verification·V
     forgetting_kg_weight_recency: float = field(

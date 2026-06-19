@@ -25,8 +25,10 @@ class TestImageParser:
 
     @pytest.fixture
     def parser_with_url_check(self, parser):
-        """创建并 mock URL 可达性检查为通过"""
-        parser._check_url_accessible = AsyncMock(return_value=True)
+        """创建并 mock 网络图片下载为成功（返回 data URL）"""
+        parser._fetch_image_data_url = AsyncMock(
+            return_value="data:image/jpeg;base64,bW9jaw=="
+        )
         return parser
 
     @pytest.mark.asyncio
@@ -40,10 +42,11 @@ class TestImageParser:
         assert result.content == "这是一张风景图片，显示蓝天白云"
         assert result.image_info == image_info
 
-        # 验证调用参数
+        # 验证调用参数：网络图片应已转为 data URL，不再以原始外链传给 LLM
         mock_llm_manager.generate_with_images.assert_called_once()
         call_args = mock_llm_manager.generate_with_images.call_args
-        assert call_args[1]["image_urls"] == ["https://example.com/image.jpg"]
+        assert len(call_args[1]["image_urls"]) == 1
+        assert call_args[1]["image_urls"][0].startswith("data:")
         assert call_args[1]["module"] == "image_parsing"
         assert call_args[1]["provider_id"] == "test_provider"
 
@@ -97,7 +100,9 @@ class TestImageParser:
     async def test_parse_with_default_provider(self, mock_llm_manager):
         """测试使用默认 provider"""
         parser = ImageParser(mock_llm_manager)  # 不指定 provider
-        parser._check_url_accessible = AsyncMock(return_value=True)
+        parser._fetch_image_data_url = AsyncMock(
+            return_value="data:image/jpeg;base64,bW9jaw=="
+        )
 
         image_info = ImageInfo(url="https://example.com/image.jpg")
         result = await parser.parse(image_info)
@@ -138,7 +143,9 @@ class TestImageParser:
             return_value="我无法分析这张图片，因为这里没有图片显示。"
         )
         p = ImageParser(manager)
-        p._check_url_accessible = AsyncMock(return_value=True)
+        p._fetch_image_data_url = AsyncMock(
+            return_value="data:image/jpeg;base64,bW9jaw=="
+        )
 
         image_info = ImageInfo(url="https://example.com/missing.jpg")
         result = await p.parse(image_info)
@@ -148,7 +155,7 @@ class TestImageParser:
     @pytest.mark.asyncio
     async def test_parse_with_url_inaccessible(self, parser):
         """测试图片 URL 不可达时跳过 LLM 调用"""
-        parser._check_url_accessible = AsyncMock(return_value=False)
+        parser._fetch_image_data_url = AsyncMock(return_value=None)
 
         image_info = ImageInfo(url="https://example.com/expired.jpg")
         result = await parser.parse(image_info)
