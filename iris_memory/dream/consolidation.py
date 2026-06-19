@@ -82,6 +82,7 @@ class ConsolidationPhase:
         self._scan_budget = 500
         self._query_batch_size = 50
         self._max_group_size = 5
+        self._query_top_k = 5
 
     async def execute(
         self,
@@ -103,6 +104,7 @@ class ConsolidationPhase:
         self._max_group_size = cast(
             int, config.get("dream_consolidation_max_group_size")
         )
+        self._query_top_k = cast(int, config.get("dream_consolidation_query_top_k"))
 
         if not llm:
             logger.warning("LLMManager 不可用，跳过合并重复项")
@@ -196,7 +198,10 @@ class ConsolidationPhase:
 
                 try:
                     results_batch = await adapter.batch_retrieve(
-                        queries=queries, group_id=gid, top_k=5, persona_id=persona_id
+                        queries=queries,
+                        group_id=gid,
+                        top_k=self._query_top_k,
+                        persona_id=persona_id,
                     )
 
                     for query_id, results in zip(query_ids, results_batch):

@@ -15,7 +15,7 @@ Iris Chat Memory - 遗忘权重算法
 """
 
 from datetime import datetime
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING, cast
 import math
 
 from iris_memory.config import get_config
@@ -149,7 +149,7 @@ def calculate_isolation_degree(metadata: Dict[str, Any]) -> float:
 
 
 def calculate_forgetting_score(
-    entry: "MemoryEntry", weights: Dict[str, float] = None
+    entry: "MemoryEntry", weights: Optional[Dict[str, float]] = None
 ) -> float:
     """计算综合遗忘评分
 
@@ -185,6 +185,7 @@ def calculate_forgetting_score(
     if weights is None:
         D = calculate_isolation_degree(entry.metadata)
         if D > 0:
+            # D>0 档：L2 记忆无 connected_count，此分支实际不触发，保留为预留
             weights = {
                 "w1": 0.3,
                 "w2": 0.3,
@@ -193,10 +194,10 @@ def calculate_forgetting_score(
             }
         else:
             weights = {
-                "w1": 0.4,
-                "w2": 0.35,
-                "w3": 0.25,
-                "w4": 0.0,
+                "w1": cast(float, config.get("forgetting_l2_weight_recency", 0.4)),
+                "w2": cast(float, config.get("forgetting_l2_weight_frequency", 0.35)),
+                "w3": cast(float, config.get("forgetting_l2_weight_confidence", 0.25)),
+                "w4": cast(float, config.get("forgetting_l2_weight_isolation", 0.0)),
             }
 
     lambda_decay = float(config.get("forgetting_lambda", 0.1))  # type: ignore[arg-type]
@@ -251,10 +252,10 @@ def should_evict(
         True
     """
     config = get_config()
-    evict_threshold = float(config.get("forgetting_threshold", 0.3))  # type: ignore[arg-type]
-    immediate_threshold = float(
-        config.get("forgetting_immediate_eviction_threshold", 0.1)
-    )  # type: ignore[arg-type]
+    evict_threshold = cast(float, config.get("forgetting_threshold", 0.3))
+    immediate_threshold = cast(
+        float, config.get("forgetting_immediate_eviction_threshold", 0.1)
+    )
 
     if entry.metadata.get("low_confidence"):
         evict_threshold *= 1.3
@@ -335,7 +336,15 @@ def calculate_kg_forgetting_score(
         else 0.0
     )
 
-    score = 0.15 * R + 0.40 * (1 - D) + 0.15 * C + 0.30 * V
+    config = get_config()
+    w_recency = cast(float, config.get("forgetting_kg_weight_recency", 0.15))
+    w_structure = cast(float, config.get("forgetting_kg_weight_structure", 0.40))
+    w_confidence = cast(float, config.get("forgetting_kg_weight_confidence", 0.15))
+    w_verification = cast(float, config.get("forgetting_kg_weight_verification", 0.30))
+
+    score = (
+        w_recency * R + w_structure * (1 - D) + w_confidence * C + w_verification * V
+    )
 
     return max(0.0, min(1.0, score))
 
@@ -374,12 +383,14 @@ def should_evict_kg_node(
     if source_memory_count >= 3:
         return False
 
+    lambda_decay = cast(float, get_config().get("forgetting_lambda_kg", 0.05))
     score = calculate_kg_forgetting_score(
         last_access_time=last_access_time,
         access_count=access_count,
         confidence=confidence,
         connected_count=connected_count,
         source_memory_count=source_memory_count,
+        lambda_decay=lambda_decay,
     )
 
     if score < threshold:

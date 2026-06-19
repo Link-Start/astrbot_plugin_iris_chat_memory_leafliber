@@ -132,7 +132,7 @@ class HiddenConfig:
         metadata={"description": "单条消息最大 Token 数，超限丢弃", "group": "L1 缓冲"},
     )
     l1_inject_max_content_chars: int = field(
-        default=200,
+        default=300,
         metadata={
             "description": "注入时单条消息最大字符数，0 不截断",
             "group": "L1 缓冲",
@@ -157,18 +157,64 @@ class HiddenConfig:
         metadata={"description": "极端低分直接淘汰阈值", "group": "遗忘算法"},
     )
 
+    # L2 记忆遗忘评分权重 S = w_recency·R + w_frequency·F + w_confidence·C + w_isolation·(1-D)
+    forgetting_l2_weight_recency: float = field(
+        default=0.4,
+        metadata={"description": "L2 遗忘评分: 近因性权重", "group": "遗忘算法"},
+    )
+    forgetting_l2_weight_frequency: float = field(
+        default=0.35,
+        metadata={"description": "L2 遗忘评分: 频率性权重", "group": "遗忘算法"},
+    )
+    forgetting_l2_weight_confidence: float = field(
+        default=0.25,
+        metadata={"description": "L2 遗忘评分: 置信度权重", "group": "遗忘算法"},
+    )
+    forgetting_l2_weight_isolation: float = field(
+        default=0.0,
+        metadata={"description": "L2 遗忘评分: 孤立度权重", "group": "遗忘算法"},
+    )
+    l2_retention_days: int = field(
+        default=30,
+        metadata={
+            "description": "L2 记忆保留天数（超期且低分才淘汰）",
+            "group": "遗忘算法",
+        },
+    )
+
+    # L3 知识图谱遗忘评分权重 S = w_recency·R + w_structure·(1-D) + w_confidence·C + w_verification·V
+    forgetting_kg_weight_recency: float = field(
+        default=0.15,
+        metadata={"description": "KG 遗忘评分: 近因性权重", "group": "遗忘算法"},
+    )
+    forgetting_kg_weight_structure: float = field(
+        default=0.40,
+        metadata={"description": "KG 遗忘评分: 结构重要性权重", "group": "遗忘算法"},
+    )
+    forgetting_kg_weight_confidence: float = field(
+        default=0.15,
+        metadata={"description": "KG 遗忘评分: 置信度权重", "group": "遗忘算法"},
+    )
+    forgetting_kg_weight_verification: float = field(
+        default=0.30,
+        metadata={"description": "KG 遗忘评分: 验证度权重", "group": "遗忘算法"},
+    )
+    forgetting_lambda_kg: float = field(
+        default=0.05,
+        metadata={
+            "description": "KG 近因性衰减系数（比 L2 更慢）",
+            "group": "遗忘算法",
+        },
+    )
+
     enable_context_logging: bool = field(
         default=False,
         metadata={"description": "启用 LLM 上下文日志输出", "group": "LLM 调用管理"},
     )
 
     l2_similarity_threshold: float = field(
-        default=0.90,
+        default=0.87,
         metadata={"description": "L2 去重相似度阈值", "group": "L2 记忆"},
-    )
-    l2_max_entries: int = field(
-        default=10000,
-        metadata={"description": "L2 最大条目数(预留)", "group": "L2 记忆"},
     )
     l2_timeout_ms: int = field(
         default=4000,
@@ -176,14 +222,6 @@ class HiddenConfig:
     )
 
     # L3 知识图谱参数
-    l3_max_nodes: int = field(
-        default=50000,
-        metadata={"description": "L3 最大节点数(预留)", "group": "L3 知识图谱"},
-    )
-    l3_max_edges: int = field(
-        default=100000,
-        metadata={"description": "L3 最大边数(预留)", "group": "L3 知识图谱"},
-    )
     l3_timeout_ms: int = field(
         default=1500,
         metadata={"description": "L3 检索超时(ms)", "group": "L3 知识图谱"},
@@ -250,6 +288,13 @@ class HiddenConfig:
         default=50,
         metadata={"description": "向量检索批量查询大小", "group": "梦境任务"},
     )
+    dream_consolidation_query_top_k: int = field(
+        default=5,
+        metadata={
+            "description": "合并阶段向量检索每条返回的近邻数",
+            "group": "梦境任务",
+        },
+    )
     dream_consolidation_max_group_size: int = field(
         default=5,
         metadata={"description": "单组合并最大条目数", "group": "梦境任务"},
@@ -312,7 +357,11 @@ class HiddenConfig:
     # 画像系统参数
     profile_max_messages_for_analysis: int = field(
         default=50,
-        metadata={"description": "分析时最大消息数", "group": "画像系统"},
+        metadata={"description": "群聊画像分析时最大消息数", "group": "画像系统"},
+    )
+    profile_max_messages_for_user_analysis: int = field(
+        default=30,
+        metadata={"description": "用户画像分析时最大消息数", "group": "画像系统"},
     )
     profile_mid_update_interval_summaries: int = field(
         default=5,
@@ -329,8 +378,11 @@ class HiddenConfig:
 
     # 图片解析（从 _conf_schema.json 迁移）
     image_max_parse_per_request: int = field(
-        default=5,
-        metadata={"description": "单次请求最大图片解析数", "group": "图片处理"},
+        default=3,
+        metadata={
+            "description": "单次请求最大图片解析数（与并发批次对齐）",
+            "group": "图片处理",
+        },
     )
     image_max_concurrent_parse: int = field(
         default=3,

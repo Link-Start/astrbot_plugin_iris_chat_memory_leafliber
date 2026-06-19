@@ -211,7 +211,7 @@ class ProfileAnalyzer:
         """
         try:
             config = get_config()
-            max_messages = config.get("profile_max_messages_for_analysis", 30)
+            max_messages = config.get("profile_max_messages_for_user_analysis", 30)
         except RuntimeError:
             max_messages = 30
         limited_messages = messages[:max_messages]

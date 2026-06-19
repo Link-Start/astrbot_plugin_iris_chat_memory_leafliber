@@ -97,7 +97,6 @@ class L2MemoryAdapter(Component):
         self._persist_dir: Optional[Path] = None
         self._persona_id = persona_id
         self._context = context
-        self._similarity_threshold = 0.90
         self._free_list: List[int] = []
         self._dirty = False
         self._lock = threading.RLock()
@@ -133,8 +132,6 @@ class L2MemoryAdapter(Component):
         try:
             self._persist_dir = config.data_dir / "faiss" / f"memory_{self._persona_id}"
             self._persist_dir.mkdir(parents=True, exist_ok=True)
-
-            self._similarity_threshold = config.get("l2_similarity_threshold", 0.90)
 
             # 初始化嵌入源
             self._embedding_source = config.get(
@@ -688,7 +685,7 @@ class L2MemoryAdapter(Component):
             return None
 
         score = float(scores[0][0])
-        if score < self._similarity_threshold:
+        if score < float(get_config().get("l2_similarity_threshold")):
             return None
 
         faiss_idx = int(indices[0][0])

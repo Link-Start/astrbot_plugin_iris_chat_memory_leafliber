@@ -123,10 +123,13 @@ class PruningPhase:
 
             logger.info(f"开始评估 {len(entries)} 条 L2 记忆...")
 
+            config = get_config()
+            retention_days = cast(int, config.get("l2_retention_days", 30))
+
             to_evict_with_score = []
 
             for entry in entries:
-                if should_evict(entry):
+                if should_evict(entry, retention_days=retention_days):
                     score = calculate_forgetting_score(entry)
                     to_evict_with_score.append((entry.id, entry.content, score))
 
@@ -221,7 +224,7 @@ class PruningPhase:
             connection_counts = await l3.get_node_connection_counts()
 
             config = get_config()
-            threshold_kg = cast(float, config.get("forgetting_threshold_kg", 0.3))
+            threshold_kg = cast(float, config.get("forgetting_threshold_kg", 0.2))
             retention_days = cast(int, config.get("kg_retention_days", 30))
 
             to_evict_with_score = []
