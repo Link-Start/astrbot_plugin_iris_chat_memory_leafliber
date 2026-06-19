@@ -33,6 +33,12 @@
 
 ### 变更
 
+- **L2 / L3 架构轻量化（重大）**：
+  - **L2 记忆库**：由 ChromaDB 迁移到 **FAISS（向量索引）+ SQLite（向量元数据与文本）**，去除 ChromaDB 自带的重型传递依赖，向量维度与召回行为不变。
+  - **L3 知识图谱**：由 KuzuDB 迁移到 **SQLite**（关系模型表达节点和关系），去除 KuzuDB 的 C++ 原生扩展依赖，安装包体积与启动时间显著下降。
+  - 配套 `2911125`：FAISS + SQLite 的复合操作改用 `RLock` 替代 `Lock`，确保跨组件线程安全。
+  - 配套：精简 `CorrectMemoryTool` 节点更新逻辑；`SearchKnowledgeGraphTool` 改用新的 `search` 方法；L2 adapter 新增 `get_entry_by_id` 精确查询能力。
+  - 测试与依赖同步更新：`tests/l2_memory/test_adapter.py` 调整用例，`requirements.txt` 移除 `chromadb`、`kuzu`，新增 `faiss-cpu`。
 - **统一原子持久化**：新增 `iris_memory/utils/persistence.py`（写入临时文件 → `fsync` → `os.replace`），替换 L2 导出 / 导入、隐藏配置、L2 索引元数据等处此前的非原子覆盖写，避免写入中途崩溃导致文件截断与数据丢失（部分加载逻辑此前会静默丢弃全部数据回到默认）。
 
 ### 开发与质量
