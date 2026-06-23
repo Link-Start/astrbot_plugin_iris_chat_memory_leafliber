@@ -6,6 +6,39 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-24
+
+> **⚠️ 重要：本次更新需要重启 AstrBot，否则可能会导致插件加载失败。**
+>
+> 原因：本版本新增了 `on_llm_request` 钩子中的对话上下文清理逻辑与 UI 偏好设置 Web 路由，二者均在插件加载阶段注册；若不重启 AstrBot 使插件重新加载，新钩子与路由不会生效，且可能与已运行的旧实例产生状态不一致。
+
+### 新增
+
+- **L2 FAISS 索引定期 checkpoint**：新增隐藏配置 `l2_checkpoint_writes`（默认 50），L2 索引每 N 次写入异步落盘一次，把崩溃丢失窗口从「自启动以来全部增量」收敛到「最近 N 次写入」（0=禁用，仅关闭时保存）。此前 FAISS 索引仅在 shutdown 时整体持久化，运行期进程崩溃会丢失全部向量增量，而 SQLite 走 WAL 即时耐久，导致重启后 SQLite 有记录但 FAISS 缺向量、索引与元数据不一致。
+- **UI 偏好设置 API**：新增 `iris_memory/web/routes/ui_preferences_routes.py`，将前端 UI 偏好（如深色模式）持久化到后端 JSON 文件。AstrBot 插件页面以 iframe 嵌入 Dashboard，受浏览器安全策略限制 `localStorage` 不可用（sandbox / 第三方存储分区），故改由后端存储，前端通过 bridge API 读写。
+- **L2 记忆分页**：L2 记忆列表接口新增 `offset` 参数与 `total_count` 返回，前端 L2MemoryView 实现完整分页功能。
+
+### 变更
+
+- **对话清理策略重构（重大）**：新增隐藏配置 `enable_legacy_cleanup`（默认 `False`）。
+  - **默认策略（推荐）**：在 `on_llm_request` 钩子中清空 `req.contexts`，保留对话 ID，使 AstrBot 主动回复（active_reply）能通过 `get_curr_conversation_id` 正常检测到对话存在；Agent 完成后对话历史由 AstrBot 正常保存，下次请求时再次清空。
+  - **旧版策略**：在 `on_agent_done` 钩子中调用 `conversationManager.delete_conversation` 删除整个对话，会导致主动回复因 `get_curr_conversation_id` 返回 `None` 而失败，仅作为隐藏参数保留。
+  - 两种策略均受 `context_control.enable_conversation_cleanup` 配置控制。
+- **图片解析 SSRF 防护增强**：新增 `_GlobalOnlyTransport`（包装 httpx transport，在连接前再次强制校验所有 DNS 解析结果为全局地址）与 `_fetch_image_data_url`（下载图片转为 base64 data URL）。可达性检查与实际下载各自独立解析 DNS，存在 DNS rebinding 窗口（检查时解析到公网、下载时被切到内网），新方案在下载连接前再次强制校验，堵死向内网的 rebinding；同时图片字节转为 data URL，使 LLM provider 不再直连外网 URL。新增 10MB 大小限制，避免大图撑爆 LLM 上下文。
+- **L2 检索超时范围扩大**：embedding 计算纳入 `l2_timeout_ms` 超时控制，避免 embedding provider 卡死时在 `on_llm_request` 会话锁内无限挂起。
+- **L2 统计查询异步化**：`get_stats` 改走线程池（`asyncio.to_thread` + 新增 `_db_fetchone` / `_db_fetchall` 持锁取数），避免在事件循环线程持同步锁、与 executor 中的长 FAISS 检索争用而阻塞整个插件。
+- **遗忘算法简化与修正**：
+  - L2 遗忘评分移除恒不触发的 `D > 0` 分支（L2 记忆无 `connected_count`，`calculate_isolation_degree` 恒返回 0），权重统一从隐藏配置读取；
+  - KG 验证度 V 由 `min(1.0, source_memory_count / 5)` 改为对数曲线 `log(source_memory_count + 1) / log(6)`（`source_memory_count` 为 0 时取 0），使少量来源即可获得较高验证度，与「`source_memory_count >= 3` 永不淘汰」保护阈值相配合。
+- **bot 人格隔离配置说明修正**：`enable_persona_isolation` 的 hint 由「切换会导致记忆、用户画像重建」改为「不同 bot 人格的记忆与画像按人格 ID 逻辑隔离（共享底层存储、命名空间互不可见）；切换人格仅改变可见数据，不删除或重建」。
+- **L1 总结解析日志增强**：`parse_summary_response` 新增 `json_parsed` 标记区分 JSON 解析与文本回退；JSON 解析失败时的警告补充模型未按 JSON 输出的提示与更换模型建议；文本回退仅提取到少量记忆时额外输出警告。
+
+### 修复
+
+- **L2 记忆更新并发错乱**：`update_memory` 在嵌入计算（锁外）完成后、写回 FAISS 前，重新校验 `faiss_idx` 归属。此前该记忆可能被并发 `delete_entries` 删除且槽位被 `add_memory` 经 free-list 复用，直接写回旧 `faiss_idx` 会误删并覆盖复用方的新向量，导致 FAISS 与 SQLite 错乱；校验不一致则放弃本次更新。
+- **L2 checkpoint 配置未就绪崩溃**：`_mark_dirty` 读取 `l2_checkpoint_writes` 增加异常兜底，配置系统未就绪（初始化早期或测试环境）时仅标记脏、跳过 checkpoint，不再抛异常。
+- **前端主题偏好丢失**：修复 Vue 响应式对象跨 bridge 序列化失败问题；主题存储改用后端 UI 偏好 API，适配 AstrBot iframe 嵌入环境下 `localStorage` 不可用的问题。
+
 ## [0.1.0] - 2026-06-19
 
 ### 安全
