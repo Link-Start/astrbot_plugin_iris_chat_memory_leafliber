@@ -240,14 +240,14 @@
 
   "context_control": {
     "type": "object",
-    "description": "上下文控制",
-    "hint": "控制 AstrBot 内置对话历史的管理策略",
+    "description": "上下文接管",
+    "hint": "控制 AstrBot 内置对话历史的管理策略，确保上下文完全由本插件的 L1/L2/L3 记忆系统接管",
     "items": {
       "enable_conversation_cleanup": {
         "type": "bool",
         "default": true,
-        "description": "启用对话历史自动清理",
-        "hint": "每次 Agent 运行完成后自动删除 AstrBot 内置对话历史，确保上下文完全由本插件的记忆系统控制。关闭后 AstrBot 将保留内置对话历史"
+        "description": "启用上下文接管",
+        "hint": "开启后，每次 LLM 请求前自动清空 AstrBot 内置对话历史(req.contexts)，上下文完全由本插件的记忆系统提供。保留对话 ID 以兼容 AstrBot 主动回复功能。关闭后 AstrBot 将保留并使用内置对话历史"
       }
     }
   }

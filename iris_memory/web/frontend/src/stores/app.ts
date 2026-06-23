@@ -1,26 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-
-const THEME_STORAGE_KEY = 'iris_memory_theme'
-
-function loadThemePreference(): boolean {
-  try {
-    const stored = localStorage.getItem(THEME_STORAGE_KEY)
-    if (stored === 'light') return false
-    if (stored === 'dark') return true
-  } catch {
-    // localStorage 不可用时忽略，使用默认值
-  }
-  return true
-}
-
-function saveThemePreference(isDark: boolean): void {
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, isDark ? 'dark' : 'light')
-  } catch {
-    // 忽略写入失败
-  }
-}
+import { getUIPreferences, updateUIPreferences } from '@/api'
 
 export const useAppStore = defineStore('app', () => {
   // 加载状态
@@ -30,8 +10,9 @@ export const useAppStore = defineStore('app', () => {
   // 选中的群聊
   const selectedGroupId = ref<string | null>(null)
 
-  // 主题（从 localStorage 恢复，默认夜间模式）
-  const darkMode = ref(loadThemePreference())
+  // 主题（默认夜间模式，initTheme 从后端加载实际偏好）
+  const darkMode = ref(true)
+  const themeLoaded = ref(false)
 
   // 设置加载状态
   const setLoading = (value: boolean) => {
@@ -53,10 +34,29 @@ export const useAppStore = defineStore('app', () => {
     selectedGroupId.value = groupId
   }
 
-  // 切换主题
-  const toggleTheme = () => {
+  // 从后端加载主题偏好
+  // 背景：AstrBot 插件页面以 iframe 嵌入 Dashboard，localStorage 不可用，
+  // 因此 UI 偏好存储在后端 JSON 文件中。
+  const initTheme = async () => {
+    if (themeLoaded.value) return
+    try {
+      const prefs = await getUIPreferences()
+      darkMode.value = prefs.dark_mode
+    } catch {
+      // 加载失败时保持默认值（夜间模式）
+    } finally {
+      themeLoaded.value = true
+    }
+  }
+
+  // 切换主题并持久化到后端
+  const toggleTheme = async () => {
     darkMode.value = !darkMode.value
-    saveThemePreference(darkMode.value)
+    try {
+      await updateUIPreferences({ dark_mode: darkMode.value })
+    } catch {
+      // 持久化失败时仅影响当前会话，不回滚 UI 状态
+    }
   }
 
   return {
@@ -64,10 +64,12 @@ export const useAppStore = defineStore('app', () => {
     error,
     selectedGroupId,
     darkMode,
+    themeLoaded,
     setLoading,
     setError,
     clearError,
     selectGroup,
+    initTheme,
     toggleTheme
   }
 })

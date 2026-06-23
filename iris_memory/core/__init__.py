@@ -24,7 +24,7 @@ from .lifecycle import (
     get_uptime,
 )
 from .llm_response_hook import handle_llm_response
-from .conversation_cleanup import handle_agent_done
+from .conversation_cleanup import handle_agent_done, handle_pre_request_cleanup
 
 __all__ = [
     "get_logger",
@@ -46,4 +46,5 @@ __all__ = [
     "get_uptime",
     "handle_llm_response",
     "handle_agent_done",
+    "handle_pre_request_cleanup",
 ]

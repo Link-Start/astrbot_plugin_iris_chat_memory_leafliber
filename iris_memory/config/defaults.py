@@ -479,6 +479,16 @@ class HiddenConfig:
         metadata={"description": "查询改写超时(ms)", "group": "L2 查询改写"},
     )
 
+    # 上下文清理参数
+    enable_legacy_cleanup: bool = field(
+        default=False,
+        metadata={
+            "description": "启用旧版对话清理模式(完成后删除整个对话)，默认关闭。"
+            "关闭时采用请求前清空 contexts 策略，保留对话 ID 以兼容主动回复",
+            "group": "上下文控制",
+        },
+    )
+
 
 @dataclass
 class Defaults:

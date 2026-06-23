@@ -34,6 +34,7 @@ from iris_memory.core import (
     preprocess_llm_request,
     handle_llm_response,
     handle_agent_done,
+    handle_pre_request_cleanup,
     set_component_manager,
 )
 from iris_memory.tools import (
@@ -192,6 +193,9 @@ class IrisChatMemoryPlugin(Star):
     async def on_llm_request(self, event: AstrMessageEvent, req) -> None:
         if self.component_manager:
             _detect_passive_trigger(event, req, self.context)
+            await handle_pre_request_cleanup(
+                event, req, self.context, self.component_manager
+            )
             await preprocess_llm_request(event, req, self.component_manager)
 
     @filter.on_llm_response()

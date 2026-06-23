@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://moe-counter.glitch.me/get/@astrbot_plugin_iris_chat_memory" alt="Visitor Count">
+  <img src="https://count.getloli.com/get/@astrbot_plugin_iris_chat_memory?theme=moebooru" alt="Visitor Count">
 </p>
 
 **让机器人真正"记住你"** — 面向 AstrBot 的智能记忆插件，为群聊场景深度优化。

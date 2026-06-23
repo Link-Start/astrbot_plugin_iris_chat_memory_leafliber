@@ -74,7 +74,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTheme } from 'vuetify'
 import { storeToRefs } from 'pinia'
@@ -93,6 +93,10 @@ const showError = ref(false)
 watch(darkMode, (val) => {
   theme.global.name.value = val ? 'dark' : 'light'
 }, { immediate: true })
+
+onMounted(() => {
+  appStore.initTheme()
+})
 
 const navItems = [
   { to: '/dashboard', title: '仪表盘', icon: 'mdi-view-dashboard' },
