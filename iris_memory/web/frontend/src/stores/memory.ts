@@ -20,6 +20,8 @@ export const useMemoryStore = defineStore('memory', () => {
   const l2LatestLimit = ref(20)
   const l2LatestSortBy = ref<L2SortField>('timestamp')
   const l2LatestSortOrder = ref<L2SortOrder>('desc')
+  const l2LatestOffset = ref(0)
+  const l2LatestTotalCount = ref(0)
 
   const l3Graph = ref<KGGraph>({ nodes: [], edges: [] })
   const l3StartNode = ref<KGNode | null>(null)
@@ -142,22 +144,28 @@ export const useMemoryStore = defineStore('memory', () => {
     l2Query.value = ''
   }
 
-  const fetchLatestL2Memories = async (limit?: number, groupId?: string) => {
+  const fetchLatestL2Memories = async (limit?: number, groupId?: string, offset?: number) => {
     l2LatestLoading.value = true
-    if (limit) {
+    if (limit !== undefined) {
       l2LatestLimit.value = limit
+    }
+    if (offset !== undefined) {
+      l2LatestOffset.value = offset
     }
     try {
       const response = await memoryApi.getLatestL2Memories(
         l2LatestLimit.value,
         groupId,
         l2LatestSortBy.value,
-        l2LatestSortOrder.value
+        l2LatestSortOrder.value,
+        l2LatestOffset.value
       )
       l2LatestResults.value = response.results
+      l2LatestTotalCount.value = response.total_count ?? 0
     } catch (error) {
       console.error('获取最新L2记忆失败:', error)
       l2LatestResults.value = []
+      l2LatestTotalCount.value = 0
     } finally {
       l2LatestLoading.value = false
     }
@@ -170,6 +178,24 @@ export const useMemoryStore = defineStore('memory', () => {
   const setL2LatestSort = (sortBy: L2SortField, sortOrder: L2SortOrder) => {
     l2LatestSortBy.value = sortBy
     l2LatestSortOrder.value = sortOrder
+  }
+
+  const setL2LatestOffset = (offset: number) => {
+    l2LatestOffset.value = offset
+  }
+
+  const setL2LatestPage = (page: number) => {
+    l2LatestOffset.value = (page - 1) * l2LatestLimit.value
+  }
+
+  const getL2LatestCurrentPage = (): number => {
+    if (l2LatestLimit.value <= 0) return 1
+    return Math.floor(l2LatestOffset.value / l2LatestLimit.value) + 1
+  }
+
+  const getL2LatestTotalPages = (): number => {
+    if (l2LatestLimit.value <= 0) return 1
+    return Math.max(1, Math.ceil(l2LatestTotalCount.value / l2LatestLimit.value))
   }
 
   const deleteL2Entries = async (ids: string[]) => {
@@ -273,6 +299,8 @@ export const useMemoryStore = defineStore('memory', () => {
     l2LatestLimit,
     l2LatestSortBy,
     l2LatestSortOrder,
+    l2LatestOffset,
+    l2LatestTotalCount,
     l3Graph,
     l3StartNode,
     l3Loading,
@@ -299,6 +327,10 @@ export const useMemoryStore = defineStore('memory', () => {
     fetchLatestL2Memories,
     setL2LatestLimit,
     setL2LatestSort,
+    setL2LatestOffset,
+    setL2LatestPage,
+    getL2LatestCurrentPage,
+    getL2LatestTotalPages,
     deleteL2Entries,
     updateL2Entry,
     searchL3,

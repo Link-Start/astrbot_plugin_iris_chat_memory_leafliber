@@ -707,6 +707,14 @@ class L1Buffer(Component):
 
             parsed = parse_summary_response(summary)
             summary_items = parsed.get("memories", [])
+            json_parsed = parsed.get("json_parsed", False)
+
+            if not json_parsed and summary_items:
+                logger.warning(
+                    f"总结响应未通过 JSON 解析，已使用文本回退提取 "
+                    f"{len(summary_items)} 条记忆。模型输出可能不符合 JSON 格式要求，"
+                    f"建议更换支持 JSON 输出的模型以提升总结质量。"
+                )
 
             if not summary_items:
                 fallback_items = self._parse_summary_items(summary)
@@ -715,6 +723,11 @@ class L1Buffer(Component):
                         {"content": item, "confidence": "medium"}
                         for item in fallback_items
                     ]
+                    logger.warning(
+                        f"总结响应 JSON 解析失败且文本回退仅提取到 "
+                        f"{len(fallback_items)} 条记忆（来自行式解析）。"
+                        f"模型输出格式异常，强烈建议更换支持 JSON 输出的模型。"
+                    )
 
             if not summary_items:
                 logger.debug(f"总结解析后无有效条目，原内容：{summary[:100]}...")

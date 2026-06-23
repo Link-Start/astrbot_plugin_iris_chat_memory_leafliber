@@ -64,6 +64,7 @@ async def search_l2_memory():
 
 async def get_latest_l2_memories():
     limit = request.args.get("limit", default=20, type=int)
+    offset = request.args.get("offset", default=0, type=int)
     group_id = request.args.get("group_id")
     persona_id = request.args.get("persona", "default")
     sort_by = request.args.get("sort_by", default="timestamp")
@@ -72,6 +73,9 @@ async def get_latest_l2_memories():
     valid_limits = [10, 20, 50, 100]
     if limit not in valid_limits:
         limit = 20
+
+    if offset < 0:
+        offset = 0
 
     valid_sort_fields = [
         "timestamp",
@@ -130,13 +134,21 @@ async def get_latest_l2_memories():
 
     raw_entries.sort(key=sort_key, reverse=(sort_order == "desc"))
 
-    formatted_results = raw_entries[:limit]
+    total_count = len(raw_entries)
+    formatted_results = raw_entries[offset : offset + limit]
 
     logger.info(
-        f"获取最新L2记忆成功：limit={limit}, sort_by={sort_by}, sort_order={sort_order}, 结果数={len(formatted_results)}"
+        f"获取最新L2记忆成功：limit={limit}, offset={offset}, sort_by={sort_by}, "
+        f"sort_order={sort_order}, 总数={total_count}, 返回={len(formatted_results)}"
     )
 
-    return jsonify({"success": True, "results": formatted_results})
+    return jsonify({
+        "success": True,
+        "results": formatted_results,
+        "total_count": total_count,
+        "limit": limit,
+        "offset": offset,
+    })
 
 
 async def list_l1_buffer():

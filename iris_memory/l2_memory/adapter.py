@@ -384,7 +384,11 @@ class L2MemoryAdapter(Component):
         """
         self._dirty = True
         self._pending_writes += 1
-        threshold = int(get_config().get("l2_checkpoint_writes") or 0)
+        try:
+            threshold = int(get_config().get("l2_checkpoint_writes") or 0)
+        except Exception:
+            # config 未就绪（初始化早期或测试环境）：仅标记脏，跳过 checkpoint
+            return
         if threshold <= 0 or self._pending_writes < threshold:
             return
         if self._checkpointing:

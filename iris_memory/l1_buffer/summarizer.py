@@ -243,8 +243,9 @@ def parse_summary_response(response: str) -> dict:
         - memories: 记忆列表（统一为对象列表，每项含 content 和 confidence）
         - group_profile: 群聊画像
         - user_profiles: 用户画像字典
+        - json_parsed: 是否成功通过 JSON 解析（False 表示走了文本回退）
     """
-    result: dict = {"memories": [], "group_profile": {}, "user_profiles": {}}
+    result: dict = {"memories": [], "group_profile": {}, "user_profiles": {}, "json_parsed": False}
 
     if not response:
         return result
@@ -257,6 +258,8 @@ def parse_summary_response(response: str) -> dict:
             if not json_match:
                 raise
             parsed = json.loads(json_match.group())
+
+        result["json_parsed"] = True
 
         if "memories" in parsed:
             raw_memories = parsed["memories"]
@@ -287,7 +290,11 @@ def parse_summary_response(response: str) -> dict:
 
         return result
     except (json.JSONDecodeError, ValueError) as e:
-        logger.warning(f"JSON 解析失败: {e}")
+        logger.warning(
+            f"L1 总结 JSON 解析失败: {e}。"
+            f"模型可能未按 JSON 格式输出，将尝试文本回退解析。"
+            f"如频繁出现此警告，建议更换支持 JSON 输出的模型。"
+        )
 
     lines = response.strip().split("\n")
     memories: list[dict] = []

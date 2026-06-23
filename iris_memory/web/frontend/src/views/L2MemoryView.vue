@@ -111,7 +111,7 @@
                             size="small"
                             class="mr-3 mt-1"
                           >
-                            #{{ index + 1 }}
+                            #{{ memoryStore.l2LatestOffset + index + 1 }}
                           </v-chip>
                           <div class="flex-grow-1">
                             <div class="text-body-1 text-wrap">{{ result.content }}</div>
@@ -171,6 +171,23 @@
                     <div class="text-h6">暂无记忆数据</div>
                     <div class="text-body-2 mt-2">
                       L2 记忆库为空或数据加载失败
+                    </div>
+                  </div>
+
+                  <div
+                    v-if="l2LatestTotalPages > 1"
+                    class="d-flex flex-column align-center mt-4"
+                  >
+                    <v-pagination
+                      :model-value="l2LatestCurrentPage"
+                      :length="l2LatestTotalPages"
+                      :total-visible="7"
+                      density="comfortable"
+                      @update:model-value="handlePageChange"
+                    />
+                    <div class="text-caption text-medium-emphasis mt-1">
+                      共 {{ memoryStore.l2LatestTotalCount }} 条记忆，
+                      第 {{ l2LatestCurrentPage }} / {{ l2LatestTotalPages }} 页
                     </div>
                   </div>
                 </v-card-text>
@@ -428,7 +445,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useMemoryStore } from '@/stores'
 import { useComponentState } from '@/composables/useComponentState'
 import ComponentDisabled from '@/components/ComponentDisabled.vue'
@@ -471,19 +488,30 @@ const sortByOptions = [
   { title: '最近访问', value: 'last_access_time' }
 ]
 
+const l2LatestCurrentPage = computed(() => memoryStore.getL2LatestCurrentPage())
+const l2LatestTotalPages = computed(() => memoryStore.getL2LatestTotalPages())
+
+const handlePageChange = (page: number) => {
+  memoryStore.setL2LatestPage(page)
+  memoryStore.fetchLatestL2Memories()
+}
+
 const handleLimitChange = (value: number) => {
   memoryStore.setL2LatestLimit(value)
+  memoryStore.setL2LatestPage(1)
   memoryStore.fetchLatestL2Memories(value)
 }
 
 const handleSortChange = (value: L2SortField) => {
   memoryStore.setL2LatestSort(value, memoryStore.l2LatestSortOrder)
+  memoryStore.setL2LatestPage(1)
   memoryStore.fetchLatestL2Memories()
 }
 
 const toggleSortOrder = () => {
   const newOrder: L2SortOrder = memoryStore.l2LatestSortOrder === 'desc' ? 'asc' : 'desc'
   memoryStore.setL2LatestSort(memoryStore.l2LatestSortBy, newOrder)
+  memoryStore.setL2LatestPage(1)
   memoryStore.fetchLatestL2Memories()
 }
 
@@ -596,6 +624,8 @@ const confirmDelete = async () => {
     selectedSearchIds.value = selectedSearchIds.value.filter(id => !deleteTargetIds.value.includes(id))
     deleteDialog.value = false
     deleteTargetIds.value = []
+    // 刷新以更新总数和分页
+    await memoryStore.fetchLatestL2Memories()
   } catch (error) {
     console.error('删除记忆失败:', error)
   } finally {

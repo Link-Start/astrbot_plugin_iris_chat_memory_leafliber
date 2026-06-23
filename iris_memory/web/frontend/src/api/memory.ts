@@ -44,15 +44,21 @@ export async function getLatestL2Memories(
   limit: number = 20,
   groupId?: string,
   sortBy: string = 'timestamp',
-  sortOrder: string = 'desc'
+  sortOrder: string = 'desc',
+  offset: number = 0
 ): Promise<any> {
-  const params: Record<string, any> = { limit, sort_by: sortBy, sort_order: sortOrder }
+  const params: Record<string, any> = { limit, sort_by: sortBy, sort_order: sortOrder, offset }
   if (groupId) {
     params.group_id = groupId
   }
   const response = await apiGet<any>('memory/l2/latest', params)
   checkSuccess(response, '获取最新L2记忆失败')
-  return { results: response.results || [] }
+  return {
+    results: response.results || [],
+    total_count: response.total_count ?? response.results?.length ?? 0,
+    limit: response.limit ?? limit,
+    offset: response.offset ?? offset
+  }
 }
 
 export async function deleteL2Entries(ids: string[]): Promise<number> {
