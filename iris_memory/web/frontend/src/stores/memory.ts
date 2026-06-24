@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
-import type { L1Message, L2Memory, KGGraph, KGNode, L1QueueItem, L3NodeDetail, L3EdgeDetail, L2SortField, L2SortOrder, L3SearchNodeResult, L3SearchEdgeResult } from '@/types'
+import { ref, computed } from 'vue'
+import type { L1Message, L2Memory, KGGraph, KGNode, KGEdge, L1QueueItem, L3NodeDetail, L3EdgeDetail, L2SortField, L2SortOrder, L3SearchNodeResult, L3SearchEdgeResult, L3Stats, L3LayoutType, L3Filters } from '@/types'
 import * as memoryApi from '@/api/memory'
 
 export const useMemoryStore = defineStore('memory', () => {
@@ -23,12 +23,30 @@ export const useMemoryStore = defineStore('memory', () => {
   const l2LatestOffset = ref(0)
   const l2LatestTotalCount = ref(0)
 
-  const l3Graph = ref<KGGraph>({ nodes: [], edges: [] })
+  const l3Graph = ref<KGGraph>({ nodes: [], edges: [], start_node: null })
   const l3StartNode = ref<KGNode | null>(null)
   const l3Loading = ref(false)
-  const l3Depth = ref(1)
-  const l3MaxNodes = ref(20)
-  
+  const l3Depth = ref(2)
+  const l3MaxNodes = ref(30)
+  const l3Layout = ref<L3LayoutType>('force')
+  const l3Stats = ref<L3Stats>({
+    available: false,
+    node_count: 0,
+    edge_count: 0,
+    node_types: {},
+    relation_types: {},
+  })
+  const l3StatsLoading = ref(false)
+  const l3Filters = ref<L3Filters>({
+    nodeTypes: [],
+    relationTypes: [],
+    groupId: null,
+    minConfidence: 0,
+  })
+  // 导航历史：已展开的节点 ID 栈
+  const l3NavHistory = ref<string[]>([])
+  const l3NavIndex = ref(-1)
+
   const l3SearchResults = ref<{ nodes: L3SearchNodeResult[], edges: L3SearchEdgeResult[] }>({ nodes: [], edges: [] })
   const l3SearchLoading = ref(false)
   const l3SearchKeyword = ref('')
@@ -39,6 +57,45 @@ export const useMemoryStore = defineStore('memory', () => {
   const l3Edges = ref<L3EdgeDetail[]>([])
   const l3EdgesLoading = ref(false)
   const l3EdgesKeyword = ref('')
+
+  // 过滤后的图谱数据（按类型/关系/置信度）
+  const l3FilteredGraph = computed<KGGraph>(() => {
+    const f = l3Filters.value
+    const allowedNodeTypes = new Set(f.nodeTypes)
+    const allowedRelTypes = new Set(f.relationTypes)
+    const typeFilterActive = allowedNodeTypes.size > 0
+    const relFilterActive = allowedRelTypes.size > 0
+
+    const nodes = l3Graph.value.nodes.filter((n) => {
+      if (typeFilterActive && !allowedNodeTypes.has(n.label)) return false
+      if (n.confidence < f.minConfidence) return false
+      if (f.groupId && n.group_id !== f.groupId) return false
+      return true
+    })
+    const nodeIds = new Set(nodes.map((n) => n.id))
+    const edges = l3Graph.value.edges.filter((e) => {
+      if (relFilterActive && !allowedRelTypes.has(e.relation)) return false
+      if ((e.confidence ?? 1) < f.minConfidence) return false
+      if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) return false
+      return true
+    })
+    return { nodes, edges, start_node: l3Graph.value.start_node }
+  })
+
+  // 当前图谱中出现的节点/关系类型（供过滤器选项）
+  const l3AvailableNodeTypes = computed(() => {
+    const m = new Map<string, number>()
+    l3Graph.value.nodes.forEach((n) => m.set(n.label, (m.get(n.label) || 0) + 1))
+    return Array.from(m.entries()).map(([type, count]) => ({ type, count }))
+  })
+  const l3AvailableRelationTypes = computed(() => {
+    const m = new Map<string, number>()
+    l3Graph.value.edges.forEach((e) => m.set(e.relation, (m.get(e.relation) || 0) + 1))
+    return Array.from(m.entries()).map(([type, count]) => ({ type, count }))
+  })
+
+  const canGoBack = computed(() => l3NavIndex.value > 0)
+  const canGoForward = computed(() => l3NavIndex.value < l3NavHistory.value.length - 1)
 
   const fetchL1Messages = async (groupId?: string) => {
     l1Loading.value = true
@@ -89,45 +146,59 @@ export const useMemoryStore = defineStore('memory', () => {
     }
   }
 
-  const fetchL3Graph = async (nodeId?: string) => {
+  const _loadGraph = async (nodeId?: string, recordNav = true) => {
     l3Loading.value = true
     try {
       const response = await memoryApi.getL3Graph({
         node_id: nodeId,
         depth: l3Depth.value,
-        max_nodes: l3MaxNodes.value
+        max_nodes: l3MaxNodes.value,
       })
       l3Graph.value = {
         nodes: response.nodes || [],
-        edges: response.edges || []
+        edges: response.edges || [],
+        start_node: response.start_node || null,
       }
-      l3StartNode.value = response.start_node
+      l3StartNode.value = response.start_node || null
+      if (recordNav && response.start_node) {
+        const id = response.start_node.id
+        // 截断前进历史
+        l3NavHistory.value = [...l3NavHistory.value.slice(0, l3NavIndex.value + 1), id]
+        l3NavIndex.value = l3NavHistory.value.length - 1
+      }
     } catch (error) {
       console.error('获取L3图谱失败:', error)
-      l3Graph.value = { nodes: [], edges: [] }
+      l3Graph.value = { nodes: [], edges: [], start_node: null }
       l3StartNode.value = null
     } finally {
       l3Loading.value = false
     }
   }
 
-  const expandFromNode = async (nodeId: string) => {
-    l3Loading.value = true
+  const fetchL3Graph = async (nodeId?: string) => _loadGraph(nodeId, true)
+
+  const expandFromNode = async (nodeId: string) => _loadGraph(nodeId, true)
+
+  const navBack = async () => {
+    if (!canGoBack.value) return
+    l3NavIndex.value -= 1
+    await _loadGraph(l3NavHistory.value[l3NavIndex.value], false)
+  }
+
+  const navForward = async () => {
+    if (!canGoForward.value) return
+    l3NavIndex.value += 1
+    await _loadGraph(l3NavHistory.value[l3NavIndex.value], false)
+  }
+
+  const fetchL3Stats = async () => {
+    l3StatsLoading.value = true
     try {
-      const response = await memoryApi.getL3Graph({
-        node_id: nodeId,
-        depth: l3Depth.value,
-        max_nodes: l3MaxNodes.value
-      })
-      l3Graph.value = {
-        nodes: response.nodes || [],
-        edges: response.edges || []
-      }
-      l3StartNode.value = response.start_node
+      l3Stats.value = await memoryApi.getL3Stats()
     } catch (error) {
-      console.error('拓展图谱失败:', error)
+      console.error('获取L3统计失败:', error)
     } finally {
-      l3Loading.value = false
+      l3StatsLoading.value = false
     }
   }
 
@@ -137,6 +208,41 @@ export const useMemoryStore = defineStore('memory', () => {
 
   const setMaxNodes = (maxNodes: number) => {
     l3MaxNodes.value = maxNodes
+  }
+
+  const setLayout = (layout: L3LayoutType) => {
+    l3Layout.value = layout
+  }
+
+  const toggleNodeTypeFilter = (type: string) => {
+    const arr = l3Filters.value.nodeTypes
+    const idx = arr.indexOf(type)
+    if (idx >= 0) arr.splice(idx, 1)
+    else arr.push(type)
+  }
+
+  const toggleRelationTypeFilter = (type: string) => {
+    const arr = l3Filters.value.relationTypes
+    const idx = arr.indexOf(type)
+    if (idx >= 0) arr.splice(idx, 1)
+    else arr.push(type)
+  }
+
+  const setMinConfidence = (v: number) => {
+    l3Filters.value.minConfidence = v
+  }
+
+  const setGroupFilter = (groupId: string | null) => {
+    l3Filters.value.groupId = groupId
+  }
+
+  const resetFilters = () => {
+    l3Filters.value = {
+      nodeTypes: [],
+      relationTypes: [],
+      groupId: null,
+      minConfidence: 0,
+    }
   }
 
   const clearL2Results = () => {
@@ -306,6 +412,17 @@ export const useMemoryStore = defineStore('memory', () => {
     l3Loading,
     l3Depth,
     l3MaxNodes,
+    l3Layout,
+    l3Stats,
+    l3StatsLoading,
+    l3Filters,
+    l3FilteredGraph,
+    l3AvailableNodeTypes,
+    l3AvailableRelationTypes,
+    l3NavHistory,
+    l3NavIndex,
+    canGoBack,
+    canGoForward,
     l3SearchResults,
     l3SearchLoading,
     l3SearchKeyword,
@@ -321,8 +438,17 @@ export const useMemoryStore = defineStore('memory', () => {
     fetchL2Stats,
     fetchL3Graph,
     expandFromNode,
+    navBack,
+    navForward,
+    fetchL3Stats,
     setDepth,
     setMaxNodes,
+    setLayout,
+    toggleNodeTypeFilter,
+    toggleRelationTypeFilter,
+    setMinConfidence,
+    setGroupFilter,
+    resetFilters,
     clearL2Results,
     fetchLatestL2Memories,
     setL2LatestLimit,

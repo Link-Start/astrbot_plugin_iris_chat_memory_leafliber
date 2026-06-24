@@ -68,25 +68,58 @@ export interface L2Memory {
   group_id?: string
 }
 
-// L3 图谱节点
+// L3 图谱节点（富字段，含详情）
 export interface KGNode {
   id: string
   label: string
   name: string
+  content?: string
   confidence: number
+  access_count?: number
+  last_access_time?: string
+  created_time?: string
+  source_memory_id?: string
+  group_id?: string
+  properties?: Record<string, string>
 }
 
-// L3 图谱边
+// L3 图谱边（富字段，含权重/置信度）
 export interface KGEdge {
   source: string
   target: string
   relation: string
+  weight?: number
+  confidence?: number
+  access_count?: number
+  created_time?: string
 }
 
 // L3 图谱
 export interface KGGraph {
   nodes: KGNode[]
   edges: KGEdge[]
+  start_node?: KGNode | null
+}
+
+// L3 图谱全局统计
+export interface L3Stats {
+  available: boolean
+  node_count: number
+  edge_count: number
+  node_types: Record<string, number>
+  relation_types: Record<string, number>
+  persist_dir?: string
+}
+
+// L3 图谱布局类型
+export type L3LayoutType = 'force' | 'dagre' | 'radial' | 'concentric'
+
+// L3 图谱过滤器
+export interface L3Filters {
+  nodeTypes: string[]          // 选中的节点类型（空=全部）
+  relationTypes: string[]      // 选中的关系类型（空=全部）
+  groupId: string | null       // 群组过滤
+  minConfidence: number        // 最低置信度阈值
 }
 
 export interface L3SearchNodeResult {
@@ -223,14 +256,6 @@ export interface L1Stats {
 export interface L2Stats {
   total_count?: number
   group_count?: number
-}
-
-// L3 统计
-export interface L3Stats {
-  node_count?: number
-  edge_count?: number
-  node_types?: Record<string, number>
-  relation_types?: Record<string, number>
 }
 
 // 记忆统计

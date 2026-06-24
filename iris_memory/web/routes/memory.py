@@ -268,7 +268,14 @@ async def get_l3_graph():
             "id": node["id"],
             "label": node.get("label", "Entity"),
             "name": node.get("name", node["id"]),
+            "content": node.get("content", ""),
             "confidence": node.get("confidence", 0.5),
+            "access_count": node.get("access_count", 0),
+            "last_access_time": node.get("last_access_time"),
+            "created_time": node.get("created_time"),
+            "source_memory_id": node.get("source_memory_id"),
+            "group_id": node.get("group_id"),
+            "properties": node.get("properties", {}),
         }
         for node in nodes
     ]
@@ -277,7 +284,11 @@ async def get_l3_graph():
         {
             "source": edge["source"],
             "target": edge["target"],
-            "relation": edge.get("relation", "RELATED"),
+            "relation": edge.get("relation", edge.get("relation_type", "RELATED")),
+            "weight": edge.get("weight", 1.0),
+            "confidence": edge.get("confidence", 0.5),
+            "access_count": edge.get("access_count", 0),
+            "created_time": edge.get("created_time"),
         }
         for edge in edges
     ]
@@ -305,6 +316,18 @@ async def get_l2_stats():
 
     stats = await l2_retriever.get_stats()
 
+    return jsonify({"success": True, "stats": stats})
+
+
+async def get_l3_stats():
+    """获取 L3 图谱全局统计（节点/边总数、类型分布）"""
+    manager = get_component_manager()
+    l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
+
+    if not l3_adapter or not l3_adapter.is_available:
+        return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
+
+    stats = await l3_adapter.get_stats()
     return jsonify({"success": True, "stats": stats})
 
 
@@ -501,6 +524,7 @@ def register_memory_routes(context) -> None:
         (f"{prefix}/l1/list", list_l1_buffer, ["GET"], "获取 L1 缓冲列表"),
         (f"{prefix}/l1/queues", list_l1_queues, ["GET"], "获取 L1 队列列表"),
         (f"{prefix}/l3/graph", get_l3_graph, ["GET"], "获取 L3 图谱数据"),
+        (f"{prefix}/l3/stats", get_l3_stats, ["GET"], "获取 L3 图谱统计"),
         (f"{prefix}/l3/search/nodes", search_l3_nodes, ["GET"], "搜索 L3 节点"),
         (f"{prefix}/l3/search/edges", search_l3_edges, ["GET"], "搜索 L3 边"),
         (f"{prefix}/l3/nodes", list_l3_nodes, ["GET"], "获取 L3 节点列表"),

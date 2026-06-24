@@ -1,99 +1,115 @@
 <template>
-  <v-card color="surface" variant="flat">
-    <v-card-title class="d-flex align-center">
-      <v-icon icon="mdi-arrow-right-bold" color="secondary" class="mr-2" />
-      关系列表
-      <v-spacer />
-      <v-text-field
-        v-model="keyword"
-        placeholder="搜索关系..."
-        prepend-inner-icon="mdi-magnify"
-        variant="outlined"
+  <div class="l3-edge-list">
+    <v-card color="surface" variant="flat" class="h-100 d-flex flex-column">
+      <v-card-title class="py-2 px-3 d-flex align-center">
+        <v-icon icon="mdi-link-variant" size="small" class="mr-2" />
+        <span class="text-subtitle-1">关系列表</span>
+        <v-spacer />
+        <v-text-field
+          v-model="localFilter"
+          placeholder="过滤…"
+          prepend-inner-icon="mdi-magnify"
+          variant="outlined"
+          density="compact"
+          hide-details
+          clearable
+          class="filter-input"
+        />
+        <v-btn
+          v-if="selected.length > 0"
+          color="error"
+          variant="tonal"
+          size="small"
+          class="ml-2"
+          @click="emit('bulk-delete', selected)"
+        >
+          <v-icon icon="mdi-delete" class="mr-1" />
+          删除 ({{ selected.length }})
+        </v-btn>
+      </v-card-title>
+
+      <v-divider />
+
+      <v-data-table
+        :headers="headers"
+        :items="filteredItems"
+        :items-per-page="10"
+        :loading="loading"
+        :item-value="(item: L3EdgeDetail) => `${item.source.id}->${item.target.id}->${item.relation}`"
+        show-select
+        v-model="selected"
         density="compact"
-        hide-details
-        clearable
-        style="max-width: 250px"
-        @keyup.enter="handleSearch"
-        @click:clear="handleClear"
-      />
-    </v-card-title>
-    <v-card-text>
-      <v-progress-linear v-if="loading" indeterminate color="primary" />
-      <v-table v-else-if="edges.length > 0" density="compact" hover>
-        <thead>
-          <tr>
-            <th>源节点</th>
-            <th>关系</th>
-            <th>目标节点</th>
-            <th>置信度</th>
-            <th>权重</th>
-            <th>创建时间</th>
-            <th class="text-center">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(edge, idx) in edges" :key="idx">
-            <td>
-              <v-chip
-                size="small"
-                :color="getTypeColor(edge.source.label)"
-                variant="tonal"
-                @click="emit('focus-node', edge.source.id)"
-              >
-                <v-icon :icon="getNodeIcon(edge.source.label)" start size="x-small" />
-                {{ edge.source.name }}
-              </v-chip>
-            </td>
-            <td>
-              <v-chip size="small" variant="outlined">
-                {{ getRelationLabel(edge.relation) }}
-              </v-chip>
-            </td>
-            <td>
-              <v-chip
-                size="small"
-                :color="getTypeColor(edge.target.label)"
-                variant="tonal"
-                @click="emit('focus-node', edge.target.id)"
-              >
-                <v-icon :icon="getNodeIcon(edge.target.label)" start size="x-small" />
-                {{ edge.target.name }}
-              </v-chip>
-            </td>
-            <td>
-              <v-chip
-                size="small"
-                :color="getConfidenceColor(edge.confidence)"
-                variant="tonal"
-              >
-                {{ (edge.confidence * 100).toFixed(0) }}%
-              </v-chip>
-            </td>
-            <td>{{ edge.weight?.toFixed(2) ?? '-' }}</td>
-            <td class="text-caption">{{ formatTime(edge.created_time) }}</td>
-            <td class="text-center">
-              <v-btn
-                icon="mdi-delete"
-                variant="text"
-                size="small"
-                color="error"
-                @click="handleDelete(edge)"
-              />
-            </td>
-          </tr>
-        </tbody>
-      </v-table>
-      <div v-else class="text-center text-medium-emphasis py-12">
-        <v-icon icon="mdi-arrow-right-bold-outline" size="80" class="mb-3" />
-        <div class="text-h6">暂无关系数据</div>
-        <div class="text-body-2 mt-2">L3 知识图谱中暂无关系</div>
-      </div>
-    </v-card-text>
-  </v-card>
+        hover
+        class="flex-grow-1"
+        @click:row="handleRowClick"
+      >
+        <template #item.relation="{ item }">
+          <v-chip size="x-small" variant="outlined" color="secondary">
+            {{ getRelationLabel(item.relation) }}
+          </v-chip>
+        </template>
+
+        <template #item.source="{ item }">
+          <div class="d-flex align-center">
+            <v-icon :icon="getNodeIcon(item.source.label)" :color="getTypeColor(item.source.label)" size="x-small" class="mr-1" />
+            <span class="text-body-2">{{ item.source.name || item.source.id }}</span>
+          </div>
+        </template>
+
+        <template #item.target="{ item }">
+          <div class="d-flex align-center">
+            <v-icon :icon="getNodeIcon(item.target.label)" :color="getTypeColor(item.target.label)" size="x-small" class="mr-1" />
+            <span class="text-body-2">{{ item.target.name || item.target.id }}</span>
+          </div>
+        </template>
+
+        <template #item.weight="{ item }">
+          <v-progress-linear
+            :model-value="Math.min((item.weight ?? 1) * 50, 100)"
+            color="secondary"
+            height="6"
+            rounded
+            class="my-2"
+            style="width: 60px"
+          />
+          <span class="text-caption ml-1">{{ (item.weight ?? 1).toFixed(2) }}</span>
+        </template>
+
+        <template #item.confidence="{ item }">
+          <v-chip size="x-small" :color="getConfidenceColor(item.confidence ?? 1)" variant="tonal">
+            {{ ((item.confidence ?? 1) * 100).toFixed(0) }}%
+          </v-chip>
+        </template>
+
+        <template #item.created_time="{ item }">
+          <span class="text-caption">{{ formatTime(item.created_time) }}</span>
+        </template>
+
+        <template #item.actions="{ item }">
+          <v-btn
+            icon="mdi-delete"
+            size="x-small"
+            variant="text"
+            color="error"
+            @click.stop="emit('delete', item)"
+          >
+            <v-tooltip activator="parent" location="bottom">删除关系</v-tooltip>
+          </v-btn>
+        </template>
+
+        <template #no-data>
+          <div class="text-center pa-4 text-medium-emphasis">
+            <v-icon icon="mdi-link-off" size="large" class="mb-2" />
+            <div class="text-body-2">暂无关系数据</div>
+          </div>
+        </template>
+      </v-data-table>
+    </v-card>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import type { L3EdgeDetail } from '@/types'
 import {
   getNodeIcon,
@@ -106,22 +122,53 @@ import {
 const props = defineProps<{
   edges: L3EdgeDetail[]
   loading: boolean
-  initialKeyword?: string
 }>()
 
 const emit = defineEmits<{
-  search: [keyword: string | undefined]
-  delete: [sourceId: string, targetId: string, relation: string]
-  'focus-node': [nodeId: string]
+  'focus-edge': [edge: L3EdgeDetail]
+  delete: [edge: L3EdgeDetail]
+  'bulk-delete': [edges: L3EdgeDetail[]]
 }>()
 
-const keyword = ref(props.initialKeyword || '')
+const localFilter = ref('')
+const selected = ref<L3EdgeDetail[]>([])
 
-const handleSearch = () => emit('search', keyword.value || undefined)
-const handleClear = () => {
-  keyword.value = ''
-  emit('search', undefined)
+const handleRowClick = (_: unknown, row: { item: L3EdgeDetail }) => {
+  emit('focus-edge', row.item)
 }
-const handleDelete = (edge: L3EdgeDetail) =>
-  emit('delete', edge.source.id, edge.target.id, edge.relation)
+
+const headers = [
+  { title: '关系', key: 'relation', width: '120px', sortable: true },
+  { title: '源节点', key: 'source', width: '180px', sortable: true },
+  { title: '目标节点', key: 'target', width: '180px', sortable: true },
+  { title: '权重', key: 'weight', width: '140px', sortable: true },
+  { title: '置信度', key: 'confidence', width: '100px', sortable: true },
+  { title: '创建时间', key: 'created_time', width: '150px', sortable: true },
+  { title: '操作', key: 'actions', width: '70px', sortable: false },
+]
+
+const filteredItems = computed(() => {
+  const kw = localFilter.value?.trim().toLowerCase()
+  if (!kw) return props.edges
+  return props.edges.filter((e) => {
+    return [
+      e.relation,
+      e.source.name,
+      e.source.id,
+      e.target.name,
+      e.target.id,
+      getRelationLabel(e.relation),
+    ].some((v) => String(v).toLowerCase().includes(kw))
+  })
+})
 </script>
+
+<style scoped>
+.l3-edge-list {
+  height: 100%;
+}
+
+.filter-input {
+  max-width: 200px;
+}
+</style>

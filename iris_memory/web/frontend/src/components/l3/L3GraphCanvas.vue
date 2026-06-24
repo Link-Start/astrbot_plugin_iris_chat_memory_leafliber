@@ -1,194 +1,104 @@
 <template>
-  <v-card color="surface" variant="flat" class="graph-card">
-    <v-card-title class="d-flex align-center">
-      <v-icon icon="mdi-graph" color="accent" class="mr-2" />
-      知识图谱可视化
-      <v-spacer />
-      <v-btn-group density="compact" class="mr-2">
-        <v-btn icon="mdi-magnify-plus" variant="text" size="small" @click="zoomIn" />
-        <v-btn icon="mdi-magnify-minus" variant="text" size="small" @click="zoomOut" />
-        <v-btn icon="mdi-fit-to-screen" variant="text" size="small" @click="fitView" />
-      </v-btn-group>
-      <v-btn
-        icon="mdi-refresh"
-        variant="text"
-        size="small"
-        :loading="loading"
-        @click="emit('reload')"
-      />
-    </v-card-title>
-    <v-card-text class="pa-0">
-      <div ref="containerRef" class="graph-container">
-        <div v-if="loading" class="loading-overlay">
-          <v-progress-circular indeterminate color="primary" size="64" />
-        </div>
-        <div v-else-if="nodes.length === 0" class="empty-overlay">
-          <v-icon icon="mdi-graph-outline" size="80" class="mb-3" />
-          <div class="text-h6">暂无图谱数据</div>
-        </div>
+  <div class="canvas-wrapper">
+    <!-- 顶部工具栏 -->
+    <div class="canvas-toolbar">
+      <div class="toolbar-left">
+        <v-btn-group density="compact" variant="tonal">
+          <v-btn
+            icon="mdi-undo-variant"
+            size="small"
+            :disabled="!canGoBack"
+            @click="emit('nav-back')"
+          >
+            <v-tooltip activator="parent" location="bottom">后退</v-tooltip>
+          </v-btn>
+          <v-btn
+            icon="mdi-redo-variant"
+            size="small"
+            :disabled="!canGoForward"
+            @click="emit('nav-forward')"
+          >
+            <v-tooltip activator="parent" location="bottom">前进</v-tooltip>
+          </v-btn>
+        </v-btn-group>
 
-        <!-- 节点详情弹窗 -->
-        <div
-          v-if="selectedNode && popupPos"
-          class="node-popup"
-          :style="{ left: popupPos.x + 'px', top: popupPos.y + 'px' }"
-        >
-          <v-card color="surface" variant="elevated" class="popup-card">
-            <v-card-title class="d-flex align-center text-subtitle-1 pa-3">
-              <v-icon
-                :icon="getNodeIcon(selectedNode.label)"
-                :color="getTypeColor(selectedNode.label)"
-                class="mr-2"
-                size="small"
-              />
-              {{ selectedNode.name || selectedNode.id }}
-              <v-spacer />
-              <v-btn
-                icon="mdi-close"
-                variant="text"
-                size="x-small"
-                density="compact"
-                @click="closePopup"
-              />
-            </v-card-title>
-            <v-card-text class="pa-3 pt-0">
-              <div class="text-caption mb-1">
-                <span class="text-medium-emphasis">类型：</span>{{ getNodeLabel(selectedNode.label) }}
-              </div>
-              <div class="text-caption mb-1">
-                <span class="text-medium-emphasis">ID：</span>{{ selectedNode.id }}
-              </div>
-              <div class="text-caption mb-2">
-                <span class="text-medium-emphasis">置信度：</span>{{ (selectedNode.confidence * 100).toFixed(0) }}%
-              </div>
-              <v-btn
-                color="primary"
-                size="small"
-                block
-                :loading="loading"
-                @click="expandSelected"
-              >
-                <v-icon icon="mdi-arrow-expand" class="mr-1" />
-                以此节点展开
-              </v-btn>
-            </v-card-text>
-          </v-card>
-        </div>
+        <v-btn-group density="compact" variant="tonal" class="ml-2">
+          <v-btn icon="mdi-magnify-plus" size="small" @click="zoomBy(1.25)" />
+          <v-btn icon="mdi-magnify-minus" size="small" @click="zoomBy(0.8)" />
+          <v-btn icon="mdi-fit-to-screen" size="small" @click="fitView" />
+          <v-btn icon="mdi-image-filter-center-focus" size="small" @click="fitCenter" />
+        </v-btn-group>
 
-        <!-- 关系详情弹窗 -->
-        <div
-          v-if="selectedEdge && edgePopupPos"
-          class="node-popup"
-          :style="{ left: edgePopupPos.x + 'px', top: edgePopupPos.y + 'px' }"
-        >
-          <v-card color="surface" variant="elevated" class="popup-card">
-            <v-card-title class="d-flex align-center text-subtitle-1 pa-3">
-              <v-icon icon="mdi-arrow-right-bold" color="secondary" class="mr-2" size="small" />
-              {{ getRelationLabel(selectedEdge.relation) }}
-              <v-spacer />
-              <v-btn
-                icon="mdi-close"
-                variant="text"
-                size="x-small"
-                density="compact"
-                @click="closeEdgePopup"
-              />
-            </v-card-title>
-            <v-card-text class="pa-3 pt-0">
-              <div class="text-caption mb-2">
-                <v-icon
-                  :icon="getNodeIcon(selectedEdge.sourceNode.label)"
-                  :color="getTypeColor(selectedEdge.sourceNode.label)"
-                  size="small"
-                  class="mr-1"
-                />
-                <strong>{{ selectedEdge.sourceNode.name || selectedEdge.sourceNode.id }}</strong>
-              </div>
-              <div class="text-caption text-center mb-2">
-                <v-icon icon="mdi-arrow-down" size="small" />
-              </div>
-              <div class="text-caption mb-2">
-                <v-icon
-                  :icon="getNodeIcon(selectedEdge.targetNode.label)"
-                  :color="getTypeColor(selectedEdge.targetNode.label)"
-                  size="small"
-                  class="mr-1"
-                />
-                <strong>{{ selectedEdge.targetNode.name || selectedEdge.targetNode.id }}</strong>
-              </div>
-              <v-btn
-                color="secondary"
-                size="small"
-                block
-                class="mb-2"
-                :loading="loading"
-                @click="expandEdge('source')"
-              >
-                <v-icon icon="mdi-arrow-expand-left" class="mr-1" />
-                从源节点展开
-              </v-btn>
-              <v-btn
-                color="secondary"
-                size="small"
-                block
-                :loading="loading"
-                @click="expandEdge('target')"
-              >
-                <v-icon icon="mdi-arrow-expand-right" class="mr-1" />
-                从目标节点展开
-              </v-btn>
-            </v-card-text>
-          </v-card>
+        <v-chip v-if="startNode" size="small" color="accent" variant="tonal" class="ml-2">
+          <v-icon :icon="getNodeIcon(startNode.label)" start size="small" />
+          {{ startNode.name }}
+        </v-chip>
+      </div>
+
+      <div class="toolbar-right">
+        <v-chip size="small" variant="text">
+          <v-icon icon="mdi-circle-multiple" start size="small" color="primary" />
+          {{ nodes.length }}
+        </v-chip>
+        <v-chip size="small" variant="text">
+          <v-icon icon="mdi-arrow-right-bold" start size="small" color="secondary" />
+          {{ edges.length }}
+        </v-chip>
+      </div>
+    </div>
+
+    <!-- G6 画布容器 -->
+    <div ref="containerRef" class="graph-container">
+      <div v-if="loading" class="overlay">
+        <v-progress-circular indeterminate color="primary" size="56" width="4" />
+        <div class="text-caption mt-3 text-medium-emphasis">加载图谱中…</div>
+      </div>
+      <div v-else-if="nodes.length === 0" class="overlay">
+        <v-icon icon="mdi-graph-outline" size="72" class="mb-3 text-medium-emphasis" />
+        <div class="text-h6 text-medium-emphasis">暂无图谱数据</div>
+        <div class="text-body-2 text-medium-emphasis mt-1">
+          L3 知识图谱为空或未启用
         </div>
       </div>
-    </v-card-text>
-  </v-card>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
 import { ref, shallowRef, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { Graph } from '@antv/g6'
 import type { GraphData, NodeData, EdgeData } from '@antv/g6'
-import type { KGNode, KGEdge } from '@/types'
+import type { KGNode, KGEdge, L3LayoutType } from '@/types'
 import {
   getNodeIcon,
   getTypeColor,
-  getNodeLabel,
   getRelationLabel,
   resolveThemeColor,
 } from '@/composables/l3Constants'
-
-interface SelectedEdgeInfo {
-  source: string
-  target: string
-  relation: string
-  sourceNode: KGNode
-  targetNode: KGNode
-}
 
 const props = defineProps<{
   nodes: KGNode[]
   edges: KGEdge[]
   loading: boolean
+  startNode: KGNode | null
+  layout: L3LayoutType
+  canGoBack: boolean
+  canGoForward: boolean
 }>()
 
 const emit = defineEmits<{
-  reload: []
-  'expand-node': [nodeId: string]
+  'node-click': [node: KGNode]
+  'node-dblclick': [nodeId: string]
+  'edge-click': [edge: KGEdge]
+  'nav-back': []
+  'nav-forward': []
 }>()
 
 const containerRef = ref<HTMLElement | null>(null)
-// G6 实例用 shallowRef 避免被 Vue 深度代理（性能与正确性都需要）
 const graphRef = shallowRef<Graph | null>(null)
-
-const selectedNode = ref<KGNode | null>(null)
-const popupPos = ref<{ x: number; y: number } | null>(null)
-const selectedEdge = ref<SelectedEdgeInfo | null>(null)
-const edgePopupPos = ref<{ x: number; y: number } | null>(null)
-
 let resizeObserver: ResizeObserver | null = null
 
-// ---- 颜色解析：从 Vuetify 主题变量读取实际 rgb 值（canvas 无法消费 CSS 变量）----
+// ---- 主题色缓存（canvas 无法消费 CSS 变量）----
 const colorCache = new Map<string, string>()
 const nodeFill = (label: string): string => {
   if (!colorCache.has(label)) {
@@ -197,18 +107,86 @@ const nodeFill = (label: string): string => {
   return colorCache.get(label)!
 }
 
-// ---- G6 数据转换 ----
-const toGraphData = (): GraphData => ({
-  nodes: props.nodes.map<NodeData>((n) => ({
-    id: n.id,
-    data: { label: n.label, name: n.name, confidence: n.confidence },
-  })),
-  edges: props.edges.map<EdgeData>((e) => ({
-    source: e.source,
-    target: e.target,
-    data: { relation: e.relation },
-  })),
-})
+// ---- 计算节点度数（用于节点大小映射）----
+const computeDegrees = (): Map<string, number> => {
+  const deg = new Map<string, number>()
+  props.edges.forEach((e) => {
+    deg.set(e.source, (deg.get(e.source) || 0) + 1)
+    deg.set(e.target, (deg.get(e.target) || 0) + 1)
+  })
+  return deg
+}
+
+// ---- 布局配置 ----
+const layoutConfig = (type: L3LayoutType) => {
+  switch (type) {
+    case 'dagre':
+      return {
+        type: 'dagre',
+        rankdir: 'LR',
+        nodesep: 20,
+        ranksep: 50,
+        preventOverlap: true,
+      } as any
+    case 'radial':
+      return {
+        type: 'radial',
+        unitRadius: 100,
+        preventOverlap: true,
+        nodeSize: 36,
+        linkDistance: 140,
+      } as any
+    case 'concentric':
+      return {
+        type: 'concentric',
+        minNodeSpacing: 30,
+        preventOverlap: true,
+        nodeSize: 36,
+      } as any
+    case 'force':
+    default:
+      return {
+        type: 'force',
+        preventOverlap: true,
+        nodeSize: 36,
+        linkDistance: 140,
+        nodeStrength: -60,
+        edgeStrength: 0.7,
+        gravity: 8,
+        alpha: 0.3,
+        alphaDecay: 0.028,
+        alphaMin: 0.001,
+      } as any
+  }
+}
+
+// ---- 数据转换 ----
+const toGraphData = (): GraphData => {
+  const degrees = computeDegrees()
+  const maxDeg = Math.max(1, ...degrees.values())
+  return {
+    nodes: props.nodes.map<NodeData>((n) => {
+      const deg = degrees.get(n.id) || 0
+      // 度数越大节点越大：24 ~ 44
+      const size = 24 + (deg / maxDeg) * 20
+      return {
+        id: n.id,
+        data: {
+          label: n.label,
+          name: n.name,
+          confidence: n.confidence,
+          degree: deg,
+          size,
+        },
+      }
+    }),
+    edges: props.edges.map<EdgeData>((e) => ({
+      source: e.source,
+      target: e.target,
+      data: { relation: e.relation, weight: e.weight ?? 1 },
+    })),
+  }
+}
 
 // ---- 初始化 G6 ----
 const initGraph = () => {
@@ -223,31 +201,21 @@ const initGraph = () => {
     height,
     autoFit: 'view',
     data: toGraphData(),
-    layout: {
-      type: 'force',
-      preventOverlap: true,
-      nodeSize: 36,
-      linkDistance: 140,
-      nodeStrength: -60,
-      edgeStrength: 0.7,
-      gravity: 8,
-      alpha: 0.3,
-      alphaDecay: 0.028,
-      alphaMin: 0.001,
-    },
+    layout: layoutConfig(props.layout),
     node: {
       type: 'circle',
       style: (d: NodeData) => {
         const label = (d.data?.label as string) || 'Entity'
         const name = (d.data?.name as string) || String(d.id)
+        const size = (d.data?.size as number) || 30
         return {
-          size: 32,
+          size,
           fill: nodeFill(label),
           stroke: '#ffffff',
           lineWidth: 2,
           labelText: name,
           labelPlacement: 'bottom',
-          labelFontSize: 12,
+          labelFontSize: 11,
           labelFill: '#424242',
           labelBackground: true,
           labelBackgroundFill: 'rgba(255,255,255,0.85)',
@@ -263,29 +231,32 @@ const initGraph = () => {
           shadowColor: 'rgba(255,152,0,0.6)',
           shadowBlur: 12,
         },
-        inactive: { opacity: 0.25 },
+        inactive: { opacity: 0.2 },
         selected: { lineWidth: 3, stroke: '#ff9800' },
       },
     },
     edge: {
       type: 'line',
-      style: (d: EdgeData) => ({
-        stroke: '#9e9e9e',
-        lineWidth: 1.5,
-        strokeOpacity: 0.7,
-        endArrow: true,
-        labelText: getRelationLabel((d.data?.relation as string) || ''),
-        labelFontSize: 10,
-        labelFill: '#616161',
-        labelBackground: true,
-        labelBackgroundFill: 'rgba(255,255,255,0.85)',
-        labelBackgroundOpacity: 0.9,
-        labelPadding: [1, 3],
-        cursor: 'pointer',
-      }),
+      style: (d: EdgeData) => {
+        const w = (d.data?.weight as number) ?? 1
+        return {
+          stroke: '#9e9e9e',
+          lineWidth: 1 + w,
+          strokeOpacity: 0.7,
+          endArrow: true,
+          labelText: getRelationLabel((d.data?.relation as string) || ''),
+          labelFontSize: 9,
+          labelFill: '#616161',
+          labelBackground: true,
+          labelBackgroundFill: 'rgba(255,255,255,0.85)',
+          labelBackgroundOpacity: 0.9,
+          labelPadding: [1, 3],
+          cursor: 'pointer',
+        }
+      },
       state: {
         active: { stroke: '#ff9800', lineWidth: 2.5, strokeOpacity: 1 },
-        inactive: { opacity: 0.15 },
+        inactive: { opacity: 0.1 },
       },
     },
     behaviors: [
@@ -299,66 +270,109 @@ const initGraph = () => {
         inactiveState: 'inactive',
       },
     ],
+    plugins: [
+      {
+        type: 'minimap',
+        size: [180, 120],
+        position: 'right-bottom',
+        className: 'l3-minimap',
+      } as any,
+    ],
   })
 
-  // 节点点击：弹出详情
+  // 节点单击：通知父组件打开抽屉
   graph.on('node:click', (evt: any) => {
     const id = evt.target?.id as string | undefined
     if (!id) return
     const node = props.nodes.find((n) => n.id === id)
-    if (!node) return
-    selectedEdge.value = null
-    edgePopupPos.value = null
-    selectedNode.value = node
-    popupPos.value = toContainerPos(evt)
-    // 同时设置选中态
-    clearStates()
-    graph.setElementState(id, 'selected')
+    if (node) emit('node-click', node)
   })
 
-  // 边点击：弹出关系详情
+  // 节点双击：以此节点展开
+  graph.on('node:dblclick', (evt: any) => {
+    const id = evt.target?.id as string | undefined
+    if (id) emit('node-dblclick', id)
+  })
+
+  // 边点击
   graph.on('edge:click', (evt: any) => {
     const id = evt.target?.id as string | undefined
     if (!id) return
     const edgeData = graph.getEdgeData(id)
-    const sourceId = edgeData?.source as string
-    const targetId = edgeData?.target as string
-    const relation = (edgeData?.data?.relation as string) || ''
-    const sourceNode = props.nodes.find((n) => n.id === sourceId)
-    const targetNode = props.nodes.find((n) => n.id === targetId)
-    if (!sourceNode || !targetNode) return
-    selectedNode.value = null
-    popupPos.value = null
-    selectedEdge.value = {
-      source: sourceId,
-      target: targetId,
-      relation,
-      sourceNode,
-      targetNode,
-    }
-    edgePopupPos.value = toContainerPos(evt)
-  })
-
-  // 点击画布空白：关闭弹窗
-  graph.on('canvas:click', () => {
-    closePopup()
-    closeEdgePopup()
-    clearStates()
+    const edge = props.edges.find(
+      (e) => e.source === edgeData?.source && e.target === edgeData?.target
+    )
+    if (edge) emit('edge-click', edge)
   })
 
   graphRef.value = graph
   graph.render().catch((e) => console.error('G6 render failed:', e))
 }
 
-const toContainerPos = (evt: any): { x: number; y: number } => {
-  const rect = containerRef.value?.getBoundingClientRect()
-  const x = evt.clientX ?? (evt.detail?.x ?? 0)
-  const y = evt.clientY ?? (evt.detail?.y ?? 0)
-  if (!rect) return { x, y }
-  return { x: x - rect.left + 12, y: y - rect.top + 12 }
+// ---- 数据更新 ----
+const updateData = async () => {
+  const graph = graphRef.value
+  if (!graph) return
+  graph.setData(toGraphData())
+  try {
+    await graph.render()
+  } catch (e) {
+    console.error('G6 update failed:', e)
+  }
 }
 
-const clearStates = () => {
+watch(
+  () => [props.nodes, props.edges],
+  () => nextTick(() => updateData()),
+  { deep: true }
+)
+
+// ---- 布局切换：重建图实例 ----
+watch(
+  () => props.layout,
+  () => {
+    destroyGraph()
+    nextTick(() => initGraph())
+  }
+)
+
+// ---- 工具栏操作 ----
+const zoomBy = (factor: number) => {
+  const graph = graphRef.value
+  if (!graph) return
+  const cur = graph.getZoom?.() ?? 1
+  graph.zoomTo(Math.min(Math.max(cur * factor, 0.2), 4)).catch(() => {})
+}
+
+const fitView = () => {
+  graphRef.value?.fitView({ when: 'always' }).catch(() => {})
+}
+
+const fitCenter = () => {
+  graphRef.value?.fitCenter().catch(() => {})
+}
+
+// ---- 暴露给父组件 ----
+const focusNode = async (nodeId: string) => {
+  const graph = graphRef.value
+  if (!graph) return
+  if (graph.hasNode(nodeId)) {
+    clearSelected()
+    graph.setElementState(nodeId, 'selected')
+    await graph.focusElement(nodeId).catch(() => {})
+  } else {
+    emit('node-dblclick', nodeId)
+  }
+}
+
+const highlightNode = (nodeId: string) => {
+  const graph = graphRef.value
+  if (!graph || !graph.hasNode(nodeId)) return
+  clearSelected()
+  graph.setElementState(nodeId, 'selected')
+}
+
+const clearSelected = () => {
   const graph = graphRef.value
   if (!graph) return
   try {
@@ -372,89 +386,7 @@ const clearStates = () => {
   }
 }
 
-// ---- 数据更新 ----
-const updateData = async () => {
-  const graph = graphRef.value
-  if (!graph) return
-  closePopup()
-  closeEdgePopup()
-  graph.setData(toGraphData())
-  try {
-    await graph.render()
-  } catch (e) {
-    console.error('G6 update failed:', e)
-  }
-}
-
-watch(
-  () => [props.nodes, props.edges],
-  () => {
-    nextTick(() => updateData())
-  },
-  { deep: true }
-)
-
-// ---- 工具栏 ----
-const zoomIn = () => {
-  const graph = graphRef.value
-  if (!graph) return
-  const cur = graph.getZoom?.() ?? 1
-  graph.zoomTo(Math.min(cur * 1.2, 3)).catch(() => {})
-}
-
-const zoomOut = () => {
-  const graph = graphRef.value
-  if (!graph) return
-  const cur = graph.getZoom?.() ?? 1
-  graph.zoomTo(Math.max(cur / 1.2, 0.3)).catch(() => {})
-}
-
-const fitView = () => {
-  graphRef.value?.fitView({ when: 'always' }).catch(() => {})
-}
-
-// ---- 弹窗操作 ----
-const closePopup = () => {
-  selectedNode.value = null
-  popupPos.value = null
-}
-
-const closeEdgePopup = () => {
-  selectedEdge.value = null
-  edgePopupPos.value = null
-}
-
-const expandSelected = () => {
-  if (selectedNode.value) {
-    emit('expand-node', selectedNode.value.id)
-    closePopup()
-  }
-}
-
-const expandEdge = (which: 'source' | 'target') => {
-  if (!selectedEdge.value) return
-  const id = which === 'source' ? selectedEdge.value.source : selectedEdge.value.target
-  emit('expand-node', id)
-  closeEdgePopup()
-}
-
-// ---- 暴露给父组件：聚焦节点 ----
-const focusNode = async (nodeId: string) => {
-  const graph = graphRef.value
-  if (!graph) return
-  if (graph.hasNode(nodeId)) {
-    closePopup()
-    closeEdgePopup()
-    clearStates()
-    graph.setElementState(nodeId, 'selected')
-    await graph.focusElement(nodeId).catch(() => {})
-  } else {
-    // 节点不在当前视图中，触发以该节点为中心重新加载
-    emit('expand-node', nodeId)
-  }
-}
-
-defineExpose({ focusNode })
+defineExpose({ focusNode, highlightNode, clearSelected })
 
 // ---- 生命周期 ----
 const handleResize = () => {
@@ -462,6 +394,11 @@ const handleResize = () => {
   const container = containerRef.value
   if (!graph || !container) return
   graph.setSize(container.clientWidth, container.clientHeight)
+}
+
+const destroyGraph = () => {
+  graphRef.value?.destroy()
+  graphRef.value = null
 }
 
 onMounted(() => {
@@ -473,27 +410,48 @@ onMounted(() => {
 onUnmounted(() => {
   resizeObserver?.disconnect()
   resizeObserver = null
-  graphRef.value?.destroy()
-  graphRef.value = null
+  destroyGraph()
 })
 </script>
 
 <style scoped>
-.graph-card {
+.canvas-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   min-height: 600px;
+}
+
+.canvas-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgb(var(--v-theme-surface));
+  border-radius: 8px 8px 0 0;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.toolbar-left,
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .graph-container {
   position: relative;
+  flex: 1;
   width: 100%;
-  height: 540px;
+  min-height: 520px;
   background: rgb(var(--v-theme-surface-variant));
-  border-radius: 8px;
+  border-radius: 0 0 8px 8px;
   overflow: hidden;
 }
 
-.loading-overlay,
-.empty-overlay {
+.overlay {
   position: absolute;
   inset: 0;
   display: flex;
@@ -501,14 +459,13 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   background: rgb(var(--v-theme-surface));
-  opacity: 0.9;
+  opacity: 0.92;
+  z-index: 10;
 }
 
-.node-popup {
-  position: absolute;
-  z-index: 100;
-  pointer-events: auto;
-  min-width: 220px;
-  max-width: 300px;
+:deep(.l3-minimap) {
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.9);
 }
 </style>

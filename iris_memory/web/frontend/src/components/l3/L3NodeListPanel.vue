@@ -1,106 +1,116 @@
 <template>
-  <v-card color="surface" variant="flat">
-    <v-card-title class="d-flex align-center">
-      <v-icon icon="mdi-circle-multiple" color="primary" class="mr-2" />
-      节点列表
-      <v-spacer />
-      <v-text-field
-        v-model="keyword"
-        placeholder="搜索节点..."
-        prepend-inner-icon="mdi-magnify"
-        variant="outlined"
+  <div class="l3-node-list">
+    <v-card color="surface" variant="flat" class="h-100 d-flex flex-column">
+      <!-- 工具栏 -->
+      <v-card-title class="py-2 px-3 d-flex align-center">
+        <v-icon icon="mdi-file-tree" size="small" class="mr-2" />
+        <span class="text-subtitle-1">节点列表</span>
+        <v-spacer />
+        <v-text-field
+          v-model="localFilter"
+          placeholder="过滤…"
+          prepend-inner-icon="mdi-magnify"
+          variant="outlined"
+          density="compact"
+          hide-details
+          clearable
+          class="filter-input"
+        />
+        <v-btn
+          v-if="selected.length > 0"
+          color="error"
+          variant="tonal"
+          size="small"
+          class="ml-2"
+          @click="emit('bulk-delete', selected)"
+        >
+          <v-icon icon="mdi-delete" class="mr-1" />
+          删除 ({{ selected.length }})
+        </v-btn>
+      </v-card-title>
+
+      <v-divider />
+
+      <!-- 表格 -->
+      <v-data-table
+        :headers="headers"
+        :items="filteredItems"
+        :items-per-page="10"
+        :loading="loading"
+        item-value="id"
+        show-select
+        v-model="selected"
         density="compact"
-        hide-details
-        clearable
-        style="max-width: 250px"
-        @keyup.enter="handleSearch"
-        @click:clear="handleClear"
-      />
-      <v-btn
-        v-if="selectedIds.length > 0"
-        color="error"
-        variant="tonal"
-        size="small"
-        class="ml-2"
-        :loading="deleting"
-        @click="handleDeleteSelected"
+        hover
+        class="flex-grow-1"
+        @click:row="handleRowClick"
       >
-        <v-icon icon="mdi-delete" class="mr-1" />
-        删除选中 ({{ selectedIds.length }})
-      </v-btn>
-    </v-card-title>
-    <v-card-text>
-      <v-progress-linear v-if="loading" indeterminate color="primary" />
-      <v-table v-else-if="nodes.length > 0" density="compact" hover>
-        <thead>
-          <tr>
-            <th class="text-center" style="width: 40px">
-              <v-checkbox
-                :model-value="selectAll"
-                density="compact"
-                hide-details
-                @update:model-value="toggleSelectAll"
-              />
-            </th>
-            <th>ID</th>
-            <th>名称</th>
-            <th>类型</th>
-            <th>置信度</th>
-            <th>访问次数</th>
-            <th>创建时间</th>
-            <th class="text-center">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="node in nodes" :key="node.id">
-            <td class="text-center">
-              <v-checkbox
-                :model-value="selectedIds.includes(node.id)"
-                density="compact"
-                hide-details
-                @update:model-value="toggleSelect(node.id)"
-              />
-            </td>
-            <td class="text-caption">{{ node.id }}</td>
-            <td>
-              <a class="node-link" @click="emit('focus-node', node.id)">{{ node.name }}</a>
-            </td>
-            <td>
-              <v-chip size="small" :color="getTypeColor(node.label)" variant="tonal">
-                <v-icon :icon="getNodeIcon(node.label)" start size="x-small" />
-                {{ getNodeLabel(node.label) }}
-              </v-chip>
-            </td>
-            <td>
-              <v-chip
-                size="small"
-                :color="getConfidenceColor(node.confidence)"
-                variant="tonal"
-              >
-                {{ (node.confidence * 100).toFixed(0) }}%
-              </v-chip>
-            </td>
-            <td>{{ node.access_count ?? '-' }}</td>
-            <td class="text-caption">{{ formatTime(node.created_time) }}</td>
-            <td class="text-center">
-              <v-btn
-                icon="mdi-delete"
-                variant="text"
-                size="small"
-                color="error"
-                @click="handleDeleteSingle(node.id)"
-              />
-            </td>
-          </tr>
-        </tbody>
-      </v-table>
-      <div v-else class="text-center text-medium-emphasis py-12">
-        <v-icon icon="mdi-circle-multiple-outline" size="80" class="mb-3" />
-        <div class="text-h6">暂无节点数据</div>
-        <div class="text-body-2 mt-2">L3 知识图谱中暂无节点</div>
-      </div>
-    </v-card-text>
-  </v-card>
+        <template #item.label="{ item }">
+          <v-icon :icon="getNodeIcon(item.label)" :color="getTypeColor(item.label)" size="small" class="mr-1" />
+          <span class="text-body-2">{{ getNodeLabel(item.label) }}</span>
+        </template>
+
+        <template #item.name="{ item }">
+          <div class="text-body-2 font-weight-medium">{{ item.name || item.id }}</div>
+          <div v-if="item.content" class="text-caption text-medium-emphasis text-truncate" style="max-width: 240px">
+            {{ item.content }}
+          </div>
+        </template>
+
+        <template #item.confidence="{ item }">
+          <v-progress-linear
+            :model-value="item.confidence * 100"
+            :color="getConfidenceColor(item.confidence)"
+            height="6"
+            rounded
+            class="my-2"
+            style="width: 60px"
+          />
+          <span class="text-caption ml-1">{{ (item.confidence * 100).toFixed(0) }}%</span>
+        </template>
+
+        <template #item.access_count="{ item }">
+          <v-chip size="x-small" variant="tonal">{{ item.access_count ?? 0 }}</v-chip>
+        </template>
+
+        <template #item.group_id="{ item }">
+          <v-chip v-if="item.group_id" size="x-small" variant="tonal" color="info">{{ item.group_id }}</v-chip>
+          <span v-else class="text-disabled">—</span>
+        </template>
+
+        <template #item.created_time="{ item }">
+          <span class="text-caption">{{ formatTime(item.created_time) }}</span>
+        </template>
+
+        <template #item.actions="{ item }">
+          <v-btn
+            icon="mdi-arrow-expand"
+            size="x-small"
+            variant="text"
+            @click.stop="emit('expand', item.id)"
+          >
+            <v-tooltip activator="parent" location="bottom">以此节点展开</v-tooltip>
+          </v-btn>
+          <v-btn
+            icon="mdi-delete"
+            size="x-small"
+            variant="text"
+            color="error"
+            @click.stop="emit('delete', item.id)"
+          >
+            <v-tooltip activator="parent" location="bottom">删除节点</v-tooltip>
+          </v-btn>
+        </template>
+
+        <template #no-data>
+          <div class="text-center pa-4 text-medium-emphasis">
+            <v-icon icon="mdi-database-off" size="large" class="mb-2" />
+            <div class="text-body-2">暂无节点数据</div>
+          </div>
+        </template>
+      </v-data-table>
+    </v-card>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -117,53 +127,49 @@ import {
 const props = defineProps<{
   nodes: L3NodeDetail[]
   loading: boolean
-  deleting: boolean
-  initialKeyword?: string
 }>()
 
 const emit = defineEmits<{
-  search: [keyword: string | undefined]
-  delete: [ids: string[]]
   'focus-node': [nodeId: string]
+  expand: [nodeId: string]
+  delete: [nodeId: string]
+  'bulk-delete': [ids: string[]]
 }>()
 
-const keyword = ref(props.initialKeyword || '')
-const selectedIds = ref<string[]>([])
+const localFilter = ref('')
+const selected = ref<string[]>([])
 
-const selectAll = computed(
-  () => props.nodes.length > 0 && selectedIds.value.length === props.nodes.length
-)
-
-const toggleSelect = (id: string) => {
-  const idx = selectedIds.value.indexOf(id)
-  if (idx >= 0) selectedIds.value.splice(idx, 1)
-  else selectedIds.value.push(id)
+const handleRowClick = (_: unknown, row: { item: L3NodeDetail }) => {
+  emit('focus-node', row.item.id)
 }
 
-const toggleSelectAll = (checked: boolean | null) => {
-  selectedIds.value = checked ? props.nodes.map((n) => n.id) : []
-}
+const headers = [
+  { title: '类型', key: 'label', width: '120px', sortable: true },
+  { title: '名称 / 内容', key: 'name', sortable: true },
+  { title: '置信度', key: 'confidence', width: '140px', sortable: true },
+  { title: '访问', key: 'access_count', width: '80px', sortable: true },
+  { title: '群组', key: 'group_id', width: '100px', sortable: true },
+  { title: '创建时间', key: 'created_time', width: '150px', sortable: true },
+  { title: '操作', key: 'actions', width: '90px', sortable: false },
+]
 
-const handleSearch = () => emit('search', keyword.value || undefined)
-const handleClear = () => {
-  keyword.value = ''
-  emit('search', undefined)
-}
-
-const handleDeleteSingle = (id: string) => emit('delete', [id])
-const handleDeleteSelected = () => {
-  emit('delete', [...selectedIds.value])
-  selectedIds.value = []
-}
+const filteredItems = computed(() => {
+  const kw = localFilter.value?.trim().toLowerCase()
+  if (!kw) return props.nodes
+  return props.nodes.filter((n) =>
+    [n.name, n.id, n.content, n.label]
+      .filter(Boolean)
+      .some((v) => String(v).toLowerCase().includes(kw))
+  )
+})
 </script>
 
 <style scoped>
-.node-link {
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+.l3-node-list {
+  height: 100%;
 }
-.node-link:hover {
-  opacity: 0.8;
+
+.filter-input {
+  max-width: 200px;
 }
 </style>

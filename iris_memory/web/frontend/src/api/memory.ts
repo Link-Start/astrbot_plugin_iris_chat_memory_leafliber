@@ -72,10 +72,35 @@ export async function updateL2Entry(id: string, content: string): Promise<void> 
   checkSuccess(response, '更新L2记忆失败')
 }
 
-export async function getL3Graph(params?: any): Promise<any> {
+export async function getL3Graph(params?: {
+  node_id?: string
+  depth?: number
+  max_nodes?: number
+  max_edges?: number
+}): Promise<any> {
   const response = await apiGet<any>('memory/l3/graph', params)
   checkSuccess(response, '获取L3图谱失败')
   return response
+}
+
+export async function getL3Stats(): Promise<{
+  available: boolean
+  node_count: number
+  edge_count: number
+  node_types: Record<string, number>
+  relation_types: Record<string, number>
+}> {
+  const response = await apiGet<any>('memory/l3/stats')
+  checkSuccess(response, '获取L3统计失败')
+  return (
+    response.stats || {
+      available: false,
+      node_count: 0,
+      edge_count: 0,
+      node_types: {},
+      relation_types: {},
+    }
+  )
 }
 
 export async function searchL3Nodes(keyword: string, limit: number = 20): Promise<any[]> {
