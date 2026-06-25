@@ -270,7 +270,6 @@ export interface SystemStats {
   components: ComponentStates
   global_status: GlobalStatus
   uptime: number
-  version: string
 }
 
 // 知识图谱统计

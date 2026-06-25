@@ -18,7 +18,7 @@ export async function getAllStats(): Promise<any> {
     memory: response.memory || { l1: {}, l2: {}, l3: {} },
     token: response.token || {},
     kg: response.kg || { node_count: 0, edge_count: 0, node_types: {}, relation_types: {} },
-    system: response.system || { components: { l1_buffer: false, l2_memory: false, l3_kg: false, profile: false, llm_manager: false }, uptime: 0, version: '1.0.0' }
+    system: response.system || { components: { l1_buffer: false, l2_memory: false, l3_kg: false, profile: false, llm_manager: false }, uptime: 0 }
   }
 }
 
@@ -43,5 +43,5 @@ export async function getKGStats(): Promise<any> {
 export async function getSystemStats(): Promise<any> {
   const response = await apiGet<any>('stats/system')
   checkSuccess(response, '获取系统统计失败')
-  return response.stats || { components: { l1_buffer: false, l2_memory: false, l3_kg: false, profile: false, llm_manager: false }, uptime: 0, version: '1.0.0' }
+  return response.stats || { components: { l1_buffer: false, l2_memory: false, l3_kg: false, profile: false, llm_manager: false }, uptime: 0 }
 }

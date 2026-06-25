@@ -133,7 +133,6 @@ async def get_system_stats():
             "components": component_states,
             "global_status": global_status,
             "uptime": _get_uptime(),
-            "version": "1.0.0",
         }
 
         logger.info("获取系统统计成功")
@@ -217,7 +216,6 @@ async def get_all_stats():
             "components": component_states,
             "global_status": global_status,
             "uptime": _get_uptime(),
-            "version": "1.0.0",
         }
 
         logger.info("获取所有统计成功")

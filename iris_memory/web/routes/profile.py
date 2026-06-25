@@ -125,12 +125,12 @@ async def get_user_profile():
 
 async def update_user_profile():
     try:
-        user_id = request.args.get("user_id")
+        data = await request.get_json()
+        user_id = request.args.get("user_id") or (data or {}).get("user_id")
         if not user_id:
             return jsonify({"success": False, "error": "缺少 user_id 参数"}), 400
 
-        group_id = request.args.get("group_id")
-        data = await request.get_json()
+        group_id = request.args.get("group_id") or (data or {}).get("group_id")
 
         if not data:
             return jsonify({"success": False, "error": "请求体不能为空"}), 400

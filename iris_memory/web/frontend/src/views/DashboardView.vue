@@ -13,10 +13,6 @@
               {{ globalStatusText }}
             </v-chip>
             <span class="text-caption text-medium-emphasis">
-              <v-icon icon="mdi-tag-outline" size="x-small" class="mr-1" />
-              v{{ systemStats?.version || '—' }}
-            </span>
-            <span class="text-caption text-medium-emphasis">
               <v-icon icon="mdi-clock-outline" size="x-small" class="mr-1" />
               {{ uptime }}
             </span>
