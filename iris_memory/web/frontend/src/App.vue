@@ -134,11 +134,6 @@ watch(error, (val) => {
 
 /* 品牌头部 */
 .v-navigation-drawer .v-list-item:first-child {
-  background: linear-gradient(
-    135deg,
-    rgba(var(--v-theme-primary), 0.08),
-    transparent
-  );
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.04);
 }
 
@@ -158,9 +153,16 @@ watch(error, (val) => {
   transform: translateX(2px);
 }
 
+/* 活动导航项：纯色高亮，覆盖 Vuetify 默认渐变 */
 .v-navigation-drawer .v-list-item--active {
-  background: rgba(var(--v-theme-primary), 0.12);
+  background: rgba(var(--v-theme-primary), 0.12) !important;
   color: rgb(var(--v-theme-primary)) !important;
+}
+
+/* 移除 Vuetify 默认的 ::before 渐变层 */
+.v-navigation-drawer .v-list-item--active::before,
+.v-navigation-drawer .v-list-item--active .v-list-item__overlay {
+  opacity: 0 !important;
 }
 
 .v-navigation-drawer .v-list-item--active .v-icon {

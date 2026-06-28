@@ -998,6 +998,14 @@ onMounted(() => {
   height: 100%;
 }
 
+/* ProfileView 多了 v-window 包裹，flex 高度链断裂，
+   需要显式给 v-card-text 设置 max-height 触发滚动 */
+.profile-view :deep(.iris-list-card .v-card-text) {
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
 /* iris-list-card 已提供高度与滚动行为，这里保留局部细节 */
 
 .profile-content {
