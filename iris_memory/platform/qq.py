@@ -17,7 +17,11 @@ OneBot11 协议参考：
 from typing import Any, List, TYPE_CHECKING
 
 from iris_memory.core import get_logger
-from iris_memory.platform.base import PlatformAdapter, ReplyInfo
+from iris_memory.platform.base import (
+    ForwardMessage,
+    PlatformAdapter,
+    ReplyInfo,
+)
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
@@ -537,3 +541,142 @@ class OneBot11Adapter(PlatformAdapter):
             user_name=user_name,
             content=content,
         )
+
+    async def get_forward_messages(self, event: Any) -> List[ForwardMessage]:
+        """提取合并转发消息中的所有子消息
+
+        识别 OneBot11 的 forward 消息段，调用 get_forward_msg API 拉取
+        子消息列表，提取每条子消息的发送者ID/名称、文本内容、时间戳等。
+
+        Args:
+            event: AstrBot 消息事件对象，需包含 bot 属性
+
+        Returns:
+            合并转发子消息列表；非合并转发消息或拉取失败时返回空列表
+
+        Notes:
+            - 依赖 aiocqhttp 的 call_action 方法
+            - 不同 OneBot11 实现对 get_forward_msg 支持程度不同
+            - 单个 forward ID 拉取超时 10 秒
+        """
+        forward_messages: List[ForwardMessage] = []
+
+        try:
+            raw_msg = self.get_raw_message(event)
+            if not raw_msg:
+                return forward_messages
+
+            message_segments = raw_msg.get("message", [])
+            if not isinstance(message_segments, list):
+                return forward_messages
+
+            # 收集所有 forward 段的 resId
+            forward_ids: list[str] = []
+            for segment in message_segments:
+                if not isinstance(segment, dict):
+                    continue
+                if segment.get("type") == "forward":
+                    forward_id = segment.get("data", {}).get("id")
+                    if forward_id:
+                        forward_ids.append(str(forward_id))
+
+            if not forward_ids:
+                return forward_messages
+
+            bot = getattr(event, "bot", None)
+            if bot is None:
+                logger.debug("event.bot 不存在，无法调用 get_forward_msg API")
+                return forward_messages
+
+            for forward_id in forward_ids:
+                sub_messages = await self._fetch_forward_sub_messages(bot, forward_id)
+                forward_messages.extend(sub_messages)
+
+            logger.debug(f"提取到 {len(forward_messages)} 条合并转发子消息")
+
+        except Exception as e:
+            logger.error(f"提取合并转发消息失败: {e}")
+            return forward_messages
+
+        return forward_messages
+
+    async def _fetch_forward_sub_messages(
+        self, bot: Any, forward_id: str
+    ) -> List[ForwardMessage]:
+        """调用 get_forward_msg API 拉取单个合并转发的子消息列表
+
+        Args:
+            bot: aiocqhttp Bot 实例
+            forward_id: 合并转发消息的 resId
+
+        Returns:
+            子消息列表，失败时返回空列表
+        """
+        import asyncio
+
+        try:
+            result = await asyncio.wait_for(
+                bot.call_action("get_forward_msg", message_id=forward_id),
+                timeout=10.0,
+            )
+        except asyncio.TimeoutError:
+            logger.debug(f"get_forward_msg API 超时：id={forward_id}")
+            return []
+        except AttributeError:
+            logger.debug("bot.call_action 方法不存在，无法调用 get_forward_msg API")
+            return []
+        except Exception as e:
+            err_str = str(e)
+            if "API_NOT_FOUND" in err_str or "api not found" in err_str.lower():
+                logger.debug(f"get_forward_msg API 不可用：id={forward_id}")
+            else:
+                logger.debug(
+                    f"get_forward_msg API 调用失败：id={forward_id}, error={e}"
+                )
+            return []
+
+        if not result or not isinstance(result, dict):
+            return []
+
+        messages = result.get("messages", [])
+        if not isinstance(messages, list):
+            return []
+
+        sub_messages: List[ForwardMessage] = []
+        for sub_msg in messages:
+            if not isinstance(sub_msg, dict):
+                continue
+
+            sender = sub_msg.get("sender", {}) or {}
+            user_id = str(sender.get("user_id", "")) if sender else ""
+            card = sender.get("card", "")
+            nickname = sender.get("nickname", "")
+            user_name = str(card or nickname)
+
+            content_segments = sub_msg.get("content", [])
+            content = ""
+            if isinstance(content_segments, str):
+                content = content_segments
+            elif isinstance(content_segments, list):
+                content = self._extract_text_from_segments(content_segments)
+
+            if not content and not user_id:
+                continue
+
+            timestamp = sub_msg.get("time", 0)
+            if not isinstance(timestamp, int):
+                timestamp = 0
+
+            message_id = str(sub_msg.get("message_id", ""))
+
+            sub_messages.append(
+                ForwardMessage(
+                    user_id=user_id,
+                    user_name=user_name,
+                    content=content,
+                    timestamp=timestamp,
+                    message_id=message_id,
+                )
+            )
+
+        return sub_messages

@@ -726,7 +726,8 @@ class L1Buffer(Component):
                     logger.warning(
                         f"总结响应 JSON 解析失败且文本回退仅提取到 "
                         f"{len(fallback_items)} 条记忆（来自行式解析）。"
-                        f"模型输出格式异常，强烈建议更换支持 JSON 输出的模型。"
+                        f"如大量出现此情况，建议更换支持 JSON 输出的模型。"
+                        f"\n--- LLM 原始返回 ---\n{summary}\n--- 结束 ---"
                     )
 
             if not summary_items:

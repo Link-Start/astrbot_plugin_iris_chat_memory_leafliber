@@ -244,6 +244,76 @@ async def _add_to_l1_buffer(
 
     logger.debug(f"已添加用户消息到群聊 {group_id} 的 L1 Buffer")
 
+    # 展开合并转发消息：拼接为一条消息入队，超长按 token 限制截断
+    try:
+        forward_messages = await adapter.get_forward_messages(event)
+    except Exception as e:
+        logger.debug(f"获取合并转发消息失败: {e}")
+        forward_messages = []
+
+    if forward_messages:
+        from iris_memory.config import get_config as _get_cfg
+        from iris_memory.utils import count_tokens
+
+        max_single_tokens = cast(
+            int, _get_cfg().get("l1_max_single_message_tokens", 500)
+        )
+
+        # 预留 token 预算给前后缀与单条子消息结构开销
+        reserve_tokens = 30
+        budget = max(max_single_tokens - reserve_tokens, 64)
+
+        # 按子消息累加，超过预算则停止；保证每条子消息完整
+        included_lines: list[str] = []
+        included_count = 0
+        used_tokens = 0
+        truncated = False
+
+        for fwd in forward_messages:
+            if not fwd.content:
+                continue
+            fwd_content = sanitize_input(fwd.content, source="user_message")
+            if not fwd_content:
+                continue
+            user_label = fwd.user_name or "用户"
+            line = f"[{user_label}]: {fwd_content}"
+            line_tokens = count_tokens(line)
+
+            if used_tokens + line_tokens > budget and included_lines:
+                truncated = True
+                break
+            included_lines.append(line)
+            included_count += 1
+            used_tokens += line_tokens
+
+        if included_lines:
+            header = "【合并转发内容】"
+            parts = [header] + included_lines
+            if truncated:
+                total = sum(1 for f in forward_messages if f.content)
+                parts.append(f"（已截断，共 {total} 条，已展示 {included_count} 条）")
+            combined_content = "\n".join(parts)
+
+            fwd_metadata: dict[str, Any] = {
+                "forward": True,
+                "forward_total": len(forward_messages),
+                "forward_included": included_count,
+                "forward_truncated": truncated,
+            }
+            await l1_buffer.add_message(
+                group_id=group_id,
+                role="user",
+                content=combined_content,
+                source=user_id,
+                metadata=fwd_metadata,
+                persona_id=persona_id,
+            )
+            logger.debug(
+                f"合并转发消息已入队：群聊 {group_id}，"
+                f"包含 {included_count}/{len(forward_messages)} 条子消息，"
+                f"truncated={truncated}"
+            )
+
     await _update_profile_names(
         component_manager, group_id, group_name, user_id, user_name, persona_id
     )

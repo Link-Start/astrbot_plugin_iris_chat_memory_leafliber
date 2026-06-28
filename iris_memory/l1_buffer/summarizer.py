@@ -293,7 +293,8 @@ def parse_summary_response(response: str) -> dict:
         logger.warning(
             f"L1 总结 JSON 解析失败: {e}。"
             f"模型可能未按 JSON 格式输出，将尝试文本回退解析。"
-            f"如频繁出现此警告，建议更换支持 JSON 输出的模型。"
+            f"如大量出现此警告，建议更换支持 JSON 输出的模型。"
+            f"\n--- LLM 原始返回 ---\n{response}\n--- 结束 ---"
         )
 
     lines = response.strip().split("\n")

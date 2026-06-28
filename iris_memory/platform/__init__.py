@@ -44,6 +44,7 @@ Iris Chat Memory - 平台接口统一管理模块
 
 # 导出公共 API
 from iris_memory.platform.base import (
+    ForwardMessage,
     PlatformAdapter,
     ReplyInfo,
     UnsupportedPlatformError,
@@ -62,6 +63,7 @@ __all__ = [
     "get_adapter",
     "PlatformAdapter",
     "ReplyInfo",
+    "ForwardMessage",
     "UnsupportedPlatformError",
     # 平台适配器
     "OneBot11Adapter",

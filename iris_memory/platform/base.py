@@ -51,6 +51,30 @@ class ReplyInfo:
         return bool(self.message_id)
 
 
+@dataclass
+class ForwardMessage:
+    """合并转发子消息数据类
+
+    存储从平台合并转发消息中提取的单条子消息信息。
+
+    Attributes:
+        user_id: 子消息发送者ID
+        user_name: 子消息发送者显示名称（群名片或昵称）
+        content: 子消息文本内容
+        timestamp: 子消息时间戳（Unix 秒，0 表示不可用）
+        message_id: 子消息ID
+
+    Examples:
+        >>> fwd = ForwardMessage(user_id="123", user_name="张三", content="你好")
+    """
+
+    user_id: str = ""
+    user_name: str = ""
+    content: str = ""
+    timestamp: int = 0
+    message_id: str = ""
+
+
 class UnsupportedPlatformError(Exception):
     """不支持的平台类型异常
 
@@ -328,3 +352,31 @@ class PlatformAdapter(ABC):
             - 不同平台实现可能不支持此 API，将返回空 ReplyInfo
         """
         return ReplyInfo()
+
+    async def get_forward_messages(
+        self, event: "AstrMessageEvent"
+    ) -> list[ForwardMessage]:
+        """获取合并转发消息的子消息列表
+
+        当消息为合并转发（OneBot11 的 forward 消息段）时，
+        调用平台 API 拉取子消息列表并提取文本、发送者等信息。
+
+        默认实现返回空列表，子类可覆盖以支持具体平台。
+
+        Args:
+            event: AstrBot 消息事件对象
+
+        Returns:
+            合并转发子消息列表；非合并转发消息或平台不支持时返回空列表
+
+        Examples:
+            >>> forwards = await adapter.get_forward_messages(event)
+            >>> for fwd in forwards:
+            ...     print(f"[{fwd.user_name}]: {fwd.content}")
+
+        Notes:
+            - 此方法为异步方法，需要调用平台 API
+            - OneBot11 使用 get_forward_msg API 拉取子消息
+            - 不同平台实现可能不支持合并转发，将返回空列表
+        """
+        return []

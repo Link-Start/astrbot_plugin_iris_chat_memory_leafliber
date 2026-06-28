@@ -482,18 +482,18 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 
 ## FAQ
 
-### 为什么"记不住"或记忆效果不好？
+### Q1：为什么"记不住"或记忆效果不好？
 
 - 确认 `l1_buffer.enable`、`l2_memory.enable`、`l3_kg.enable` 均为 `true`
 - 检查是否配置了可用的 LLM Provider（总结、提取、分析等核心功能依赖 LLM）
 - 使用 `/iris_mem l2 stats` 查看记忆库是否有记录
 - 确认你查询的是同一会话（群聊记忆隔离时，不同群聊的记忆独立）
 
-### 为什么会出现回复冲突或重复发言？
+### Q2：为什么会出现回复冲突或重复发言？
 
 与 AstrBot 自带上下文功能重叠。建议关闭 AstrBot 同类能力，保留 `context_control.enable_conversation_cleanup = true`。
 
-### 与其他依赖 `req.contexts` 的插件冲突？
+### Q3：与其他依赖 `req.contexts` 的插件冲突？
 
 本插件开启上下文接管（`context_control.enable_conversation_cleanup = true`，默认开启）后，会在每次 LLM 请求前**清空 `req.contexts` 字段**，改由 L1/L2/L3 记忆系统统一注入上下文。这意味着任何依赖 `req.contexts` 的第三方插件其写入内容都会被一同清空，从而导致功能失效。
 
@@ -508,32 +508,32 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 - 优先方案：避免同时启用同类功能插件，由本插件统一管理上下文
 - 若必须共存：将 `context_control.enable_conversation_cleanup` 设为 `false`，但此时 AstrBot 内置对话历史与本插件注入内容会同时进入上下文，可能导致 Token 翻倍、回复重复，**不推荐**
 
-### Token 消耗太高怎么办？
+### Q4：Token 消耗太高怎么办？
 
 - 降低 `l1_buffer.inject_queue_length`（如 30）
 - 降低 `l2_memory.top_k`（如 3～5）
 - 关闭不需要的功能（如 `l1_buffer.image_parsing.enable = false`）
 - 为不同任务配置不同的 Provider（使用轻量模型处理总结/提取等任务）
 
-### 切换嵌入模型后检索变差或报维度问题？
+### Q5：切换嵌入模型后检索变差或报维度问题？
 
 不同模型维度可能不同（512/768/1024），切换后插件会自动重建记忆库，已有记忆可能会丢失。**切换前请务必备份数据**（Web 管理界面导出）。建议在初期确定好嵌入模型后不要频繁更换。
 
-### `iris_mem` 指令无响应？
+### Q6：`iris_mem` 指令无响应？
 
 确认你已配置为管理员。使用 `/sid` 获取用户 ID，在 AstrBot WebUI 中添加管理员 ID。
 
-### 数据会上传到云端吗？
+### Q7：数据会上传到云端吗？
 
 默认存储在本地（FAISS / SQLite / 本地文件）。仅在你配置并调用外部 LLM 时，会向所选 Provider 发送必要文本。
 
-### 如何彻底清空所有插件数据？
+### Q8：如何彻底清空所有插件数据？
 
 ```
 /iris_mem all clear --all
 ```
 
-### L2 嵌入模型应该选 Provider 还是本地？
+### Q9：L2 嵌入模型应该选 Provider 还是本地？
 
 - **Provider（推荐）**：使用 AstrBot 配置的 Embedding Provider（如 OpenAI 兼容服务、Ollama 等），无需下载模型，不占用本地内存
 - **本地**：使用本地自选的轻量模型（需要手动在日志面板，安装pip包`sentence-transformers`），首次使用需下载约 96 MB 模型文件，运行时额外占用 200～500 MB 内存。适合无法访问外部 Embedding 服务的离线环境
