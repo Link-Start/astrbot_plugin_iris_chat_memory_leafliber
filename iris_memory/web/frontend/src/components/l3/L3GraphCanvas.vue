@@ -536,7 +536,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 600px;
+  min-height: 400px;
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
@@ -564,7 +564,7 @@ onUnmounted(() => {
   position: relative;
   flex: 1;
   width: 100%;
-  min-height: 520px;
+  min-height: 360px;
   background: rgb(var(--v-theme-surface));
   overflow: hidden;
 }

@@ -460,7 +460,7 @@
 
                       <v-card variant="outlined" class="iris-card iris-card-hover info-card mt-4">
                         <v-card-title class="text-subtitle-2 pb-0 d-flex align-center">
-                          <v-icon icon="mdi-brain" color="purple" class="mr-2" />
+                          <v-icon icon="mdi-emoticon-outline" color="purple" class="mr-2" />
                           性格特征
                           <v-spacer />
                           <v-btn icon="mdi-plus" variant="text" size="x-small" @click="startAddTag('user', 'personality_tags')" />

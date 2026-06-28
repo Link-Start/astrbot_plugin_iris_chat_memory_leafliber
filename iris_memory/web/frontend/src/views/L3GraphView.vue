@@ -10,50 +10,40 @@
       <!-- 顶部统计条 -->
       <v-card color="surface" variant="flat" class="iris-hero-card mb-3">
         <v-card-text class="py-2">
-          <v-row dense align="center">
-            <v-col cols="auto">
-              <div class="d-flex align-center">
+          <div class="stats-bar">
+            <div class="stats-bar__left">
+              <div class="d-flex align-center mr-3">
                 <v-icon icon="mdi-graph" color="primary" class="mr-2" />
                 <span class="text-h6">L3 知识图谱</span>
               </div>
-            </v-col>
-            <v-divider vertical class="mx-3" />
-            <v-col cols="auto">
-              <v-chip size="small" variant="tonal" color="primary">
+              <v-chip size="small" variant="tonal" color="primary" class="ma-1">
                 <v-icon icon="mdi-circle-multiple" start size="x-small" />
                 {{ memoryStore.l3Stats.node_count }} 节点
               </v-chip>
-            </v-col>
-            <v-col cols="auto">
-              <v-chip size="small" variant="tonal" color="secondary">
+              <v-chip size="small" variant="tonal" color="secondary" class="ma-1">
                 <v-icon icon="mdi-link-variant" start size="x-small" />
                 {{ memoryStore.l3Stats.edge_count }} 关系
               </v-chip>
-            </v-col>
-            <v-col cols="auto">
-              <v-chip size="small" variant="tonal" color="info">
+              <v-chip size="small" variant="tonal" color="info" class="ma-1 d-none d-sm-inline-flex">
                 <v-icon icon="mdi-eye" start size="x-small" />
-                当前 {{ memoryStore.l3FilteredGraph.nodes.length }} / {{ memoryStore.l3Graph.nodes.length }}
+                {{ memoryStore.l3FilteredGraph.nodes.length }} / {{ memoryStore.l3Graph.nodes.length }}
               </v-chip>
-            </v-col>
-            <v-spacer />
-            <v-col cols="auto">
-              <v-btn-toggle v-model="activeTab" mandatory color="primary" density="compact">
-                <v-btn value="graph" size="small">
-                  <v-icon icon="mdi-graph" class="mr-1" />
-                  图谱
-                </v-btn>
-                <v-btn value="nodes" size="small">
-                  <v-icon icon="mdi-circle-multiple" class="mr-1" />
-                  节点
-                </v-btn>
-                <v-btn value="edges" size="small">
-                  <v-icon icon="mdi-link-variant" class="mr-1" />
-                  关系
-                </v-btn>
-              </v-btn-toggle>
-            </v-col>
-          </v-row>
+            </div>
+            <v-btn-toggle v-model="activeTab" mandatory color="primary" density="compact" class="flex-shrink-0">
+              <v-btn value="graph" size="small">
+                <v-icon icon="mdi-graph" class="mr-1" />
+                图谱
+              </v-btn>
+              <v-btn value="nodes" size="small">
+                <v-icon icon="mdi-circle-multiple" class="mr-1" />
+                节点
+              </v-btn>
+              <v-btn value="edges" size="small">
+                <v-icon icon="mdi-link-variant" class="mr-1" />
+                关系
+              </v-btn>
+            </v-btn-toggle>
+          </div>
         </v-card-text>
       </v-card>
 
@@ -373,7 +363,22 @@ onUnmounted(() => {
   flex-direction: column;
 }
 
-/* 顶部统计条样式由 iris-hero-card 全局类提供，此处保留标题字重微调 */
+/* 顶部统计条：flex 布局，自动换行 */
+.stats-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stats-bar__left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* 标题字重微调 */
 .l3-graph-view :deep(.text-h6) {
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -385,7 +390,7 @@ onUnmounted(() => {
   align-items: stretch;
   /* 顶部条 + 外边距 + padding 综合预留 */
   height: calc(100vh - 200px);
-  min-height: 520px;
+  min-height: 480px;
   flex: 1;
 }
 
@@ -405,20 +410,38 @@ onUnmounted(() => {
   width: 100%;
 }
 
+/* 中等屏幕：收窄侧栏 */
 @media (max-width: 1280px) {
   .graph-layout {
     flex-direction: column;
     height: auto;
+    min-height: unset;
   }
 
   .sidebar-col {
     width: 100%;
-    max-height: 360px;
+    height: 280px;
+    overflow: hidden;
   }
 
   .canvas-col {
-    height: 600px;
     flex: none;
+    height: 500px;
+  }
+}
+
+/* 小屏幕：进一步压缩 */
+@media (max-width: 768px) {
+  .graph-layout {
+    gap: 8px;
+  }
+
+  .sidebar-col {
+    height: 220px;
+  }
+
+  .canvas-col {
+    height: 400px;
   }
 }
 

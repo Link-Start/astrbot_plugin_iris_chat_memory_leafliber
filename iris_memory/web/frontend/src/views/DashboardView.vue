@@ -2,7 +2,7 @@
   <div class="dashboard">
     <v-row dense>
       <v-col cols="12">
-        <v-card color="surface" variant="flat" class="iris-hero-card system-bar">
+        <v-card color="surface" variant="flat" class="iris-card system-bar">
           <v-card-text class="d-flex align-center flex-wrap ga-3 pa-3">
             <v-chip
               :color="globalStatusColor"
@@ -535,10 +535,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* system-bar 风格由 iris-hero-card 提供，这里仅保留局部细节 */
-.system-bar {
-  border-color: rgba(var(--v-theme-primary), 0.18);
-}
+/* system-bar 风格由 iris-card 提供 */
 
 .component-disabled {
   opacity: 0.55;

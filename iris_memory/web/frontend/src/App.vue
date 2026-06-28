@@ -2,7 +2,7 @@
   <v-app>
     <v-navigation-drawer v-model="drawer" :rail="rail" permanent>
       <v-list-item
-        prepend-icon="mdi-brain"
+        prepend-icon="mdi-flower-tulip"
         title="Iris Memory"
         nav
         @click="rail = !rail"

@@ -382,7 +382,8 @@ const handleClearSearch = () => {
 
 <style scoped>
 .l3-sidebar {
-  max-height: calc(100vh - 140px);
+  /* 高度由父容器控制，自身只负责滚动 */
+  max-height: 100%;
   overflow-y: auto;
   padding-right: 4px;
   /* 自定义滚动条 */
