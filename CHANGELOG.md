@@ -4,6 +4,34 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.2] - 2026-06-28
+
+> 本次更新主要尝试支持合并转发消息的解析与入队，同时附带前端管理界面（pages）的若干显示修复。
+
+### 新增
+
+- **合并转发消息支持（实验性）**：识别 OneBot11 协议的 `forward` 消息段，通过 `get_forward_msg` API 拉取合并转发内的所有子消息，并将其作为一条结构化消息入队 L1 Buffer。
+  - 平台适配层新增抽象：`iris_memory/platform/base.py` 提供 `ForwardMessage` 数据类与 `get_forward_messages` 默认空实现；`iris_memory/platform/qq.py` 实现 OneBot11 兼容拉取（单个 resId 超时 10 秒，失败返回空列表）。
+  - 子消息按 `[{用户名}]: {内容}` 格式拼接，统一包裹在「【合并转发内容】」标题下；按 `l1_max_single_message_tokens` 预算累加，超预算时停止累加并追加截断提示（预留 30 tokens 给前后缀与结构开销，下限 64 tokens）。
+  - 入队消息携带 `forward` / `forward_total` / `forward_included` / `forward_truncated` 元数据，便于后续统计与回溯。
+  - 合并转发中的图片同样会被提取，`source` 标记为 `forward`，纳入每日配额与去重逻辑。
+  - 不同 OneBot11 实现对 `get_forward_msg` 支持程度不同，不支持或拉取失败时静默跳过，不影响主消息入队。
+
+### 变更
+
+- **前端图标体系调整**：应用主图标由 `mdi-brain` 更换为 `mdi-flower-tulip`（贴合 Iris 鸢尾花主题）；画像管理「性格特征」卡片图标更换为 `mdi-emoticon-outline`。
+- **仪表盘顶部条样式简化**：移除 `iris-hero-card` 的主色渐变背景，改用普通 `iris-card`，避免与导航栏活动项渐变叠加造成视觉冗余。
+
+### 修复
+
+- **L3 图谱小屏幕布局重合**：重设三档响应式断点（1280px / 768px），小屏下侧栏改为固定高度并允许内部滚动，画布高度逐档递减；侧栏自身 `max-height` 由 `calc(100vh - 140px)` 改为 `100%`，交由父容器统一控制，避免与父容器冲突导致溢出重合。顶部统计条改用 flex 自动换行布局，小屏隐藏次要的「当前/总数」统计。
+- **画像管理列表无法滚动**：ProfileView 比 L1BufferView 多一层 `v-window` 包裹，导致 flex 高度链条断裂、`overflow-y: auto` 失效；通过 `:deep()` 显式为 `.iris-list-card .v-card-text` 设置 `max-height` 触发滚动。同时在全局 `iris-common.css` 中为 `.iris-list-card > .v-card-text` 补充 `min-height: 0`，修复 flex 子项默认 `min-height: auto` 阻止收缩的通病，惠及所有使用该类名的列表。
+- **导航栏活动项残留渐变底**：移除品牌头部 `linear-gradient` 背景；为 `.v-list-item--active` 强制纯色高亮并禁用 Vuetify 默认的 `::before` / `__overlay` 渐变层。
+- **L3 控件调整误触发主节点重置**：调整深度 / 最大节点数时改用新增的 `refreshL3Graph()`（保留当前主节点），仅「随机主节点」按钮调用 `fetchL3Graph()` 重新随机；侧栏原「重新加载」按钮更名为「随机主节点」并更换为 `mdi-shuffle` 图标。
+- **ProfileView 用户列表 active 状态错乱**：同一 `user_id` 出现在多个群组时所有匹配行同时高亮，修复为同时校验 `user_id` 与 `group_id`。
+- **L3 列表面板样式不一致**：`L3NodeListPanel` / `L3EdgeListPanel` 补齐 `iris-card` / `iris-section-title` / `iris-table` 类与统一空状态；`L3Sidebar` 分区标题补齐 `iris-section-title`，`border-radius` 改用全局 `--iris-card-radius` 变量。
+- **L3NodeDrawer 脆弱 CSS 选择器**：`.pa-3.d-flex.gap-2` 依赖模板类名顺序，改用语义化类名 `.drawer-actions`。
+
 ## [0.1.1] - 2026-06-24
 
 > **⚠️ 重要：本次更新需要重启 AstrBot，否则可能会导致插件加载失败。**
