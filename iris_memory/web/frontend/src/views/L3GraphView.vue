@@ -8,7 +8,7 @@
       @retry="refreshState"
     >
       <!-- 顶部统计条 -->
-      <v-card color="surface" variant="flat" class="mb-3">
+      <v-card color="surface" variant="flat" class="iris-hero-card mb-3">
         <v-card-text class="py-2">
           <v-row dense align="center">
             <v-col cols="auto">
@@ -373,17 +373,7 @@ onUnmounted(() => {
   flex-direction: column;
 }
 
-/* 顶部统计条 */
-.l3-graph-view :deep(.v-card:first-child) {
-  border-radius: 12px;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.06);
-  background: linear-gradient(
-    135deg,
-    rgba(var(--v-theme-primary), 0.04),
-    rgb(var(--v-theme-surface))
-  );
-}
-
+/* 顶部统计条样式由 iris-hero-card 全局类提供，此处保留标题字重微调 */
 .l3-graph-view :deep(.text-h6) {
   font-weight: 700;
   letter-spacing: 0.01em;

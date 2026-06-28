@@ -1,7 +1,7 @@
 <template>
   <div class="l3-edge-list">
-    <v-card color="surface" variant="flat" class="h-100 d-flex flex-column">
-      <v-card-title class="py-2 px-3 d-flex align-center">
+    <v-card color="surface" variant="flat" class="iris-card h-100 d-flex flex-column">
+      <v-card-title class="py-2 px-3 d-flex align-center iris-section-title">
         <v-icon icon="mdi-link-variant" size="small" class="mr-2" />
         <span class="text-subtitle-1">关系列表</span>
         <v-spacer />
@@ -40,7 +40,7 @@
         v-model="selected"
         density="compact"
         hover
-        class="flex-grow-1"
+        class="flex-grow-1 iris-table"
         @click:row="handleRowClick"
       >
         <template #item.relation="{ item }">
@@ -98,9 +98,9 @@
         </template>
 
         <template #no-data>
-          <div class="text-center pa-4 text-medium-emphasis">
-            <v-icon icon="mdi-link-off" size="large" class="mb-2" />
-            <div class="text-body-2">暂无关系数据</div>
+          <div class="iris-empty-state">
+            <v-icon icon="mdi-link-off" size="56" />
+            <div class="iris-empty-state__title">暂无关系数据</div>
           </div>
         </template>
       </v-data-table>

@@ -285,7 +285,7 @@
                     <v-list-item
                       v-for="user in filteredUserList"
                       :key="user.user_id + (user.group_id || 'global')"
-                      :active="selectedUserId === user.user_id"
+                      :active="selectedUserId === user.user_id && selectedUserGroupId === (user.group_id || '')"
                       @click="selectUser(user.user_id, user.group_id)"
                     >
                       <template #prepend>

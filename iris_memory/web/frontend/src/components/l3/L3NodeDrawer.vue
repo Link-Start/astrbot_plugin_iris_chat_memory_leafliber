@@ -52,7 +52,7 @@
       <v-divider />
 
       <!-- 操作按钮 -->
-      <div class="pa-3 d-flex gap-2">
+      <div class="drawer-actions pa-3 d-flex gap-2">
         <v-btn
           color="primary"
           variant="tonal"
@@ -257,7 +257,7 @@ const degree = computed(() => (props.node ? neighbors.value.length : null))
 }
 
 /* 操作按钮区粘性置顶 */
-.pa-3.d-flex.gap-2 {
+.drawer-actions {
   position: sticky;
   top: 0;
   z-index: 2;
