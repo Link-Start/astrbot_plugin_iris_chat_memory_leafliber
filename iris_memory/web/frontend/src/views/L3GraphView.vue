@@ -365,14 +365,34 @@ onUnmounted(() => {
 <style scoped>
 .l3-graph-view {
   height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 顶部统计条 */
+.l3-graph-view :deep(.v-card:first-child) {
+  border-radius: 12px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.06);
+  background: linear-gradient(
+    135deg,
+    rgba(var(--v-theme-primary), 0.04),
+    rgb(var(--v-theme-surface))
+  );
+}
+
+.l3-graph-view :deep(.text-h6) {
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .graph-layout {
   display: flex;
   gap: 12px;
   align-items: stretch;
-  height: calc(100vh - 220px);
-  min-height: 500px;
+  /* 顶部条 + 外边距 + padding 综合预留 */
+  height: calc(100vh - 200px);
+  min-height: 520px;
+  flex: 1;
 }
 
 .sidebar-col {
@@ -384,6 +404,11 @@ onUnmounted(() => {
 .canvas-col {
   flex: 1;
   min-width: 0;
+  display: flex;
+}
+
+.canvas-col > * {
+  width: 100%;
 }
 
 @media (max-width: 1280px) {
@@ -394,10 +419,18 @@ onUnmounted(() => {
 
   .sidebar-col {
     width: 100%;
+    max-height: 360px;
   }
 
   .canvas-col {
     height: 600px;
+    flex: none;
   }
+}
+
+/* Tab 按钮组 */
+.l3-graph-view :deep(.v-btn-toggle) {
+  border-radius: 8px;
+  overflow: hidden;
 }
 </style>

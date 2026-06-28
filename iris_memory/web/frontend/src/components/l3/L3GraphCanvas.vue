@@ -4,20 +4,10 @@
     <div class="canvas-toolbar">
       <div class="toolbar-left">
         <v-btn-group density="compact" variant="tonal">
-          <v-btn
-            icon="mdi-undo-variant"
-            size="small"
-            :disabled="!canGoBack"
-            @click="emit('nav-back')"
-          >
+          <v-btn icon="mdi-undo-variant" size="small" :disabled="!canGoBack" @click="emit('nav-back')">
             <v-tooltip activator="parent" location="bottom">后退</v-tooltip>
           </v-btn>
-          <v-btn
-            icon="mdi-redo-variant"
-            size="small"
-            :disabled="!canGoForward"
-            @click="emit('nav-forward')"
-          >
+          <v-btn icon="mdi-redo-variant" size="small" :disabled="!canGoForward" @click="emit('nav-forward')">
             <v-tooltip activator="parent" location="bottom">前进</v-tooltip>
           </v-btn>
         </v-btn-group>
@@ -56,9 +46,7 @@
       <div v-else-if="nodes.length === 0" class="overlay">
         <v-icon icon="mdi-graph-outline" size="72" class="mb-3 text-medium-emphasis" />
         <div class="text-h6 text-medium-emphasis">暂无图谱数据</div>
-        <div class="text-body-2 text-medium-emphasis mt-1">
-          L3 知识图谱为空或未启用
-        </div>
+        <div class="text-body-2 text-medium-emphasis mt-1">L3 知识图谱为空或未启用</div>
       </div>
     </div>
   </div>
@@ -72,6 +60,7 @@ import type { KGNode, KGEdge, L3LayoutType } from '@/types'
 import {
   getNodeIcon,
   getTypeColor,
+  getNodeLabel,
   getRelationLabel,
   resolveThemeColor,
 } from '@/composables/l3Constants'
@@ -99,15 +88,42 @@ const graphRef = shallowRef<Graph | null>(null)
 let resizeObserver: ResizeObserver | null = null
 
 // ---- 主题色缓存（canvas 无法消费 CSS 变量）----
-const colorCache = new Map<string, string>()
-const nodeFill = (label: string): string => {
+const colorCache = new Map<string, { fill: string; stroke: string; light: string }>()
+const nodeColors = (label: string) => {
   if (!colorCache.has(label)) {
-    colorCache.set(label, resolveThemeColor(getTypeColor(label), '#5c6bc0'))
+    const base = resolveThemeColor(getTypeColor(label), '#5c6bc0')
+    // 解析 rgb 值用于生成透明度变体
+    const match = base.match(/rgb\(([^)]+)\)/)
+    if (match) {
+      const [r, g, b] = match[1].split(',').map((s) => parseInt(s.trim(), 10))
+      colorCache.set(label, {
+        fill: `rgb(${r}, ${g}, ${b})`,
+        stroke: `rgb(${Math.max(0, r - 40)}, ${Math.max(0, g - 40)}, ${Math.max(0, b - 40)})`,
+        light: `rgba(${r}, ${g}, ${b}, 0.15)`,
+      })
+    } else {
+      colorCache.set(label, { fill: base, stroke: base, light: base + '26' })
+    }
   }
   return colorCache.get(label)!
 }
 
-// ---- 计算节点度数（用于节点大小映射）----
+// ---- 判断是否深色主题 ----
+const isDarkTheme = (): boolean => {
+  try {
+    const bg = getComputedStyle(document.documentElement).getPropertyValue('--v-theme-surface').trim()
+    if (bg) {
+      const [r, g, b] = bg.split(',').map((s) => parseInt(s.trim(), 10))
+      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+      return luminance < 0.5
+    }
+  } catch {
+    // ignore
+  }
+  return false
+}
+
+// ---- 计算节点度数 ----
 const computeDegrees = (): Map<string, number> => {
   const deg = new Map<string, number>()
   props.edges.forEach((e) => {
@@ -117,45 +133,63 @@ const computeDegrees = (): Map<string, number> => {
   return deg
 }
 
-// ---- 布局配置 ----
-const layoutConfig = (type: L3LayoutType) => {
+// ---- 布局配置：d3-force 稳定无闪烁 ----
+const layoutConfig = (type: L3LayoutType, nodeCount: number) => {
+  // 根据节点数自适应间距
+  const linkDist = nodeCount > 40 ? 100 : nodeCount > 20 ? 130 : 160
+  const repulsion = nodeCount > 40 ? -120 : -180
+
   switch (type) {
     case 'dagre':
       return {
         type: 'dagre',
         rankdir: 'LR',
-        nodesep: 20,
-        ranksep: 50,
-        preventOverlap: true,
+        nodesep: 30,
+        ranksep: 60,
+        nodeSize: 40,
       } as any
     case 'radial':
       return {
         type: 'radial',
-        unitRadius: 100,
+        unitRadius: 110,
         preventOverlap: true,
-        nodeSize: 36,
-        linkDistance: 140,
+        nodeSize: 40,
+        linkDistance: linkDist,
       } as any
     case 'concentric':
       return {
         type: 'concentric',
-        minNodeSpacing: 30,
+        minNodeSpacing: 40,
         preventOverlap: true,
-        nodeSize: 36,
+        nodeSize: 40,
       } as any
     case 'force':
     default:
       return {
-        type: 'force',
-        preventOverlap: true,
-        nodeSize: 36,
-        linkDistance: 140,
-        nodeStrength: -60,
-        edgeStrength: 0.7,
-        gravity: 8,
-        alpha: 0.3,
-        alphaDecay: 0.028,
+        type: 'd3-force',
+        animation: true,
+        alpha: 1,
+        alphaDecay: 0.05,
         alphaMin: 0.001,
+        alphaTarget: 0,
+        velocityDecay: 0.4,
+        link: {
+          distance: linkDist,
+          strength: 0.3,
+          iterations: 1,
+        },
+        manyBody: {
+          strength: repulsion,
+          theta: 0.9,
+        },
+        center: {
+          strength: 0.06,
+        },
+        collide: {
+          radius: (node: any) => (node.size || 32) / 2 + 6,
+          strength: 0.8,
+          iterations: 2,
+        },
       } as any
   }
 }
@@ -164,11 +198,13 @@ const layoutConfig = (type: L3LayoutType) => {
 const toGraphData = (): GraphData => {
   const degrees = computeDegrees()
   const maxDeg = Math.max(1, ...degrees.values())
+  const showAllLabels = props.nodes.length <= 15
+
   return {
     nodes: props.nodes.map<NodeData>((n) => {
       const deg = degrees.get(n.id) || 0
-      // 度数越大节点越大：24 ~ 44
-      const size = 24 + (deg / maxDeg) * 20
+      // 度数映射到 28~46
+      const size = 28 + (deg / maxDeg) * 18
       return {
         id: n.id,
         data: {
@@ -177,6 +213,8 @@ const toGraphData = (): GraphData => {
           confidence: n.confidence,
           degree: deg,
           size,
+          content: n.content,
+          showLabel: showAllLabels || deg >= 2,
         },
       }
     }),
@@ -188,12 +226,48 @@ const toGraphData = (): GraphData => {
   }
 }
 
+// ---- Tooltip 内容生成 ----
+const tooltipContent = async (_evt: any, items: any[]): Promise<string> => {
+  if (!items.length) return ''
+  const item = items[0]
+  const data = item.data || {}
+  if (item.type === 'node') {
+    const label = getNodeLabel(data.label || 'Entity')
+    const name = data.name || item.id
+    const deg = data.degree ?? 0
+    const conf = ((data.confidence ?? 0) * 100).toFixed(0)
+    return `<div class="l3-tip">
+      <div class="l3-tip-title">${escapeHtml(name)}</div>
+      <div class="l3-tip-row"><span>类型</span><b>${label}</b></div>
+      <div class="l3-tip-row"><span>连接</span><b>${deg}</b></div>
+      <div class="l3-tip-row"><span>置信度</span><b>${conf}%</b></div>
+    </div>`
+  }
+  // edge
+  const rel = getRelationLabel(data.relation || '')
+  const w = (data.weight ?? 1).toFixed(2)
+  return `<div class="l3-tip">
+    <div class="l3-tip-title">${escapeHtml(rel)}</div>
+    <div class="l3-tip-row"><span>权重</span><b>${w}</b></div>
+  </div>`
+}
+
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
 // ---- 初始化 G6 ----
 const initGraph = () => {
   const container = containerRef.value
   if (!container) return
   const width = container.clientWidth || 800
   const height = container.clientHeight || 500
+  const dark = isDarkTheme()
+  const textColor = dark ? '#e0e0e0' : '#424242'
+  const labelBg = dark ? 'rgba(33,33,33,0.9)' : 'rgba(255,255,255,0.92)'
+  const edgeColor = dark ? '#555555' : '#bdbdbd'
+  const gridColor = dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'
+
+  const useForce = props.layout === 'force'
 
   const graph = new Graph({
     container,
@@ -201,76 +275,119 @@ const initGraph = () => {
     height,
     autoFit: 'view',
     data: toGraphData(),
-    layout: layoutConfig(props.layout),
+    layout: layoutConfig(props.layout, props.nodes.length),
+    theme: dark ? 'dark' : 'light',
     node: {
       type: 'circle',
       style: (d: NodeData) => {
         const label = (d.data?.label as string) || 'Entity'
         const name = (d.data?.name as string) || String(d.id)
-        const size = (d.data?.size as number) || 30
+        const size = (d.data?.size as number) || 32
+        const colors = nodeColors(label)
+        const showLabel = (d.data?.showLabel as boolean) ?? true
+        const deg = (d.data?.degree as number) || 0
         return {
           size,
-          fill: nodeFill(label),
+          fill: colors.fill,
           stroke: '#ffffff',
-          lineWidth: 2,
-          labelText: name,
+          lineWidth: 2.5,
+          shadowColor: 'rgba(0,0,0,0.25)',
+          shadowBlur: 8,
+          shadowOffsetX: 0,
+          shadowOffsetY: 2,
+          cursor: 'pointer',
+          icon: false,
+          // 度数 >= 3 的节点显示度数徽标
+          badge: deg >= 3,
+          badges: deg >= 3
+            ? [{ text: String(deg), placement: 'right-top', fill: '#ff9800', color: '#fff' }]
+            : [],
+          labelText: showLabel ? name : '',
           labelPlacement: 'bottom',
           labelFontSize: 11,
-          labelFill: '#424242',
+          labelFontWeight: 500,
+          labelFill: textColor,
           labelBackground: true,
-          labelBackgroundFill: 'rgba(255,255,255,0.85)',
-          labelBackgroundOpacity: 0.9,
-          labelPadding: [2, 4],
+          labelBackgroundFill: labelBg,
+          labelBackgroundOpacity: 0.95,
+          labelBackgroundRadius: 4,
+          labelPadding: [3, 6],
+        }
+      },
+      state: {
+        active: {
+          lineWidth: 3.5,
+          stroke: '#ff9800',
+          shadowColor: 'rgba(255,152,0,0.5)',
+          shadowBlur: 16,
+          labelOpacity: 1,
+        },
+        inactive: {
+          opacity: 0.15,
+          labelOpacity: 0,
+        },
+        selected: {
+          lineWidth: 3.5,
+          stroke: '#ff9800',
+          shadowColor: 'rgba(255,152,0,0.6)',
+          shadowBlur: 18,
+        },
+      },
+    },
+    edge: {
+      type: 'quadratic',
+      style: (d: EdgeData) => {
+        const w = (d.data?.weight as number) ?? 1
+        return {
+          stroke: edgeColor,
+          lineWidth: Math.min(1 + w * 0.6, 3),
+          strokeOpacity: 0.55,
+          endArrow: true as any,
+          endArrowSize: 6,
+          endArrowFill: edgeColor,
+          curveOffset: 20,
+          curvePosition: 0.5,
           cursor: 'pointer',
         }
       },
       state: {
         active: {
-          lineWidth: 3,
           stroke: '#ff9800',
-          shadowColor: 'rgba(255,152,0,0.6)',
-          shadowBlur: 12,
+          lineWidth: 2.5,
+          strokeOpacity: 1,
+          endArrowFill: '#ff9800',
         },
-        inactive: { opacity: 0.2 },
-        selected: { lineWidth: 3, stroke: '#ff9800' },
-      },
-    },
-    edge: {
-      type: 'line',
-      style: (d: EdgeData) => {
-        const w = (d.data?.weight as number) ?? 1
-        return {
-          stroke: '#9e9e9e',
-          lineWidth: 1 + w,
-          strokeOpacity: 0.7,
-          endArrow: true,
-          labelText: getRelationLabel((d.data?.relation as string) || ''),
-          labelFontSize: 9,
-          labelFill: '#616161',
-          labelBackground: true,
-          labelBackgroundFill: 'rgba(255,255,255,0.85)',
-          labelBackgroundOpacity: 0.9,
-          labelPadding: [1, 3],
-          cursor: 'pointer',
-        }
-      },
-      state: {
-        active: { stroke: '#ff9800', lineWidth: 2.5, strokeOpacity: 1 },
-        inactive: { opacity: 0.1 },
+        inactive: { opacity: 0.05 },
       },
     },
     behaviors: [
       'zoom-canvas',
       'drag-canvas',
-      'drag-element',
+      useForce
+        ? { type: 'drag-element-force', fixed: true }
+        : 'drag-element',
       {
         type: 'hover-activate',
         degree: 1,
         state: 'active',
         inactiveState: 'inactive',
-      },
+      } as any,
     ],
     plugins: [
+      {
+        type: 'grid-line',
+        size: 24,
+        stroke: gridColor,
+        lineWidth: 1,
+        border: false,
+      } as any,
+      {
+        type: 'tooltip',
+        trigger: 'hover',
+        position: 'top',
+        offset: [0, 12],
+        getContent: tooltipContent,
+      } as any,
       {
         type: 'minimap',
         size: [180, 120],
@@ -420,6 +537,9 @@ onUnmounted(() => {
   flex-direction: column;
   height: 100%;
   min-height: 600px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
 .canvas-toolbar {
@@ -428,7 +548,6 @@ onUnmounted(() => {
   justify-content: space-between;
   padding: 8px 12px;
   background: rgb(var(--v-theme-surface));
-  border-radius: 8px 8px 0 0;
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
   flex-wrap: wrap;
   gap: 8px;
@@ -446,8 +565,7 @@ onUnmounted(() => {
   flex: 1;
   width: 100%;
   min-height: 520px;
-  background: rgb(var(--v-theme-surface-variant));
-  border-radius: 0 0 8px 8px;
+  background: rgb(var(--v-theme-surface));
   overflow: hidden;
 }
 
@@ -459,13 +577,37 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   background: rgb(var(--v-theme-surface));
-  opacity: 0.92;
   z-index: 10;
 }
 
 :deep(.l3-minimap) {
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  background: rgba(255, 255, 255, 0.9);
+  border-radius: 8px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
+  background: rgba(var(--v-theme-surface), 0.95) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1) !important;
+}
+
+/* Tooltip 全局样式（G6 渲染到 body） */
+:deep(.l3-tip) {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 240px;
+}
+
+:deep(.l3-tip-title) {
+  font-weight: 600;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+:deep(.l3-tip-row) {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+:deep(.l3-tip-row span) {
+  opacity: 0.7;
 }
 </style>

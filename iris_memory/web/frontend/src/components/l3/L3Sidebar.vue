@@ -384,53 +384,114 @@ const handleClearSearch = () => {
 .l3-sidebar {
   max-height: calc(100vh - 140px);
   overflow-y: auto;
+  padding-right: 4px;
+  /* 自定义滚动条 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--v-theme-on-surface), 0.2) transparent;
+}
+
+.l3-sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.l3-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(var(--v-theme-on-surface), 0.18);
+  border-radius: 3px;
+}
+
+.l3-sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--v-theme-on-surface), 0.32);
+}
+
+/* 卡片统一圆角与阴影 */
+.l3-sidebar :deep(.v-card) {
+  border-radius: 10px !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.06);
+  transition: box-shadow 0.2s ease;
+}
+
+.l3-sidebar :deep(.v-card:hover) {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+/* 分区标题统一风格 */
+.text-subtitle-2 {
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(var(--v-theme-on-surface), 0.85);
 }
 
 .search-results {
   max-height: 320px;
   overflow-y: auto;
   border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  background: rgba(var(--v-theme-on-surface), 0.02);
 }
 
 .filter-chips {
   display: flex;
   flex-wrap: wrap;
+  gap: 2px;
+}
+
+.filter-chips :deep(.v-chip) {
+  transition: all 0.15s ease;
+  font-weight: 500;
+}
+
+.filter-chips :deep(.v-chip:hover) {
+  transform: translateY(-1px);
 }
 
 .stat-box {
   text-align: center;
-  padding: 8px;
-  background: rgba(var(--v-theme-on-surface), 0.04);
-  border-radius: 8px;
+  padding: 10px 8px;
+  background: linear-gradient(
+    135deg,
+    rgba(var(--v-theme-primary), 0.08),
+    rgba(var(--v-theme-primary), 0.02)
+  );
+  border-radius: 10px;
+  border: 1px solid rgba(var(--v-theme-primary), 0.12);
 }
 
 .stat-value {
-  font-size: 1.5rem;
+  font-size: 1.6rem;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-label {
   font-size: 0.7rem;
   color: rgba(var(--v-theme-on-surface), 0.6);
+  margin-top: 2px;
 }
 
 .type-bar {
   display: flex;
   align-items: center;
-  padding: 2px 0;
+  padding: 3px 6px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.type-bar:hover {
+  background: rgba(var(--v-theme-on-surface), 0.04);
 }
 
 .legend-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
+  gap: 8px 6px;
 }
 
 .legend-item {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .legend-dot {
@@ -439,5 +500,12 @@ const handleClearSearch = () => {
   height: 12px;
   border-radius: 50%;
   flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+/* 布局按钮组紧凑化 */
+.l3-sidebar :deep(.v-btn-toggle .v-btn) {
+  font-size: 0.75rem !important;
+  letter-spacing: 0;
 }
 </style>

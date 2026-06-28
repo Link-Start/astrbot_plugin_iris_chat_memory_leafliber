@@ -232,31 +232,91 @@ const degree = computed(() => (props.node ? neighbors.value.length : null))
 </script>
 
 <style scoped>
+/* 抽屉整体可滚动 */
+:deep(.v-navigation-drawer__content) {
+  display: flex;
+  flex-direction: column;
+}
+
 .drawer-header {
-  background: linear-gradient(135deg, rgba(var(--v-theme-primary), 0.06), transparent);
+  background: linear-gradient(
+    135deg,
+    rgba(var(--v-theme-primary), 0.08),
+    rgba(var(--v-theme-surface), 0)
+  );
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.06);
+}
+
+.drawer-header :deep(.text-h6) {
+  font-weight: 700;
+  word-break: break-word;
 }
 
 .gap-2 {
   gap: 8px;
 }
 
+/* 操作按钮区粘性置顶 */
+.pa-3.d-flex.gap-2 {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: rgb(var(--v-theme-surface));
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.06);
+}
+
 .node-content {
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.6;
+  line-height: 1.7;
   color: rgba(var(--v-theme-on-surface), 0.85);
+  background: rgba(var(--v-theme-on-surface), 0.03);
+  padding: 10px 12px;
+  border-radius: 8px;
+  border-left: 3px solid rgba(var(--v-theme-primary), 0.4);
+}
+
+/* 邻居列表项美化 */
+:deep(.v-list-item) {
+  border-radius: 8px;
+  margin-bottom: 2px;
+  transition: background 0.15s ease;
+}
+
+:deep(.v-list-item:hover) {
+  background: rgba(var(--v-theme-primary), 0.06);
 }
 
 .prop-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 0;
+  padding: 6px 0;
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.04);
   gap: 12px;
 }
 
 .prop-row:last-child {
   border-bottom: none;
+}
+
+.prop-row span:first-child {
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+.prop-row span:last-child {
+  text-align: right;
+  word-break: break-all;
+}
+
+/* 元数据表格 */
+:deep(.v-table) {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+:deep(.v-table tbody tr:hover) {
+  background: rgba(var(--v-theme-on-surface), 0.03) !important;
 }
 </style>
