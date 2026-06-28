@@ -2,8 +2,8 @@
   <div class="data-manage-view">
     <v-row>
       <v-col cols="12">
-        <v-card color="surface" variant="flat">
-          <v-card-title class="d-flex align-center">
+        <v-card color="surface" variant="flat" class="iris-hero-card">
+          <v-card-title class="d-flex align-center iris-section-title">
             <v-icon icon="mdi-swap-vertical" color="primary" class="mr-2" />
             数据导入导出
             <v-spacer />
@@ -22,8 +22,8 @@
 
     <v-row class="mt-2">
       <v-col cols="12" md="6" lg="4">
-        <v-card color="surface" variant="flat" class="h-100">
-          <v-card-title class="d-flex align-center">
+        <v-card color="surface" variant="flat" class="iris-card iris-card-hover h-100">
+          <v-card-title class="d-flex align-center iris-section-title">
             <v-avatar color="secondary" variant="tonal" size="32" class="mr-3">
               <v-icon icon="mdi-database" size="18" />
             </v-avatar>
@@ -62,8 +62,8 @@
       </v-col>
 
       <v-col cols="12" md="6" lg="4">
-        <v-card color="surface" variant="flat" class="h-100">
-          <v-card-title class="d-flex align-center">
+        <v-card color="surface" variant="flat" class="iris-card iris-card-hover h-100">
+          <v-card-title class="d-flex align-center iris-section-title">
             <v-avatar color="accent" variant="tonal" size="32" class="mr-3">
               <v-icon icon="mdi-graph" size="18" />
             </v-avatar>
@@ -102,8 +102,8 @@
       </v-col>
 
       <v-col cols="12" md="6" lg="4">
-        <v-card color="surface" variant="flat" class="h-100">
-          <v-card-title class="d-flex align-center">
+        <v-card color="surface" variant="flat" class="iris-card iris-card-hover h-100">
+          <v-card-title class="d-flex align-center iris-section-title">
             <v-avatar color="info" variant="tonal" size="32" class="mr-3">
               <v-icon icon="mdi-account-group" size="18" />
             </v-avatar>
@@ -144,8 +144,8 @@
 
     <v-row class="mt-2">
       <v-col cols="12">
-        <v-card color="surface" variant="flat">
-          <v-card-title class="d-flex align-center">
+        <v-card color="surface" variant="flat" class="iris-card">
+          <v-card-title class="d-flex align-center iris-section-title">
             <v-icon icon="mdi-backup-restore" color="warning" class="mr-2" />
             全量备份与恢复
           </v-card-title>
@@ -189,8 +189,8 @@
 
     <v-row class="mt-4">
       <v-col cols="12">
-        <v-card color="surface" variant="flat">
-          <v-card-title class="d-flex align-center">
+        <v-card color="surface" variant="flat" class="iris-card">
+          <v-card-title class="d-flex align-center iris-section-title">
             <v-icon icon="mdi-delete-sweep" color="error" class="mr-2" />
             数据管理
           </v-card-title>
@@ -203,8 +203,8 @@
 
             <v-row>
               <v-col cols="12" md="6" lg="3">
-                <v-card variant="outlined" class="pa-3">
-                  <div class="text-subtitle-2 mb-2">L1 缓冲</div>
+                <v-card variant="outlined" class="iris-card pa-3">
+                  <div class="text-subtitle-2 mb-2 font-weight-medium">L1 缓冲</div>
                   <div class="text-caption text-medium-emphasis mb-3">清空所有群聊的短期消息缓冲</div>
                   <v-btn
                     color="error"
@@ -221,8 +221,8 @@
               </v-col>
 
               <v-col cols="12" md="6" lg="3">
-                <v-card variant="outlined" class="pa-3">
-                  <div class="text-subtitle-2 mb-2">L2 记忆</div>
+                <v-card variant="outlined" class="iris-card pa-3">
+                  <div class="text-subtitle-2 mb-2 font-weight-medium">L2 记忆</div>
                   <div class="text-caption text-medium-emphasis mb-3">删除所有长期记忆数据</div>
                   <v-btn
                     color="error"
@@ -239,8 +239,8 @@
               </v-col>
 
               <v-col cols="12" md="6" lg="3">
-                <v-card variant="outlined" class="pa-3">
-                  <div class="text-subtitle-2 mb-2">L3 知识图谱</div>
+                <v-card variant="outlined" class="iris-card pa-3">
+                  <div class="text-subtitle-2 mb-2 font-weight-medium">L3 知识图谱</div>
                   <div class="text-caption text-medium-emphasis mb-3">删除所有知识图谱节点和边</div>
                   <div class="d-flex flex-column ga-2">
                     <v-btn
@@ -270,8 +270,8 @@
               </v-col>
 
               <v-col cols="12" md="6" lg="3">
-                <v-card variant="outlined" class="pa-3">
-                  <div class="text-subtitle-2 mb-2">画像数据</div>
+                <v-card variant="outlined" class="iris-card pa-3">
+                  <div class="text-subtitle-2 mb-2 font-weight-medium">画像数据</div>
                   <div class="text-caption text-medium-emphasis mb-3">删除所有群聊和用户画像</div>
                   <v-btn
                     color="error"
@@ -294,8 +294,8 @@
 
     <v-row class="mt-4">
       <v-col cols="12">
-        <v-card color="surface" variant="flat">
-          <v-card-title class="d-flex align-center">
+        <v-card color="surface" variant="flat" class="iris-card">
+          <v-card-title class="d-flex align-center iris-section-title">
             <v-icon icon="mdi-weather-night" color="info" class="mr-2" />
             梦境任务
           </v-card-title>
@@ -308,9 +308,9 @@
                 md="6"
                 lg="3"
               >
-                <v-card variant="outlined" class="pa-3">
+                <v-card variant="outlined" class="iris-card iris-card-hover pa-3">
                   <div class="d-flex align-center justify-space-between mb-2">
-                    <div class="text-subtitle-2">{{ name }}</div>
+                    <div class="text-subtitle-2 font-weight-medium">{{ name }}</div>
                     <v-chip
                       v-if="tasksStatus[key]?.running"
                       size="x-small"
@@ -340,7 +340,7 @@
       </v-col>
     </v-row>
 
-    <v-dialog v-model="confirmDialog" max-width="400">
+    <v-dialog v-model="confirmDialog" max-width="400" class="iris-dialog">
       <v-card>
         <v-card-title class="d-flex align-center">
           <v-icon icon="mdi-alert" color="warning" class="mr-2" />

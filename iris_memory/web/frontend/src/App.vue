@@ -125,3 +125,83 @@ watch(error, (val) => {
   showError.value = !!val
 })
 </script>
+
+<style>
+/* 全局应用样式 */
+.v-navigation-drawer {
+  border-right: 1px solid rgba(var(--v-theme-on-surface), 0.06) !important;
+}
+
+/* 品牌头部 */
+.v-navigation-drawer .v-list-item:first-child {
+  background: linear-gradient(
+    135deg,
+    rgba(var(--v-theme-primary), 0.08),
+    transparent
+  );
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.v-navigation-drawer .v-list-item:first-child .v-list-item-title {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* 侧边栏导航项 */
+.v-navigation-drawer .v-list-item {
+  border-radius: 8px;
+  margin: 2px 8px;
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+
+.v-navigation-drawer .v-list-item:hover {
+  transform: translateX(2px);
+}
+
+.v-navigation-drawer .v-list-item--active {
+  background: rgba(var(--v-theme-primary), 0.12);
+  color: rgb(var(--v-theme-primary)) !important;
+}
+
+.v-navigation-drawer .v-list-item--active .v-icon {
+  color: rgb(var(--v-theme-primary)) !important;
+}
+
+/* 顶栏 */
+.v-app-bar {
+  backdrop-filter: blur(8px);
+  background: rgba(var(--v-theme-surface), 0.85) !important;
+}
+
+.v-app-bar .v-app-bar-title {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* 主内容容器 */
+.v-main > .v-container {
+  max-width: 1600px;
+}
+
+/* 全局：所有 v-card 圆角统一 */
+.v-card {
+  border-radius: 12px;
+}
+
+/* 全局：v-tabs 下划线 */
+.v-tabs .v-tab {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+/* 全局：滚动条 */
+.v-navigation-drawer__content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.v-navigation-drawer__content::-webkit-scrollbar-thumb {
+  background: rgba(var(--v-theme-on-surface), 0.15);
+  border-radius: 2px;
+}
+</style>

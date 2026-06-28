@@ -9,7 +9,7 @@
     >
       <v-row>
         <v-col cols="12">
-          <v-card color="surface" variant="flat">
+          <v-card color="surface" variant="flat" class="iris-card">
             <v-tabs v-model="activeTab" color="primary" grow>
               <v-tab value="latest">
                 <v-icon icon="mdi-clock-outline" class="mr-2" />
@@ -28,8 +28,8 @@
         <v-window-item value="latest">
           <v-row>
             <v-col cols="12">
-              <v-card color="surface" variant="flat">
-                <v-card-title class="d-flex align-center flex-wrap ga-2">
+              <v-card color="surface" variant="flat" class="iris-card">
+                <v-card-title class="d-flex align-center flex-wrap ga-2 iris-section-title">
                   <v-icon icon="mdi-clock-outline" color="secondary" class="mr-2" />
                   最新记忆
                   <v-spacer />
@@ -95,7 +95,7 @@
                       v-for="(result, index) in memoryStore.l2LatestResults"
                       :key="result.id || index"
                       variant="outlined"
-                      class="mb-3"
+                      class="mb-3 iris-card iris-card-hover"
                     >
                       <v-card-text>
                         <div class="d-flex align-start">
@@ -166,10 +166,10 @@
                     </v-card>
                   </div>
 
-                  <div v-else class="text-center text-medium-emphasis py-12">
-                    <v-icon icon="mdi-database-outline" size="80" class="mb-3" />
-                    <div class="text-h6">暂无记忆数据</div>
-                    <div class="text-body-2 mt-2">
+                  <div v-else class="iris-empty-state">
+                    <v-icon icon="mdi-database-outline" size="64" />
+                    <div class="iris-empty-state__title">暂无记忆数据</div>
+                    <div class="iris-empty-state__desc">
                       L2 记忆库为空或数据加载失败
                     </div>
                   </div>
@@ -199,8 +199,8 @@
         <v-window-item value="search">
           <v-row>
             <v-col cols="12">
-              <v-card color="surface" variant="flat">
-                <v-card-title class="d-flex align-center">
+              <v-card color="surface" variant="flat" class="iris-card">
+                <v-card-title class="d-flex align-center iris-section-title">
                   <v-icon icon="mdi-database-search" color="secondary" class="mr-2" />
                   L2 记忆搜索
                 </v-card-title>
@@ -249,8 +249,8 @@
 
           <v-row class="mt-4">
             <v-col cols="12">
-              <v-card color="surface" variant="flat">
-                <v-card-title class="d-flex align-center">
+              <v-card color="surface" variant="flat" class="iris-card">
+                <v-card-title class="d-flex align-center iris-section-title">
                   <span>搜索结果</span>
                   <v-spacer />
                   <v-chip v-if="memoryStore.l2Results.length > 0" size="small" color="secondary" variant="tonal">
@@ -291,7 +291,7 @@
                       v-for="(result, index) in memoryStore.l2Results"
                       :key="result.id || index"
                       variant="outlined"
-                      class="mb-3"
+                      class="mb-3 iris-card iris-card-hover"
                     >
                       <v-card-text>
                         <div class="d-flex align-start">
@@ -362,12 +362,12 @@
                     </v-card>
                   </div>
 
-                  <div v-else class="text-center text-medium-emphasis py-12">
-                    <v-icon icon="mdi-database-search-outline" size="80" class="mb-3" />
-                    <div class="text-h6">
+                  <div v-else class="iris-empty-state">
+                    <v-icon icon="mdi-database-search-outline" size="64" />
+                    <div class="iris-empty-state__title">
                       {{ memoryStore.l2Query ? '未找到相关记忆' : '输入关键词搜索记忆' }}
                     </div>
-                    <div class="text-body-2 mt-2">
+                    <div class="iris-empty-state__desc">
                       {{ memoryStore.l2Query ? '尝试使用其他关键词' : 'L2 记忆支持语义检索' }}
                     </div>
                   </div>
@@ -380,8 +380,8 @@
 
       <v-row class="mt-4">
         <v-col cols="12">
-          <v-card color="surface" variant="flat">
-            <v-card-title>
+          <v-card color="surface" variant="flat" class="iris-card">
+            <v-card-title class="iris-section-title">
               <v-icon icon="mdi-information" class="mr-2" />
               L2 记忆说明
             </v-card-title>
@@ -398,7 +398,7 @@
       </v-row>
     </ComponentDisabled>
 
-    <v-dialog v-model="editDialog" max-width="600">
+    <v-dialog v-model="editDialog" max-width="600" class="iris-dialog">
       <v-card>
         <v-card-title class="d-flex align-center">
           <v-icon icon="mdi-pencil" class="mr-2" />
@@ -423,7 +423,7 @@
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="deleteDialog" max-width="400">
+    <v-dialog v-model="deleteDialog" max-width="400" class="iris-dialog">
       <v-card>
         <v-card-title class="d-flex align-center">
           <v-icon icon="mdi-alert-circle" color="warning" class="mr-2" />

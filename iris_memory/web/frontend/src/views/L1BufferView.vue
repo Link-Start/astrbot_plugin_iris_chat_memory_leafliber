@@ -9,8 +9,8 @@
     >
       <v-row>
         <v-col cols="12" md="4">
-          <v-card color="surface" variant="flat">
-            <v-card-title class="d-flex align-center">
+          <v-card color="surface" variant="flat" class="iris-list-card">
+            <v-card-title class="d-flex align-center iris-section-title">
               <span>群聊列表</span>
               <v-spacer />
               <v-btn
@@ -28,7 +28,7 @@
                 color="primary"
               />
 
-              <v-list v-else-if="memoryStore.l1Queues.length > 0" lines="two">
+              <v-list v-else-if="memoryStore.l1Queues.length > 0" lines="two" class="iris-list">
                 <v-list-item
                   v-for="queue in memoryStore.l1Queues"
                   :key="queue.group_id"
@@ -51,17 +51,17 @@
                 </v-list-item>
               </v-list>
 
-              <div v-else class="text-center text-medium-emphasis py-8">
+              <div v-else class="iris-empty-state">
                 <v-icon icon="mdi-inbox-outline" size="48" />
-                <div class="mt-2">暂无群聊数据</div>
+                <div class="iris-empty-state__title">暂无群聊数据</div>
               </div>
             </v-card-text>
           </v-card>
         </v-col>
 
         <v-col cols="12" md="8">
-          <v-card color="surface" variant="flat">
-            <v-card-title class="d-flex align-center">
+          <v-card color="surface" variant="flat" class="iris-list-card">
+            <v-card-title class="d-flex align-center iris-section-title">
               <span>消息缓冲</span>
               <v-chip v-if="selectedGroupId" size="small" color="primary" variant="tonal" class="ml-2">
                 {{ selectedGroupName || selectedGroupId }}
@@ -93,7 +93,7 @@
                   color="primary"
                 />
 
-                <v-list v-else-if="memoryStore.l1Messages.length > 0" lines="three">
+                <v-list v-else-if="memoryStore.l1Messages.length > 0" lines="three" class="iris-list">
                   <v-list-item
                     v-for="(msg, index) in memoryStore.l1Messages"
                     :key="index"
@@ -143,15 +143,15 @@
                   </v-list-item>
                 </v-list>
 
-                <div v-else class="text-center text-medium-emphasis py-8">
-                  <v-icon icon="mdi-message-outline" size="64" class="mb-2" />
-                  <div>暂无缓冲消息</div>
+                <div v-else class="iris-empty-state">
+                  <v-icon icon="mdi-message-outline" size="56" />
+                  <div class="iris-empty-state__title">暂无缓冲消息</div>
                 </div>
               </template>
 
-              <div v-else class="text-center text-medium-emphasis py-8">
-                <v-icon icon="mdi-hand-pointing-up" size="64" class="mb-2" />
-                <div>请从左侧选择一个群聊</div>
+              <div v-else class="iris-empty-state">
+                <v-icon icon="mdi-hand-pointing-up" size="56" />
+                <div class="iris-empty-state__title">请从左侧选择一个群聊</div>
               </div>
             </v-card-text>
           </v-card>
@@ -160,8 +160,8 @@
 
       <v-row class="mt-4">
         <v-col cols="12">
-          <v-card color="surface" variant="flat">
-            <v-card-title>
+          <v-card color="surface" variant="flat" class="iris-card">
+            <v-card-title class="iris-section-title">
               <v-icon icon="mdi-information" class="mr-2" />
               L1 缓冲说明
             </v-card-title>

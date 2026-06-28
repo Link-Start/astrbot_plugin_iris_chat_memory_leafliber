@@ -1,7 +1,7 @@
 <template>
   <div class="hidden-config-view">
-    <v-card color="surface" variant="flat" class="mb-3">
-      <v-card-title class="d-flex align-center">
+    <v-card color="surface" variant="flat" class="iris-hero-card mb-3">
+      <v-card-title class="d-flex align-center iris-section-title">
         <v-icon icon="mdi-cog-outline" color="primary" class="mr-2" />
         隐藏参数配置
         <v-spacer />
@@ -163,7 +163,7 @@
       </v-card>
     </div>
 
-    <v-dialog v-model="confirmDialog" max-width="400">
+    <v-dialog v-model="confirmDialog" max-width="400" class="iris-dialog">
       <v-card>
         <v-card-title class="d-flex align-center">
           <v-icon icon="mdi-alert" color="warning" class="mr-2" />

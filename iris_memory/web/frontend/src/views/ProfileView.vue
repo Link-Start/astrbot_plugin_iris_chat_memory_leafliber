@@ -22,8 +22,8 @@
         <v-window-item value="group">
           <v-row>
             <v-col cols="12" md="4">
-              <v-card color="surface" variant="flat" class="list-card">
-                <v-card-title class="d-flex align-center">
+              <v-card color="surface" variant="flat" class="iris-list-card">
+                <v-card-title class="d-flex align-center iris-section-title">
                   <v-icon icon="mdi-account-group" color="primary" class="mr-2" />
                   群聊列表
                   <v-spacer />
@@ -52,7 +52,7 @@
                     color="primary"
                   />
 
-                  <v-list v-else-if="filteredGroupList.length > 0" lines="two" class="py-0">
+                  <v-list v-else-if="filteredGroupList.length > 0" lines="two" class="iris-list py-0">
                     <v-list-item
                       v-for="group in filteredGroupList"
                       :key="group.group_id"
@@ -73,17 +73,17 @@
                     </v-list-item>
                   </v-list>
 
-                  <div v-else class="text-center text-medium-emphasis py-8">
+                  <div v-else class="iris-empty-state">
                     <v-icon icon="mdi-account-group-outline" size="48" />
-                    <div class="mt-2">{{ groupSearchQuery ? '未找到匹配的群聊' : '暂无群聊数据' }}</div>
+                    <div class="iris-empty-state__title">{{ groupSearchQuery ? '未找到匹配的群聊' : '暂无群聊数据' }}</div>
                   </div>
                 </v-card-text>
               </v-card>
             </v-col>
 
             <v-col cols="12" md="8">
-              <v-card color="surface" variant="flat">
-                <v-card-title class="d-flex align-center">
+              <v-card color="surface" variant="flat" class="iris-card">
+                <v-card-title class="d-flex align-center iris-section-title">
                   <v-icon icon="mdi-information" color="primary" class="mr-2" />
                   群聊画像详情
                   <v-spacer />
@@ -127,7 +127,7 @@
                         </div>
                       </div>
 
-                      <v-card variant="outlined" class="info-card">
+                      <v-card variant="outlined" class="iris-card iris-card-hover info-card">
                         <v-card-title class="text-subtitle-2 pb-0 d-flex align-center">
                           <v-icon icon="mdi-emoticon-outline" color="accent" class="mr-2" />
                           群聊氛围
@@ -153,7 +153,7 @@
                         </v-card-text>
                       </v-card>
 
-                      <v-card variant="outlined" class="info-card mt-4">
+                      <v-card variant="outlined" class="iris-card iris-card-hover info-card mt-4">
                         <v-card-title class="text-subtitle-2 pb-0 d-flex align-center">
                           <v-icon icon="mdi-heart" color="pink" class="mr-2" />
                           兴趣偏好
@@ -179,7 +179,7 @@
                         </v-card-text>
                       </v-card>
 
-                      <v-card variant="outlined" class="info-card mt-4">
+                      <v-card variant="outlined" class="iris-card iris-card-hover info-card mt-4">
                         <v-card-title class="text-subtitle-2 pb-0 d-flex align-center">
                           <v-icon icon="mdi-star" color="warning" class="mr-2" />
                           核心特征
@@ -205,7 +205,7 @@
                         </v-card-text>
                       </v-card>
 
-                      <v-card variant="outlined" class="info-card mt-4">
+                      <v-card variant="outlined" class="iris-card iris-card-hover info-card mt-4">
                         <v-card-title class="text-subtitle-2 pb-0 d-flex align-center">
                           <v-icon icon="mdi-block-helper" color="error" class="mr-2" />
                           禁忌话题
@@ -232,15 +232,15 @@
                       </v-card>
                     </div>
 
-                    <div v-else class="text-center text-medium-emphasis py-8">
-                      <v-icon icon="mdi-file-document-outline" size="64" />
-                      <div class="mt-2">暂无群聊画像数据</div>
+                    <div v-else class="iris-empty-state">
+                      <v-icon icon="mdi-file-document-outline" size="56" />
+                      <div class="iris-empty-state__title">暂无群聊画像数据</div>
                     </div>
                   </template>
 
-                  <div v-else class="text-center text-medium-emphasis py-8">
-                    <v-icon icon="mdi-hand-pointing-up" size="64" class="mb-2" />
-                    <div>请从左侧选择一个群聊</div>
+                  <div v-else class="iris-empty-state">
+                    <v-icon icon="mdi-hand-pointing-up" size="56" />
+                    <div class="iris-empty-state__title">请从左侧选择一个群聊</div>
                   </div>
                 </v-card-text>
               </v-card>
@@ -251,8 +251,8 @@
         <v-window-item value="user">
           <v-row>
             <v-col cols="12" md="4">
-              <v-card color="surface" variant="flat" class="list-card">
-                <v-card-title class="d-flex align-center">
+              <v-card color="surface" variant="flat" class="iris-list-card">
+                <v-card-title class="d-flex align-center iris-section-title">
                   <v-icon icon="mdi-account" color="secondary" class="mr-2" />
                   用户列表
                   <v-spacer />
@@ -281,7 +281,7 @@
                     color="primary"
                   />
 
-                  <v-list v-else-if="filteredUserList.length > 0" lines="two" class="py-0">
+                  <v-list v-else-if="filteredUserList.length > 0" lines="two" class="iris-list py-0">
                     <v-list-item
                       v-for="user in filteredUserList"
                       :key="user.user_id + (user.group_id || 'global')"
@@ -302,17 +302,17 @@
                     </v-list-item>
                   </v-list>
 
-                  <div v-else class="text-center text-medium-emphasis py-8">
+                  <div v-else class="iris-empty-state">
                     <v-icon icon="mdi-account-outline" size="48" />
-                    <div class="mt-2">{{ userSearchQuery ? '未找到匹配的用户' : '暂无用户数据' }}</div>
+                    <div class="iris-empty-state__title">{{ userSearchQuery ? '未找到匹配的用户' : '暂无用户数据' }}</div>
                   </div>
                 </v-card-text>
               </v-card>
             </v-col>
 
             <v-col cols="12" md="8">
-              <v-card color="surface" variant="flat">
-                <v-card-title class="d-flex align-center">
+              <v-card color="surface" variant="flat" class="iris-card">
+                <v-card-title class="d-flex align-center iris-section-title">
                   <v-icon icon="mdi-account-details" color="secondary" class="mr-2" />
                   用户画像详情
                   <v-spacer />
@@ -358,7 +358,7 @@
 
                       <v-row>
                         <v-col cols="12" sm="6">
-                          <v-card variant="outlined" class="info-card">
+                          <v-card variant="outlined" class="iris-card iris-card-hover info-card">
                             <v-card-text>
                               <div class="d-flex align-center mb-2">
                                 <v-icon icon="mdi-briefcase" color="primary" size="small" class="mr-2" />
@@ -372,7 +372,7 @@
                         </v-col>
 
                         <v-col cols="12" sm="6">
-                          <v-card variant="outlined" class="info-card">
+                          <v-card variant="outlined" class="iris-card iris-card-hover info-card">
                             <v-card-text>
                               <div class="d-flex align-center mb-2">
                                 <v-icon icon="mdi-translate" color="info" size="small" class="mr-2" />
@@ -388,7 +388,7 @@
 
                       <v-row>
                         <v-col cols="12" sm="6">
-                          <v-card variant="outlined" class="info-card">
+                          <v-card variant="outlined" class="iris-card iris-card-hover info-card">
                             <v-card-text>
                               <div class="d-flex align-center mb-2">
                                 <v-icon icon="mdi-robot" color="accent" size="small" class="mr-2" />
@@ -402,7 +402,7 @@
                         </v-col>
 
                         <v-col cols="12" sm="6">
-                          <v-card variant="outlined" class="info-card">
+                          <v-card variant="outlined" class="iris-card iris-card-hover info-card">
                             <v-card-text>
                               <div class="d-flex align-center mb-2">
                                 <v-icon icon="mdi-message-text-outline" color="teal" size="small" class="mr-2" />
@@ -418,7 +418,7 @@
 
                       <v-row>
                         <v-col cols="12" sm="6">
-                          <v-card variant="outlined" class="info-card">
+                          <v-card variant="outlined" class="iris-card iris-card-hover info-card">
                             <v-card-text>
                               <div class="d-flex align-center mb-2">
                                 <v-icon icon="mdi-emoticon-outline" color="orange" size="small" class="mr-2" />
@@ -432,7 +432,7 @@
                         </v-col>
                       </v-row>
 
-                      <v-card variant="outlined" class="info-card mt-4">
+                      <v-card variant="outlined" class="iris-card iris-card-hover info-card mt-4">
                         <v-card-title class="text-subtitle-2 pb-0 d-flex align-center">
                           <v-icon icon="mdi-account-switch" color="cyan" class="mr-2" />
                           历史曾用名
@@ -458,7 +458,7 @@
                         </v-card-text>
                       </v-card>
 
-                      <v-card variant="outlined" class="info-card mt-4">
+                      <v-card variant="outlined" class="iris-card iris-card-hover info-card mt-4">
                         <v-card-title class="text-subtitle-2 pb-0 d-flex align-center">
                           <v-icon icon="mdi-brain" color="purple" class="mr-2" />
                           性格特征
@@ -484,7 +484,7 @@
                         </v-card-text>
                       </v-card>
 
-                      <v-card variant="outlined" class="info-card mt-4">
+                      <v-card variant="outlined" class="iris-card iris-card-hover info-card mt-4">
                         <v-card-title class="text-subtitle-2 pb-0 d-flex align-center">
                           <v-icon icon="mdi-heart" color="pink" class="mr-2" />
                           兴趣爱好
@@ -510,7 +510,7 @@
                         </v-card-text>
                       </v-card>
 
-                      <v-card variant="outlined" class="info-card mt-4">
+                      <v-card variant="outlined" class="iris-card iris-card-hover info-card mt-4">
                         <v-card-title class="text-subtitle-2 pb-0 d-flex align-center">
                           <v-icon icon="mdi-calendar-star" color="warning" class="mr-2" />
                           重要事件
@@ -537,7 +537,7 @@
                         </v-card-text>
                       </v-card>
 
-                      <v-card variant="outlined" class="info-card mt-4">
+                      <v-card variant="outlined" class="iris-card iris-card-hover info-card mt-4">
                         <v-card-title class="text-subtitle-2 pb-0 d-flex align-center">
                           <v-icon icon="mdi-calendar-clock" color="success" class="mr-2" />
                           重要日期
@@ -565,7 +565,7 @@
                         </v-card-text>
                       </v-card>
 
-                      <v-card variant="outlined" class="info-card mt-4">
+                      <v-card variant="outlined" class="iris-card iris-card-hover info-card mt-4">
                         <v-card-title class="text-subtitle-2 pb-0 d-flex align-center">
                           <v-icon icon="mdi-block-helper" color="error" class="mr-2" />
                           禁忌话题
@@ -605,15 +605,15 @@
                       </v-card>
                     </div>
 
-                    <div v-else class="text-center text-medium-emphasis py-8">
-                      <v-icon icon="mdi-file-document-outline" size="64" />
-                      <div class="mt-2">暂无用户画像数据</div>
+                    <div v-else class="iris-empty-state">
+                      <v-icon icon="mdi-file-document-outline" size="56" />
+                      <div class="iris-empty-state__title">暂无用户画像数据</div>
                     </div>
                   </template>
 
-                  <div v-else class="text-center text-medium-emphasis py-8">
-                    <v-icon icon="mdi-hand-pointing-up" size="64" class="mb-2" />
-                    <div>请从左侧选择一个用户</div>
+                  <div v-else class="iris-empty-state">
+                    <v-icon icon="mdi-hand-pointing-up" size="56" />
+                    <div class="iris-empty-state__title">请从左侧选择一个用户</div>
                   </div>
                 </v-card-text>
               </v-card>
@@ -623,7 +623,7 @@
       </v-window>
     </ComponentDisabled>
 
-    <v-dialog v-model="showEditDialog" max-width="400">
+    <v-dialog v-model="showEditDialog" max-width="400" class="iris-dialog">
       <v-card>
         <v-card-title>编辑 {{ editFieldLabel }}</v-card-title>
         <v-card-text>
@@ -637,7 +637,7 @@
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="showAddTagDialog" max-width="400">
+    <v-dialog v-model="showAddTagDialog" max-width="400" class="iris-dialog">
       <v-card>
         <v-card-title>添加{{ addTagFieldLabel }}</v-card-title>
         <v-card-text>
@@ -651,7 +651,7 @@
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="showAddDateDialog" max-width="400">
+    <v-dialog v-model="showAddDateDialog" max-width="400" class="iris-dialog">
       <v-card>
         <v-card-title>添加重要日期</v-card-title>
         <v-card-text>
@@ -666,7 +666,7 @@
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="showDeleteDialog" max-width="400">
+    <v-dialog v-model="showDeleteDialog" max-width="400" class="iris-dialog">
       <v-card>
         <v-card-title>确认删除</v-card-title>
         <v-card-text>
@@ -998,16 +998,7 @@ onMounted(() => {
   height: 100%;
 }
 
-.list-card {
-  max-height: calc(100vh - 200px);
-  display: flex;
-  flex-direction: column;
-}
-
-.list-card :deep(.v-card-text) {
-  flex: 1;
-  overflow-y: auto;
-}
+/* iris-list-card 已提供高度与滚动行为，这里保留局部细节 */
 
 .profile-content {
   animation: fadeIn 0.3s ease;
@@ -1016,7 +1007,7 @@ onMounted(() => {
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -1028,15 +1019,12 @@ onMounted(() => {
   display: flex;
   align-items: center;
   padding-bottom: 16px;
-  border-bottom: 1px solid rgb(var(--v-theme-surface-variant));
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
 }
 
+/* info-card 局部细节，hover 由 iris-card-hover 提供 */
 .info-card {
-  transition: all 0.2s ease;
-}
-
-.info-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.2s ease;
 }
 
 .tags-container {

@@ -99,12 +99,38 @@ const message = computed(() => {
   align-items: center;
   justify-content: center;
   min-height: 400px;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 8px;
+  background: linear-gradient(
+    180deg,
+    rgba(var(--v-theme-surface), 0.4),
+    rgba(var(--v-theme-surface), 0.7)
+  );
+  border-radius: 12px;
+  border: 1px dashed rgba(var(--v-theme-on-surface), 0.12);
 }
 
 .disabled-content {
-  padding: 32px;
-  max-width: 400px;
+  padding: 40px 32px;
+  max-width: 420px;
+  animation: iris-fade-in 0.3s ease;
+}
+
+.disabled-content :deep(.v-icon) {
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.1));
+}
+
+.disabled-content :deep(.text-h6) {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+@keyframes iris-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

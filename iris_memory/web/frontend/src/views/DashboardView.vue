@@ -2,7 +2,7 @@
   <div class="dashboard">
     <v-row dense>
       <v-col cols="12">
-        <v-card color="surface" variant="flat" class="system-bar">
+        <v-card color="surface" variant="flat" class="iris-hero-card system-bar">
           <v-card-text class="d-flex align-center flex-wrap ga-3 pa-3">
             <v-chip
               :color="globalStatusColor"
@@ -50,7 +50,7 @@
         <v-card
           color="surface"
           variant="flat"
-          class="memory-card"
+          class="iris-card iris-card-hover memory-card"
           :class="{ 'component-disabled': !isL1Available }"
         >
           <v-card-item>
@@ -90,7 +90,7 @@
         <v-card
           color="surface"
           variant="flat"
-          class="memory-card"
+          class="iris-card iris-card-hover memory-card"
           :class="{ 'component-disabled': !isL2Available }"
         >
           <v-card-item>
@@ -124,7 +124,7 @@
         <v-card
           color="surface"
           variant="flat"
-          class="memory-card"
+          class="iris-card iris-card-hover memory-card"
           :class="{ 'component-disabled': !isL3Available }"
         >
           <v-card-item>
@@ -160,15 +160,15 @@
 
     <v-row dense class="mt-1">
       <v-col cols="12">
-        <v-card color="surface" variant="flat">
+        <v-card color="surface" variant="flat" class="iris-card">
           <v-card-item>
             <template #prepend>
               <v-icon icon="mdi-counter" color="info" />
             </template>
-            <v-card-title class="text-body-1">Token 消耗</v-card-title>
+            <v-card-title class="text-body-1 iris-section-title">Token 消耗</v-card-title>
           </v-card-item>
           <v-card-text class="pt-0">
-            <v-table density="compact" class="bg-transparent token-table">
+            <v-table density="compact" class="bg-transparent iris-table token-table">
               <thead>
                 <tr>
                   <th>模块</th>
@@ -193,8 +193,8 @@
 
     <v-row dense class="mt-1" v-if="hasKgTypeData">
       <v-col cols="12" sm="6">
-        <v-card color="surface" variant="flat" class="h-100">
-          <v-card-title class="text-subtitle-2 d-flex align-center">
+        <v-card color="surface" variant="flat" class="iris-card h-100">
+          <v-card-title class="text-subtitle-2 d-flex align-center iris-section-title">
             <v-icon icon="mdi-circle-multiple" size="small" class="mr-1" />
             节点类型分布
           </v-card-title>
@@ -239,8 +239,8 @@
       </v-col>
 
       <v-col cols="12" sm="6">
-        <v-card color="surface" variant="flat" class="h-100">
-          <v-card-title class="text-subtitle-2 d-flex align-center">
+        <v-card color="surface" variant="flat" class="iris-card h-100">
+          <v-card-title class="text-subtitle-2 d-flex align-center iris-section-title">
             <v-icon icon="mdi-arrow-decision" size="small" class="mr-1" />
             关系类型分布
           </v-card-title>
@@ -535,19 +535,21 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* system-bar 风格由 iris-hero-card 提供，这里仅保留局部细节 */
 .system-bar {
-  border: 1px solid rgb(var(--v-theme-on-surface), 0.08);
+  border-color: rgba(var(--v-theme-primary), 0.18);
 }
 
 .component-disabled {
-  opacity: 0.6;
+  opacity: 0.55;
+  filter: saturate(0.6);
+  transition: opacity 0.2s ease, filter 0.2s ease;
 }
 
 .memory-card {
   height: 100%;
   display: flex;
   flex-direction: column;
-  border: 1px solid rgb(var(--v-theme-on-surface), 0.08);
 }
 
 .memory-card :deep(.v-card-item) {
@@ -581,9 +583,9 @@ onUnmounted(() => {
   }
 }
 
+/* token 表格在 iris-table 基础上做轻量装饰 */
 .token-table {
-  border: 1px solid rgb(var(--v-theme-on-surface), 0.06);
-  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
 }
 
 .type-label {
@@ -600,7 +602,7 @@ onUnmounted(() => {
 
 .custom-label {
   cursor: help;
-  border-bottom: 1px dashed rgb(var(--v-theme-on-surface), 0.4);
+  border-bottom: 1px dashed rgba(var(--v-theme-on-surface), 0.4);
 }
 
 .custom-tooltip {

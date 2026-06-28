@@ -136,9 +136,9 @@
           <v-btn value="concentric" size="x-small" class="flex-grow-1">同心</v-btn>
         </v-btn-toggle>
 
-        <v-btn color="primary" variant="tonal" block size="small" :loading="loading" @click="emit('reload')">
-          <v-icon icon="mdi-refresh" class="mr-1" />
-          重新加载
+        <v-btn color="primary" variant="tonal" block size="small" :loading="loading" @click="emit('random-node')">
+          <v-icon icon="mdi-shuffle" class="mr-1" />
+          随机主节点
         </v-btn>
       </v-card-text>
     </v-card>
@@ -329,7 +329,7 @@ const emit = defineEmits<{
   'toggle-node-type': [type: string]
   'toggle-relation-type': [type: string]
   'reset-filters': []
-  reload: []
+  'random-node': []
   'focus-node': [nodeId: string]
 }>()
 

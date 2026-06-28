@@ -177,6 +177,16 @@ export const useMemoryStore = defineStore('memory', () => {
 
   const fetchL3Graph = async (nodeId?: string) => _loadGraph(nodeId, true)
 
+  /**
+   * 刷新当前图谱：保留当前主节点重新加载（若无可用的主节点则后端随机选）。
+   * 用于深度/最大节点数等控制参数变更后重新拉取，避免主节点被随机重置。
+   * 不写入导航历史，因为这只是参数刷新而非节点跳转。
+   */
+  const refreshL3Graph = async () => {
+    const currentNodeId = l3StartNode.value?.id
+    await _loadGraph(currentNodeId, false)
+  }
+
   const expandFromNode = async (nodeId: string) => _loadGraph(nodeId, true)
 
   const navBack = async () => {
@@ -437,6 +447,7 @@ export const useMemoryStore = defineStore('memory', () => {
     searchL2Memory,
     fetchL2Stats,
     fetchL3Graph,
+    refreshL3Graph,
     expandFromNode,
     navBack,
     navForward,

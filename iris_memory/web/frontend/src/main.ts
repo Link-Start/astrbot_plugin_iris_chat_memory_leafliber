@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { createVuetify } from 'vuetify'
 import 'vuetify/styles'
+import './styles/iris-common.css'
 
 import { MdiSvgIcon } from './MdiSvgIcon'
 import App from './App.vue'

@@ -84,7 +84,7 @@
             @toggle-node-type="memoryStore.toggleNodeTypeFilter"
             @toggle-relation-type="memoryStore.toggleRelationTypeFilter"
             @reset-filters="memoryStore.resetFilters"
-            @reload="loadGraph"
+            @random-node="handleRandomMainNode"
             @focus-node="handleFocusNode"
           />
         </div>
@@ -212,6 +212,9 @@ const showSnackbar = (text: string, color: 'success' | 'error' | 'info' = 'succe
 // ---- 图谱加载 ----
 const loadGraph = () => memoryStore.fetchL3Graph()
 
+// 随机主节点：显式重新让后端随机挑选一个起始节点
+const handleRandomMainNode = () => memoryStore.fetchL3Graph()
+
 const handleExpandNode = (nodeId: string) => {
   memoryStore.expandFromNode(nodeId)
 }
@@ -221,13 +224,14 @@ const handleSearch = (keyword: string) => memoryStore.searchL3(keyword)
 const handleClearSearch = () => memoryStore.clearL3Search()
 
 // ---- 控制 ----
+// 深度/最大节点数变更：保留当前主节点重新加载，不随机化
 const handleDepthChange = (depth: number) => {
   memoryStore.setDepth(depth)
-  loadGraph()
+  memoryStore.refreshL3Graph()
 }
 const handleMaxNodesChange = (maxNodes: number) => {
   memoryStore.setMaxNodes(maxNodes)
-  loadGraph()
+  memoryStore.refreshL3Graph()
 }
 const handleLayoutChange = (layout: L3LayoutType) => {
   memoryStore.setLayout(layout)
