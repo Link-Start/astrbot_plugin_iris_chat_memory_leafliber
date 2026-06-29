@@ -397,6 +397,88 @@ class TestMemoryImporter:
         assert stats.total_count == 2
         assert stats.imported_count == 2
 
+    @pytest.mark.asyncio
+    async def test_import_preserves_per_entry_persona_id(self, mock_adapter):
+        """导入时必须按条目透传 persona_id，否则迁移会塌缩人格隔离"""
+        export_data = {
+            "version": "1.0",
+            "persona_id": "default",
+            "export_time": "2024-01-01T00:00:00",
+            "entries": [
+                {
+                    "id": "mem_001",
+                    "content": "yuki 的记忆",
+                    "metadata": {"group_id": "g1"},
+                    "persona_id": "yuki",
+                },
+                {
+                    "id": "mem_002",
+                    "content": "aria 的记忆",
+                    "metadata": {"group_id": "g1"},
+                    "persona_id": "aria",
+                },
+            ],
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(export_data, f)
+            temp_path = Path(f.name)
+
+        mock_adapter.add_memory = AsyncMock(return_value="mem_new")
+        try:
+            importer = MemoryImporter(mock_adapter)
+            stats = await importer.import_from_file(temp_path)
+
+            assert stats.imported_count == 2
+            calls = mock_adapter.add_memory.call_args_list
+            assert calls[0].kwargs["persona_id"] == "yuki"
+            assert calls[1].kwargs["persona_id"] == "aria"
+        finally:
+            temp_path.unlink()
+
+    @pytest.mark.asyncio
+    async def test_import_falls_back_to_file_persona_id(self, mock_adapter):
+        """旧版导出无逐条 persona_id 时回退到文件级 persona_id"""
+        export_data = {
+            "version": "1.0",
+            "persona_id": "legacy",
+            "export_time": "2024-01-01T00:00:00",
+            "entries": [
+                # 旧格式：无 persona_id 字段
+                {"id": "mem_001", "content": "旧记忆", "metadata": {}},
+            ],
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(export_data, f)
+            temp_path = Path(f.name)
+
+        mock_adapter.add_memory = AsyncMock(return_value="mem_new")
+        try:
+            importer = MemoryImporter(mock_adapter)
+            await importer.import_from_file(temp_path)
+
+            assert mock_adapter.add_memory.call_args.kwargs["persona_id"] == "legacy"
+        finally:
+            temp_path.unlink()
+
+    @pytest.mark.asyncio
+    async def test_import_entries_preserves_persona_id(self, mock_adapter):
+        """import_entries 直接导入时透传 entry.persona_id"""
+        entries = [
+            MemoryEntry(id="mem_001", content="记忆1", metadata={}, persona_id="yuki"),
+            MemoryEntry(id="mem_002", content="记忆2", metadata={}, persona_id="aria"),
+        ]
+
+        mock_adapter.add_memory = AsyncMock(return_value="mem_new")
+
+        importer = MemoryImporter(mock_adapter)
+        await importer.import_entries(entries)
+
+        calls = mock_adapter.add_memory.call_args_list
+        assert calls[0].kwargs["persona_id"] == "yuki"
+        assert calls[1].kwargs["persona_id"] == "aria"
+
 
 class TestConvenienceFunctions:
     """便捷函数测试"""

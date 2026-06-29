@@ -883,6 +883,7 @@ class L2MemoryAdapter(Component):
                     id=row_memory_id,
                     content=row_content,
                     metadata=json.loads(row_metadata_json),
+                    persona_id=row_persona_id,
                 )
                 results.append(
                     MemorySearchResult(entry=entry, score=score, distance=1.0 - score)
@@ -967,6 +968,7 @@ class L2MemoryAdapter(Component):
                         id=row_memory_id,
                         content=row_content,
                         metadata=json.loads(row_metadata_json),
+                        persona_id=row_persona_id,
                     )
                     results.append(
                         MemorySearchResult(
@@ -1126,7 +1128,7 @@ class L2MemoryAdapter(Component):
         try:
             with self._lock:
                 row = self._db.execute(
-                    "SELECT faiss_idx, metadata FROM memories WHERE memory_id = ?",
+                    "SELECT faiss_idx, metadata, persona_id FROM memories WHERE memory_id = ?",
                     (memory_id,),
                 ).fetchone()
 
@@ -1134,7 +1136,7 @@ class L2MemoryAdapter(Component):
                     logger.warning(f"记忆不存在：{memory_id}")
                     return False
 
-                faiss_idx, metadata_json = row
+                faiss_idx, metadata_json, persona_id = row
                 metadata = json.loads(metadata_json)
                 metadata["timestamp"] = datetime.now().isoformat()
 
@@ -1162,7 +1164,9 @@ class L2MemoryAdapter(Component):
                 self._index.add_with_ids(
                     new_vector, np.array([faiss_idx], dtype=np.int64)
                 )
-                self._upsert_db_unlocked(faiss_idx, memory_id, new_content, metadata)
+                self._upsert_db_unlocked(
+                    faiss_idx, memory_id, new_content, metadata, persona_id
+                )
 
             self._mark_dirty()
             logger.info(f"已更新记忆内容：{memory_id}")
@@ -1263,12 +1267,12 @@ class L2MemoryAdapter(Component):
             with self._lock:
                 if persona_id is not None:
                     row = self._db.execute(
-                        "SELECT memory_id, content, metadata FROM memories WHERE memory_id = ? AND persona_id = ?",
+                        "SELECT memory_id, content, metadata, persona_id FROM memories WHERE memory_id = ? AND persona_id = ?",
                         (memory_id, persona_id),
                     ).fetchone()
                 else:
                     row = self._db.execute(
-                        "SELECT memory_id, content, metadata FROM memories WHERE memory_id = ?",
+                        "SELECT memory_id, content, metadata, persona_id FROM memories WHERE memory_id = ?",
                         (memory_id,),
                     ).fetchone()
 
@@ -1279,6 +1283,7 @@ class L2MemoryAdapter(Component):
                 id=row[0],
                 content=row[1],
                 metadata=json.loads(row[2]),
+                persona_id=row[3],
             )
         except Exception as e:
             logger.error(f"按 ID 查询记忆失败：{e}")
@@ -1302,12 +1307,12 @@ class L2MemoryAdapter(Component):
         try:
             if persona_id is not None:
                 rows = self._db_execute(
-                    "SELECT memory_id, content, metadata FROM memories WHERE persona_id = ?",
+                    "SELECT memory_id, content, metadata, persona_id FROM memories WHERE persona_id = ?",
                     (persona_id,),
                 ).fetchall()
             else:
                 rows = self._db_execute(
-                    "SELECT memory_id, content, metadata FROM memories"
+                    "SELECT memory_id, content, metadata, persona_id FROM memories"
                 ).fetchall()
 
             return [
@@ -1315,6 +1320,7 @@ class L2MemoryAdapter(Component):
                     id=row[0],
                     content=row[1],
                     metadata=json.loads(row[2]),
+                    persona_id=row[3],
                 )
                 for row in rows
             ]
@@ -1343,7 +1349,7 @@ class L2MemoryAdapter(Component):
 
         try:
             rows = self._db_execute(
-                "SELECT memory_id, content, metadata FROM memories WHERE group_id = ? AND persona_id = ?",
+                "SELECT memory_id, content, metadata, persona_id FROM memories WHERE group_id = ? AND persona_id = ?",
                 (group_id, persona_id),
             ).fetchall()
 
@@ -1352,6 +1358,7 @@ class L2MemoryAdapter(Component):
                     id=row[0],
                     content=row[1],
                     metadata=json.loads(row[2]),
+                    persona_id=row[3],
                 )
                 for row in rows
             ]
@@ -1367,7 +1374,7 @@ class L2MemoryAdapter(Component):
 
         try:
             rows = self._db_execute(
-                "SELECT memory_id, content, metadata FROM memories WHERE user_id = ? AND persona_id = ?",
+                "SELECT memory_id, content, metadata, persona_id FROM memories WHERE user_id = ? AND persona_id = ?",
                 (user_id, persona_id),
             ).fetchall()
 
@@ -1376,6 +1383,7 @@ class L2MemoryAdapter(Component):
                     id=row[0],
                     content=row[1],
                     metadata=json.loads(row[2]),
+                    persona_id=row[3],
                 )
                 for row in rows
             ]
@@ -1594,12 +1602,12 @@ class L2MemoryAdapter(Component):
         try:
             if persona_id is not None:
                 rows = self._db_execute(
-                    "SELECT memory_id, content, metadata FROM memories WHERE kg_processed = 0 AND persona_id = ? LIMIT ?",
+                    "SELECT memory_id, content, metadata, persona_id FROM memories WHERE kg_processed = 0 AND persona_id = ? LIMIT ?",
                     (persona_id, limit),
                 ).fetchall()
             else:
                 rows = self._db_execute(
-                    "SELECT memory_id, content, metadata FROM memories WHERE kg_processed = 0 LIMIT ?",
+                    "SELECT memory_id, content, metadata, persona_id FROM memories WHERE kg_processed = 0 LIMIT ?",
                     (limit,),
                 ).fetchall()
 
@@ -1608,6 +1616,7 @@ class L2MemoryAdapter(Component):
                     id=row[0],
                     content=row[1],
                     metadata=json.loads(row[2]),
+                    persona_id=row[3],
                 )
                 for row in rows
             ]
@@ -1656,12 +1665,12 @@ class L2MemoryAdapter(Component):
         try:
             if group_id:
                 rows = self._db_execute(
-                    "SELECT memory_id, content, metadata FROM memories WHERE group_id = ? AND persona_id = ? ORDER BY timestamp DESC LIMIT ?",
+                    "SELECT memory_id, content, metadata, persona_id FROM memories WHERE group_id = ? AND persona_id = ? ORDER BY timestamp DESC LIMIT ?",
                     (group_id, persona_id, limit),
                 ).fetchall()
             else:
                 rows = self._db_execute(
-                    "SELECT memory_id, content, metadata FROM memories WHERE persona_id = ? ORDER BY timestamp DESC LIMIT ?",
+                    "SELECT memory_id, content, metadata, persona_id FROM memories WHERE persona_id = ? ORDER BY timestamp DESC LIMIT ?",
                     (persona_id, limit),
                 ).fetchall()
 
@@ -1671,6 +1680,7 @@ class L2MemoryAdapter(Component):
                         id=row[0],
                         content=row[1],
                         metadata=json.loads(row[2]),
+                        persona_id=row[3],
                     ),
                     score=1.0,
                     distance=0.0,

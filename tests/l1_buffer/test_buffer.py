@@ -2,10 +2,11 @@
 
 import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from datetime import datetime
 
 from iris_memory.l1_buffer import L1Buffer, ContextMessage
+from iris_memory.l1_buffer.models import SegmentedMessageQueue
 from iris_memory.config import init_config
 
 
@@ -232,6 +233,108 @@ class TestL1Buffer:
         stats = buffer.get_queue_stats("nonexistent_group")
 
         assert stats is None
+
+
+def _make_msg(content: str = "测试消息", token_count: int = 10) -> ContextMessage:
+    return ContextMessage(
+        role="user",
+        content=content,
+        timestamp=datetime.now(),
+        token_count=token_count,
+        source="group_test",
+    )
+
+
+class TestEmptySummarySegmentPreservation:
+    """回归：空总结首次失败不得 rotate，segment_2 必须保留以供重试。
+
+    历史 bug：else 分支仅 fail_count>=2 时 return，fail_count==1 时
+    落到 rotate_after_summary() 清空 segment_2，重试阈值 2 形同虚设。
+    """
+
+    def _build_buffer_with_queue(self, mock_config, seg2_count: int = 3):
+        """构造一个 segment_2 有内容的 buffer，summarizer 返回空。"""
+        buffer = L1Buffer()
+        buffer._is_available = True
+        buffer._component_manager = None  # 避免 _get_or_create_summarizer 触达
+
+        queue = SegmentedMessageQueue(group_id="group_test")
+        for _ in range(seg2_count):
+            queue.segment_2.append(_make_msg(token_count=10))
+        queue.total_tokens = seg2_count * 10
+        buffer._queues["group_test"] = queue
+
+        # summarizer.should_summarize -> True；summarize -> ""（空总结）
+        fake_summarizer = Mock()
+        fake_summarizer.should_summarize = Mock(return_value=True)
+        fake_summarizer.summarize = AsyncMock(return_value="")
+        buffer._summarizer = fake_summarizer
+
+        # 副作用桩，避免触碰 L2/profile
+        buffer._write_summary_to_l2 = AsyncMock(return_value=None)
+        buffer._update_profile_after_summary = AsyncMock(return_value=None)
+        buffer._clear_images_for_summarized_messages = Mock()
+
+        return buffer, queue
+
+    @pytest.mark.asyncio
+    async def test_empty_summary_first_failure_preserves_segment_2(self, mock_config):
+        """首次空总结失败：segment_2 保留，不 rotate"""
+        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+            mock_get_config.return_value.get = Mock(
+                side_effect=lambda key, default=None: {
+                    "l1_buffer.enable": True,
+                }.get(key, default)
+            )
+            buffer, queue = self._build_buffer_with_queue(mock_config, seg2_count=3)
+
+            await buffer._check_and_summarize("group_test")
+
+            # 关键断言：segment_2 内容未被 rotate 清空
+            assert len(queue.segment_2) == 3, (
+                "空总结首次失败不应 rotate，segment_2 必须保留"
+            )
+            assert len(queue.segment_3) == 0
+            # 失败计数递增到 1
+            assert buffer._summary_fail_counts["group_test"] == 1
+            # 未写入 L2
+            buffer._write_summary_to_l2.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_empty_summary_second_failure_clears_segment_2(self, mock_config):
+        """第二次空总结失败（达阈值）：清除 segment_2 并重置计数"""
+        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+            mock_get_config.return_value.get = Mock(
+                side_effect=lambda key, default=None: {
+                    "l1_buffer.enable": True,
+                }.get(key, default)
+            )
+            buffer, queue = self._build_buffer_with_queue(mock_config, seg2_count=3)
+            # 预置已失败一次，本次为第二次
+            buffer._summary_fail_counts["group_test"] = 1
+
+            await buffer._check_and_summarize("group_test")
+
+            assert len(queue.segment_2) == 0, "达阈值时应 clear_segment_2"
+            assert buffer._summary_fail_counts["group_test"] == 0  # 重置
+
+    @pytest.mark.asyncio
+    async def test_successful_summary_rotates(self, mock_config):
+        """对照：成功总结后正常 rotate，segment_2 清空"""
+        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+            mock_get_config.return_value.get = Mock(
+                side_effect=lambda key, default=None: {
+                    "l1_buffer.enable": True,
+                }.get(key, default)
+            )
+            buffer, queue = self._build_buffer_with_queue(mock_config, seg2_count=3)
+            buffer._summarizer.summarize = AsyncMock(return_value="有内容的总结")
+
+            await buffer._check_and_summarize("group_test")
+
+            assert len(queue.segment_2) == 0, "成功总结应 rotate 清空 segment_2"
+            assert buffer._summary_fail_counts["group_test"] == 0
+            buffer._write_summary_to_l2.assert_awaited_once()
 
 
 class TestUserIdentification:

@@ -92,6 +92,35 @@ class TestMemoryEntry:
         assert entry.last_access_time is None
         assert entry.confidence == 0.5
 
+    def test_persona_id_default(self):
+        """persona_id 默认为 default"""
+        entry = MemoryEntry(id="mem_007", content="测试")
+        assert entry.persona_id == "default"
+
+    def test_persona_id_roundtrip(self):
+        """to_dict/from_dict 必须透传 persona_id（迁移回合关键）"""
+        entry = MemoryEntry(
+            id="mem_008",
+            content="人格隔离测试",
+            metadata={"group_id": "g1"},
+            persona_id="yuki",
+        )
+        data = entry.to_dict()
+        assert data["persona_id"] == "yuki"
+
+        restored = MemoryEntry.from_dict(data)
+        assert restored.persona_id == "yuki"
+
+    def test_from_dict_legacy_without_persona_id(self):
+        """旧版导出无 persona_id 字段时回退为 default"""
+        data = {
+            "id": "mem_009",
+            "content": "旧格式",
+            "metadata": {},
+        }
+        entry = MemoryEntry.from_dict(data)
+        assert entry.persona_id == "default"
+
 
 class TestMemorySearchResult:
     """MemorySearchResult 测试"""

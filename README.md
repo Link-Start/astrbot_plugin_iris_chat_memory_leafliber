@@ -88,7 +88,7 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 - pHash 感知哈希自动去重，避免重复解析
 - 无效图过滤（纯色图、过小图片自动跳过）
 - 每日解析配额控制，防止 Token 爆炸
-- 支持与 [Message Recorder](https://github.com/Fibiacn/astrbot_plugin_message_recorder) 插件联动获取本地图片，避免链接过期
+- 支持与 [Message Recorder](https://github.com/leafliber/astrbot_plugin_message_recorder) 插件联动获取本地图片，避免链接过期
 
 ### LLM 工具
 
@@ -284,7 +284,7 @@ Bot 不只"看"文字 — 它也能理解图片内容：
 
 > L2 的最大条目数、检索超时、查询改写等内部参数见下方 「隐藏配置（高级调优）」。
 
-> ⚠️ **切换嵌入模型前请先备份数据！** 更换模型后向量维度可能改变，插件会自动重建记忆库，已有记忆将丢失。可通过 Web 管理界面导出备份。
+> ⚠️ **切换嵌入模型前请先备份数据！** 更换模型后向量维度可能改变，插件会自动重建记忆库，已有记忆可能会丢失。可通过 Web 管理界面导出备份。
 
 </details>
 

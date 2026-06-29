@@ -31,6 +31,10 @@ class MemoryEntry:
             - last_access_time: 最近访问时间
             - confidence: 置信度
             - source: 来源（summary/tool）
+        persona_id: 人格ID，用于人格命名空间隔离（SQLite 独立列，
+            不属于 metadata）。导出/导入必须透传此字段，否则模型迁移
+            的「导出→删库→重导入」回合会将所有记忆塌缩为 "default"，
+            永久破坏人格隔离。
 
     Examples:
         >>> entry = MemoryEntry(
@@ -41,25 +45,29 @@ class MemoryEntry:
         ...         "timestamp": datetime.now().isoformat(),
         ...         "access_count": 1,
         ...         "confidence": 0.85
-        ...     }
+        ...     },
+        ...     persona_id="yuki",
         ... )
     """
 
     id: str
     content: str
     metadata: Dict[str, Any] = field(default_factory=dict)
+    persona_id: str = "default"
     embedding: Optional[list[float]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式
 
         Returns:
-            包含所有字段的字典（不含 embedding）
+            包含所有字段的字典（不含 embedding），persona_id 单独列出
+            以便导出/导入回合透传人格归属
         """
         return {
             "id": self.id,
             "content": self.content,
             "metadata": self.metadata,
+            "persona_id": self.persona_id,
         }
 
     @classmethod
@@ -71,11 +79,16 @@ class MemoryEntry:
 
         Returns:
             MemoryEntry 实例
+
+        Note:
+            旧版导出文件无 persona_id 字段时回退为 "default"，
+            与历史行为兼容。
         """
         return cls(
             id=data["id"],
             content=data["content"],
             metadata=data.get("metadata", {}),
+            persona_id=data.get("persona_id", "default"),
             embedding=data.get("embedding"),
         )
 

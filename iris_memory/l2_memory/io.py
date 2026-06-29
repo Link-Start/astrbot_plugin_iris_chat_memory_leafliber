@@ -334,9 +334,13 @@ class MemoryImporter:
             )
 
         # 解析导出数据
+        # 文件级 persona_id：旧版导出文件无逐条 persona_id 时作为回退，
+        # 避免历史数据导入时全部塌缩为 "default"（仍是原适配器人格）。
+        file_persona_id = "default"
         if isinstance(data, dict) and "entries" in data:
             # 新格式：MemoryExport 结构
             entries_data = data["entries"]
+            file_persona_id = data.get("persona_id", "default")
             logger.debug(f"导入格式版本：{data.get('version', 'unknown')}")
         elif isinstance(data, list):
             # 旧格式：直接是条目列表
@@ -371,8 +375,15 @@ class MemoryImporter:
                 if update_metadata and metadata_updates:
                     metadata.update(metadata_updates)
 
+                # 透传 persona_id：逐条优先，缺失时回退到文件级 persona_id，
+                # 再回退 "default"。这是模型迁移保留人格隔离的关键——
+                # 否则 add_memory 默认 "default" 会把所有人格的记忆混入同一命名空间。
+                persona_id = entry_data.get("persona_id", file_persona_id)
+
                 # 添加记忆
-                memory_id = await self._adapter.add_memory(content, metadata)
+                memory_id = await self._adapter.add_memory(
+                    content, metadata, persona_id=persona_id
+                )
 
                 if memory_id:
                     imported_count += 1
@@ -456,7 +467,9 @@ class MemoryImporter:
         for entry in entries:
             try:
                 memory_id = await self._adapter.add_memory(
-                    entry.content, entry.metadata
+                    entry.content,
+                    entry.metadata,
+                    persona_id=entry.persona_id,
                 )
 
                 if memory_id:

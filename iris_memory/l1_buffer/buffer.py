@@ -381,7 +381,15 @@ class L1Buffer(Component):
                         removed = queue.clear_segment_2()
                         self._clear_images_for_summarized_messages(queue_key, removed)
                         self._summary_fail_counts[queue_key] = 0
-                        return
+                    else:
+                        logger.info(
+                            f"队列 {queue_key} 空总结第 {fail_count} 次失败"
+                            f"（阈值 2），保留 L1-2 段下轮重试"
+                        )
+                    # 无论是否达到阈值，空总结都不应推进段位——
+                    # 否则未写入 L2 的内容会被 rotate_after_summary 丢弃，
+                    # 使重试阈值形同虚设。与 except 分支保持一致。
+                    return
 
                 queue.rotate_after_summary()
                 self._clear_images_for_summarized_messages(queue_key, target_messages)
