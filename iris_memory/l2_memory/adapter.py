@@ -1688,9 +1688,18 @@ class L2MemoryAdapter(Component):
     async def _migrate_on_model_change(self, new_model: str, new_dim: int) -> bool:
         from .io import MemoryExporter, MemoryImporter
 
+        # 确保数据库已打开：initialize() 在检测到模型变更时直接调用本方法，
+        # 此时 _load_existing() 尚未执行，self._db 为 None。
+        # 若不打开数据库，_count_db() 会返回 0，导致迁移被静默跳过。
+        db_path = self._persist_dir / "metadata.db"
+        if not self._db and db_path.exists():
+            self._db = self._open_db(db_path)
+
         old_count = self._count_db()
         if old_count == 0:
             # 空库，直接创建新索引
+            if not self._db:
+                self._db = self._open_db(db_path)
             self._index = self._create_index(new_dim)
             self._embedding_dimensions = new_dim
             self._save_meta()

@@ -483,3 +483,48 @@ class TestParseSummaryItems:
         assert len(items) == 2
         assert items[0] == "用户提到喜欢吃苹果"
         assert items[1] == "用户询问了项目的配置方法"
+
+    def test_parse_skips_markdown_fences(self):
+        """回归测试：行式回退不应把 Markdown 代码块标记当作记忆。"""
+        buffer = L1Buffer()
+
+        summary = """```json
+{
+  "memories": []
+}
+```"""
+
+        items = buffer._parse_summary_items(summary)
+
+        assert items == []
+        assert not any("```" in i for i in items)
+
+    def test_parse_skips_json_structural_lines(self):
+        """回归测试：行式回退不应把 JSON 骨架行（括号、键名行）当作记忆。"""
+        buffer = L1Buffer()
+
+        summary = """{
+  "memories": [
+    {"content": "有效记忆条目内容", "confidence": "high"}
+  ]
+}"""
+
+        items = buffer._parse_summary_items(summary)
+
+        # 只应保留真正的记忆文本，不含 JSON 结构行
+        assert all(not i.startswith("{") for i in items)
+        assert all(not i.startswith("}") for i in items)
+        assert all('"memories"' not in i for i in items)
+        assert all('"content"' not in i for i in items)
+
+    def test_parse_fenced_empty_json_no_garbage(self):
+        """回归测试：用户报告的 bug——```json + "memories": [] 被误导入。"""
+        buffer = L1Buffer()
+
+        summary = '```json\n{\n  "memories": []\n}\n```'
+
+        items = buffer._parse_summary_items(summary)
+
+        assert items == []
+        assert "```json" not in items
+        assert '"memories": []' not in items

@@ -34,7 +34,7 @@ async def export_l2_memory():
         group_id = request.args.get("group_id")
 
         exporter = MemoryExporter(l2_adapter)
-        export_data = await exporter.export_to_json(await l2_adapter.get_all_entries())
+        export_data = exporter.export_to_json(await l2_adapter.get_all_entries())
 
         if group_id:
             data = json.loads(export_data)

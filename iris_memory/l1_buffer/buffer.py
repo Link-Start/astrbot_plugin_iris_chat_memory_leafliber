@@ -16,6 +16,7 @@ from typing import Optional, Dict, Any, List, TYPE_CHECKING, cast
 from pathlib import Path
 from datetime import datetime
 import asyncio
+import re
 
 from iris_memory.core import Component, get_logger
 from iris_memory.config import get_config
@@ -716,7 +717,10 @@ class L1Buffer(Component):
                     f"建议更换支持 JSON 输出的模型以提升总结质量。"
                 )
 
-            if not summary_items:
+            # 仅当 JSON 解析失败时才尝试行式回退。
+            # JSON 解析成功但 memories 为空，属于模型判定“无值得记录的信息”的正常结果，
+            # 结构性文本误当作记忆导入 L2。
+            if not summary_items and not json_parsed:
                 fallback_items = self._parse_summary_items(summary)
                 if fallback_items:
                     summary_items = [
@@ -729,6 +733,10 @@ class L1Buffer(Component):
                         f"如大量出现此情况，建议更换支持 JSON 输出的模型。"
                         f"\n--- LLM 原始返回 ---\n{summary}\n--- 结束 ---"
                     )
+            elif json_parsed and not summary_items:
+                logger.debug(
+                    "总结 JSON 解析成功，但 memories 为空（无值得记录的信息），跳过 L2 写入"
+                )
 
             if not summary_items:
                 logger.debug(f"总结解析后无有效条目，原内容：{summary[:100]}...")
@@ -839,6 +847,18 @@ class L1Buffer(Component):
         for line in lines:
             line = line.strip()
             if not line:
+                continue
+
+            # 跳过 Markdown 代码块标记（```json、``` 等）
+            if line.startswith("```"):
+                continue
+            # 跳过 JSON 结构性行：以花括号开头（含 {"content":...} 这类对象片段）、
+            # 纯方括号、或形如 "key": 的键名行，避免把 JSON 骨架当作记忆
+            if line[0] in "{}":
+                continue
+            if line in ("[", "]"):
+                continue
+            if re.match(r'^"[a-zA-Z_]+"[\s]*:', line):
                 continue
 
             if line in ("无", "无有效信息", "无有效记忆", "无有价值的信息"):

@@ -453,6 +453,62 @@ class TestParseSummaryResponse:
 
         assert result["memories"] == []
 
+    def test_parse_fenced_empty_memories(self):
+        """小模型常用 ```json 围栏包裹输出，空 memories 必须正常解析为 json_parsed=True。
+
+        回归测试：此前围栏内的 {"memories": []} 虽能解析，但 buffer 侧会误触发行式回退，
+        把 ```json 和 "memories": [] 当作记忆导入。
+        """
+        response = '```json\n{"memories": []}\n```'
+
+        result = parse_summary_response(response)
+
+        assert result["json_parsed"] is True
+        assert result["memories"] == []
+
+    def test_parse_fenced_json_with_content(self):
+        response = (
+            "```json\n"
+            '{"memories": [{"content": "张三是程序员", "confidence": "high"}]}\n'
+            "```"
+        )
+
+        result = parse_summary_response(response)
+
+        assert result["json_parsed"] is True
+        assert len(result["memories"]) == 1
+        assert result["memories"][0]["content"] == "张三是程序员"
+        assert result["memories"][0]["confidence"] == "high"
+
+    def test_parse_fenced_json_uppercase_tag(self):
+        response = (
+            '```JSON\n{"memories": [{"content": "测试", "confidence": "medium"}]}\n```'
+        )
+
+        result = parse_summary_response(response)
+
+        assert result["json_parsed"] is True
+        assert len(result["memories"]) == 1
+
+    def test_parse_plain_fenced_no_lang(self):
+        response = '```\n{"memories": []}\n```'
+
+        result = parse_summary_response(response)
+
+        assert result["json_parsed"] is True
+        assert result["memories"] == []
+
+    def test_parse_fenced_empty_memories_no_garbage(self):
+        """围栏空 JSON 不应产生任何记忆（确保剥离围栏后直接解析）。"""
+        response = '```json\n{\n  "memories": []\n}\n```'
+
+        result = parse_summary_response(response)
+
+        assert result["json_parsed"] is True
+        assert result["memories"] == []
+        # 即便误入文本回退，也不应提取到任何行
+        assert all("```" not in m.get("content", "") for m in result["memories"])
+
     def test_parse_empty_response(self):
         result = parse_summary_response("")
 

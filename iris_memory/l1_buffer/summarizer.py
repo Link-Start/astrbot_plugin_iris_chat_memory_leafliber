@@ -180,11 +180,15 @@ class Summarizer:
 - **medium**：从对话中可合理推断但用户未直接确认的信息（如用户讨论了多个编程问题→可能对编程感兴趣）
 - **low**：模糊、不确定或可能随时间变化的信息（如"最近在忙"、"好像喜欢"）
 
-## 输出格式
+## 输出格式（极其重要，务必严格遵守）
 
-请严格按照以下 JSON 格式输出：
+你必须直接输出一个 JSON 对象，**第一个字符必须是 {{**，最后一个字符必须是 }}。
+- 不要使用 Markdown 代码块（禁止用 ```json 或 ``` 包裹输出）
+- 不要添加任何解释、前缀文字、后缀文字
+- 不要输出多余空行
 
-```json
+正确示例（直接这样输出，不要加代码块）：
+
 {{
   "memories": [
     {{"content": "张三是Python程序员，正在学习装饰器", "confidence": "high"}},
@@ -192,16 +196,19 @@ class Summarizer:
     {{"content": "李四可能对摄影有兴趣", "confidence": "medium"}}
   ]
 }}
-```
+
+如果没有值得记住的信息，直接输出下面这行（这完全正常，不要硬凑）：
+
+{{"memories": []}}
 
 ## 注意事项
-1. 如果没有有效记忆，memories 数组为空——这完全正常
-2. 仅输出 JSON，不要添加任何其他内容
+1. 仅输出 JSON 对象本身，第一个字符必须是 {{
+2. 不要使用 ```json 或 ``` 包裹输出
 3. 只提取"需要总结的对话片段"中的记忆，上下文仅供参考理解
 4. confidence 只能是 "high"、"medium"、"low" 三选一
 5. 大多数情况下 low 置信度的记忆不值得记录，请谨慎评估
 
-请分析并输出 JSON："""
+请直接输出 JSON（不要代码块、不要解释）："""
 
         return prompt
 
@@ -228,12 +235,32 @@ class Summarizer:
         return "\n".join(formatted)
 
 
+def _strip_code_fences(text: str) -> str:
+    """去除 Markdown 代码块包裹（```json ... ``` 或 ``` ... ```）。
+
+    仅当整段文本就是一个代码块时才剥离，避免误伤包含代码块的混合文本。
+    小模型经常把 JSON 输出包在 ```json 围栏里，剥离后可直接 json.loads。
+    """
+    match = re.match(
+        r"^\s*```(?:json|JSON)?\s*\n([\s\S]*?)\n?\s*```\s*$",
+        text,
+    )
+    if match:
+        return match.group(1).strip()
+    return text
+
+
 def parse_summary_response(response: str) -> dict:
     """解析总结响应
 
     从 LLM 响应中提取 JSON 内容。支持两种格式：
     - 新格式：memories 为对象数组，每项包含 content 和 confidence
     - 旧格式：memories 为字符串数组（兼容）
+
+    解析顺序：
+    1. 去除 Markdown 代码块围栏（```json ... ```）后直接 json.loads
+    2. 上述失败则用正则提取最外层 ``{...}`` 再 json.loads
+    3. 仍失败则走文本回退（仅识别 ``- `` 开头的行）
 
     Args:
         response: LLM 响应文本
@@ -245,16 +272,23 @@ def parse_summary_response(response: str) -> dict:
         - user_profiles: 用户画像字典
         - json_parsed: 是否成功通过 JSON 解析（False 表示走了文本回退）
     """
-    result: dict = {"memories": [], "group_profile": {}, "user_profiles": {}, "json_parsed": False}
+    result: dict = {
+        "memories": [],
+        "group_profile": {},
+        "user_profiles": {},
+        "json_parsed": False,
+    }
 
     if not response:
         return result
 
+    cleaned = _strip_code_fences(response.strip())
+
     try:
         try:
-            parsed = json.loads(response.strip())
+            parsed = json.loads(cleaned)
         except json.JSONDecodeError:
-            json_match = re.search(r"\{[\s\S]*\}", response)
+            json_match = re.search(r"\{[\s\S]*\}", cleaned)
             if not json_match:
                 raise
             parsed = json.loads(json_match.group())
@@ -297,7 +331,7 @@ def parse_summary_response(response: str) -> dict:
             f"\n--- LLM 原始返回 ---\n{response}\n--- 结束 ---"
         )
 
-    lines = response.strip().split("\n")
+    lines = cleaned.split("\n")
     memories: list[dict] = []
     for line in lines:
         line = line.strip()
