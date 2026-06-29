@@ -479,6 +479,61 @@ class TestMemoryImporter:
         assert calls[0].kwargs["persona_id"] == "yuki"
         assert calls[1].kwargs["persona_id"] == "aria"
 
+    @pytest.mark.asyncio
+    async def test_skip_duplicates_false_passes_skip_dedup_true(
+        self, mock_adapter, sample_export_file
+    ):
+        """回归：skip_duplicates=False 必须传 skip_dedup=True 关闭去重
+
+        历史 bug：skip_duplicates 仅决定计入 skipped 还是 error，不传
+        skip_dedup=True，add_memory 默认始终去重（阈值 0.87），相似度
+        ≥0.87 的条目被静默丢弃。迁移以 skip_duplicates=False 期望原样导入。
+        """
+        mock_adapter.add_memory = AsyncMock(return_value="mem_new")
+
+        try:
+            importer = MemoryImporter(mock_adapter)
+            await importer.import_from_file(sample_export_file, skip_duplicates=False)
+
+            for call in mock_adapter.add_memory.call_args_list:
+                assert call.kwargs.get("skip_dedup") is True, (
+                    "skip_duplicates=False 时必须传 skip_dedup=True 关闭去重"
+                )
+        finally:
+            sample_export_file.unlink()
+
+    @pytest.mark.asyncio
+    async def test_skip_duplicates_true_passes_skip_dedup_false(
+        self, mock_adapter, sample_export_file
+    ):
+        """对照：skip_duplicates=True 时 skip_dedup=False（启用去重）"""
+        mock_adapter.add_memory = AsyncMock(return_value="mem_new")
+
+        try:
+            importer = MemoryImporter(mock_adapter)
+            await importer.import_from_file(sample_export_file, skip_duplicates=True)
+
+            for call in mock_adapter.add_memory.call_args_list:
+                assert call.kwargs.get("skip_dedup") is False
+        finally:
+            sample_export_file.unlink()
+
+    @pytest.mark.asyncio
+    async def test_import_entries_skip_duplicates_false(self, mock_adapter):
+        """import_entries 同样映射 skip_duplicates→skip_dedup"""
+        entries = [
+            MemoryEntry(id="mem_001", content="记忆1", metadata={}),
+            MemoryEntry(id="mem_002", content="记忆2", metadata={}),
+        ]
+
+        mock_adapter.add_memory = AsyncMock(return_value="mem_new")
+
+        importer = MemoryImporter(mock_adapter)
+        await importer.import_entries(entries, skip_duplicates=False)
+
+        for call in mock_adapter.add_memory.call_args_list:
+            assert call.kwargs.get("skip_dedup") is True
+
 
 class TestConvenienceFunctions:
     """便捷函数测试"""

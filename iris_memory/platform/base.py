@@ -324,6 +324,30 @@ class PlatformAdapter(ABC):
         """
         pass
 
+    def get_mentioned_users(self, event: "AstrMessageEvent") -> list[tuple[str, str]]:
+        """获取消息中 @提及的用户列表
+
+        从消息事件中提取所有被 @提及的用户，返回 (user_id, user_name) 列表。
+        用于 @用户 定向查询功能。子类应覆盖此方法以支持具体平台的 @ 语法。
+
+        Args:
+            event: AstrBot 消息事件对象
+
+        Returns:
+            (user_id, user_name) 元组列表，无提及时返回空列表
+
+        Examples:
+            >>> users = adapter.get_mentioned_users(event)
+            >>> for uid, name in users:
+            ...     print(f"被@用户: {name} ({uid})")
+
+        Notes:
+            - 默认实现返回空列表（不解析 @）
+            - OneBot11：从消息段中提取 [CQ:at,qq=xxx]
+            - 其他平台需子类覆盖
+        """
+        return []
+
     async def get_msg_by_id(
         self, event: "AstrMessageEvent", message_id: str
     ) -> ReplyInfo:

@@ -406,6 +406,14 @@ async def _queue_images_to_l1_buffer(
     group_id = adapter.get_group_id(event)
     user_id = adapter.get_user_id(event)
 
+    # 解析 persona_id：占位消息（prepend 失败时新建）必须携带正确人格归属，
+    # 否则该占位常作为最后入队消息，buffer.py 用 messages[-1].persona_id 决定
+    # 画像与 L2 摘要归属，default 占位会污染人格命名空间。
+    # resolve_persona 在同一 event 上缓存，此处复用 _add_to_l1_buffer 的解析结果。
+    from iris_memory.core.persona import resolve_persona
+
+    persona_id = await resolve_persona(component_manager, event)
+
     raw_msg = adapter.get_raw_message(event)
     message_id = raw_msg.get("message_id", "")
 
@@ -537,6 +545,7 @@ async def _queue_images_to_l1_buffer(
                 content=prefix,
                 source=user_id,
                 metadata=metadata,
+                persona_id=persona_id,
             )
 
     if queued_count > 0:
@@ -633,24 +642,42 @@ async def _parse_images_if_enabled(
 
     logger.info(f"开始解析 {len(images_to_parse)} 张图片（all 模式）")
 
-    image_infos = [
-        img.image_info
+    # 用 (img_item, image_info) 配对，避免过滤后列表与 images_to_parse 下标错位。
+    # 历史 bug：image_infos 按 has_url 过滤（更短），parse_batch 按它返回结果，
+    # 但回写用 parse_results[i] 索引未过滤的 images_to_parse[i]，存在仅 file_path
+    # 无 url 的图片时两列表错位，解析结果归属错误 img_item，缓存写入（以 image_hash
+    # 为键）与 mark_image_parsed 全部错位，被过滤项还永久残留 [IMG:...] 占位符。
+    parse_pairs = [
+        (img, img.image_info)
         for img in images_to_parse
         if img.image_info and img.image_info.has_url
     ]
 
-    if not image_infos:
+    # 无 url 的图片无法解析，单独标记 FAILED 并清占位符，不留残留
+    no_url_items = [
+        img
+        for img in images_to_parse
+        if not (img.image_info and img.image_info.has_url)
+    ]
+    for img_item in no_url_items:
+        logger.debug(f"图片无 URL，跳过解析：{img_item.image_hash[:8]}")
+        l1_buffer.mark_image_parsed(
+            group_id, img_item.image_hash, ImageParseStatus.FAILED
+        )
+        placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
+        l1_buffer.replace_image_placeholder(group_id, placeholder, "")
+
+    if not parse_pairs:
+        # 全部无 url，退还预扣配额
+        if quota_manager and quota_manager.is_available and no_url_items:
+            await quota_manager.release_quota(len(no_url_items))
         return
 
+    image_infos = [info for _img, info in parse_pairs]
     parse_results = await parser.parse_batch(image_infos)
 
     success_count = 0
-    for i, result in enumerate(parse_results):
-        if i >= len(images_to_parse):
-            break
-
-        img_item = images_to_parse[i]
-
+    for (img_item, _info), result in zip(parse_pairs, parse_results):
         if not result.success:
             logger.warning(f"图片解析失败：{result.error_message}")
             l1_buffer.mark_image_parsed(
@@ -691,8 +718,11 @@ async def _parse_images_if_enabled(
 
     # 退还解析失败的预扣配额，避免静默耗尽
     if quota_manager and quota_manager.is_available:
-        failed_count = len(images_to_parse) - success_count
+        failed_count = (len(parse_pairs) - success_count) + len(no_url_items)
         if failed_count > 0:
             await quota_manager.release_quota(failed_count)
 
-    logger.info(f"已解析 {success_count}/{len(images_to_parse)} 张图片")
+    logger.info(
+        f"已解析 {success_count}/{len(images_to_parse)} 张图片"
+        f"（无 URL 跳过 {len(no_url_items)} 张）"
+    )

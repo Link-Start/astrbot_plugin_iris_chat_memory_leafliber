@@ -7,7 +7,7 @@ Iris Chat Memory - L1 数据模型
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal, Dict, Any
+from typing import Literal, Dict, Any, Optional, List
 from collections import deque
 
 
@@ -165,30 +165,62 @@ class SegmentedMessageQueue:
         """检查队列是否已满（L1-2 段达到上限，需要触发总结）"""
         return len(self.segment_2) >= self.segment_2_length
 
-    def rotate_after_summary(self) -> None:
+    def rotate_after_summary(
+        self,
+        summarized_messages: Optional[List["ContextMessage"]] = None,
+    ) -> None:
         """总结后段位转移
 
         旧 L1-3 → 删除
         旧 L1-2 最新部分 → 新 L1-3（填满至 segment_3_length，辅助下次总结）
         旧 L1-2 其余部分 → 删除（已总结到 L2）
         L1-1 → 不动
+
+        Args:
+            summarized_messages: 总结开始时拍摄的 segment_2 快照。
+                传入时仅移除快照中的消息（按对象标识），保留 await 期间
+                新添加到 segment_2 的消息，避免它们被误移除或误保留为 L1-3
+                导致下轮重复总结。不传时回退到旧逻辑（清空整个 segment_2），
+                仅供已有调用方兼容。
         """
         old_seg3_tokens = sum(m.token_count for m in self.segment_3)
 
-        old_seg2_list = list(self.segment_2)
-        seg3_count = min(self.segment_3_length, len(old_seg2_list))
-        new_seg3 = deque(old_seg2_list[-seg3_count:])
+        if summarized_messages is not None:
+            # 基于快照精确移除：await 期间新添加的消息保留在 segment_2
+            summarized_ids = {id(m) for m in summarized_messages}
+            remaining: deque[ContextMessage] = deque()
+            for m in self.segment_2:
+                if id(m) not in summarized_ids:
+                    remaining.append(m)
 
-        new_seg3_tokens = sum(m.token_count for m in new_seg3)
-        removed_tokens = (
-            old_seg3_tokens
-            + sum(m.token_count for m in self.segment_2)
-            - new_seg3_tokens
-        )
-        self.total_tokens -= removed_tokens
+            seg3_count = min(self.segment_3_length, len(summarized_messages))
+            new_seg3 = deque(summarized_messages[-seg3_count:])
 
-        self.segment_3 = new_seg3
-        self.segment_2 = deque()
+            new_seg3_tokens = sum(m.token_count for m in new_seg3)
+            removed_tokens = (
+                old_seg3_tokens
+                + sum(m.token_count for m in summarized_messages)
+                - new_seg3_tokens
+            )
+            self.total_tokens -= removed_tokens
+
+            self.segment_3 = new_seg3
+            self.segment_2 = remaining
+        else:
+            old_seg2_list = list(self.segment_2)
+            seg3_count = min(self.segment_3_length, len(old_seg2_list))
+            new_seg3 = deque(old_seg2_list[-seg3_count:])
+
+            new_seg3_tokens = sum(m.token_count for m in new_seg3)
+            removed_tokens = (
+                old_seg3_tokens
+                + sum(m.token_count for m in self.segment_2)
+                - new_seg3_tokens
+            )
+            self.total_tokens -= removed_tokens
+
+            self.segment_3 = new_seg3
+            self.segment_2 = deque()
 
     def clear_segment_2(self) -> list[ContextMessage]:
         """清空 L1-2 段并更新 Token 计数

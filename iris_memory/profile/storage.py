@@ -326,16 +326,21 @@ class ProfileStorage(Component):
             是否更新成功
         """
         try:
-            profile = await self.get_group_profile(group_id, persona_id)
+            # 读-改-写必须持锁，否则与消息驱动 update_from_analysis 并发时
+            # 互相覆盖（lost update）。Web 路由 /profile/*/update 直接调此方法，
+            # 此前未加锁，而管理器同类更新都持命名空间锁。
+            async with self.lock_group(group_id, persona_id):
+                profile = await self.get_group_profile(group_id, persona_id)
 
-            if not profile:
-                profile = GroupProfile(group_id=group_id)
+                if not profile:
+                    profile = GroupProfile(group_id=group_id)
 
-            for key, value in updates.items():
-                if key in GROUP_PROFILE_WRITABLE_FIELDS:
-                    setattr(profile, key, value)
+                for key, value in updates.items():
+                    if key in GROUP_PROFILE_WRITABLE_FIELDS:
+                        setattr(profile, key, value)
 
-            await self.save_group_profile(profile, persona_id=persona_id)
+                await self.save_group_profile(profile, persona_id=persona_id)
+
             logger.info(f"更新群聊画像成功: {group_id}")
             return True
 
@@ -358,18 +363,23 @@ class ProfileStorage(Component):
             是否更新成功
         """
         try:
-            profile = await self.get_user_profile(user_id, group_id, persona_id)
+            # 读-改-写必须持锁，否则与消息驱动 update_from_analysis 并发时
+            # 互相覆盖（lost update）。Web 路由 /profile/*/update 直接调此方法，
+            # 此前未加锁，而管理器同类更新都持命名空间锁。
+            async with self.lock_user(user_id, group_id, persona_id):
+                profile = await self.get_user_profile(user_id, group_id, persona_id)
 
-            if not profile:
-                profile = UserProfile(user_id=user_id)
+                if not profile:
+                    profile = UserProfile(user_id=user_id)
 
-            for key, value in updates.items():
-                if key in USER_PROFILE_WRITABLE_FIELDS:
-                    setattr(profile, key, value)
+                for key, value in updates.items():
+                    if key in USER_PROFILE_WRITABLE_FIELDS:
+                        setattr(profile, key, value)
 
-            await self.save_user_profile(
-                profile, group_id=group_id, persona_id=persona_id
-            )
+                await self.save_user_profile(
+                    profile, group_id=group_id, persona_id=persona_id
+                )
+
             logger.info(f"更新用户画像成功: {user_id}@{group_id}")
             return True
 

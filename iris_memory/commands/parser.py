@@ -159,11 +159,7 @@ class CommandParser:
 
         if args.target_user_name:
             adapter = get_adapter(event)
-            mentioned_users = (
-                adapter.get_mentioned_users(event)
-                if hasattr(adapter, "get_mentioned_users")
-                else []
-            )
+            mentioned_users = adapter.get_mentioned_users(event)
 
             if mentioned_users:
                 for user_id, user_name in mentioned_users:

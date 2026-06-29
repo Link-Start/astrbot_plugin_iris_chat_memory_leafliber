@@ -1134,8 +1134,8 @@ class L3KGAdapter(Component):
         if not self._is_available:
             return 0, 0
 
-        try:
-            with self._db_lock:
+        with self._db_lock:
+            try:
                 rows = self._db.execute(
                     """SELECT id, label, name, content, confidence,
                               access_count, created_time, group_id, properties
@@ -1146,7 +1146,13 @@ class L3KGAdapter(Component):
                 for row in rows:
                     props = row["properties"]
                     if isinstance(props, str):
-                        props = json.loads(props)
+                        try:
+                            props = json.loads(props)
+                        except (json.JSONDecodeError, TypeError):
+                            logger.warning(
+                                f"节点 {row['id']} properties JSON 损坏，已回退为空字典"
+                            )
+                            props = {}
                     node_data = {
                         "id": row["id"],
                         "label": row["label"],
@@ -1275,7 +1281,16 @@ class L3KGAdapter(Component):
 
                             edge_props = edge_row["properties"]
                             if isinstance(edge_props, str):
-                                edge_props = json.loads(edge_props)
+                                try:
+                                    edge_props = json.loads(edge_props)
+                                except (json.JSONDecodeError, TypeError):
+                                    logger.warning(
+                                        f"边 {edge_row['source_id']}-"
+                                        f"{edge_row['relation_type']}-"
+                                        f"{edge_row['target_id']} properties JSON 损坏，"
+                                        "已回退为空字典"
+                                    )
+                                    edge_props = {}
 
                             existing = self._db.execute(
                                 """SELECT weight, confidence, access_count, properties
@@ -1287,7 +1302,14 @@ class L3KGAdapter(Component):
                             if existing:
                                 existing_props = existing["properties"]
                                 if isinstance(existing_props, str):
-                                    existing_props = json.loads(existing_props)
+                                    try:
+                                        existing_props = json.loads(existing_props)
+                                    except (json.JSONDecodeError, TypeError):
+                                        logger.warning(
+                                            "已有边 properties JSON 损坏，"
+                                            "已回退为空字典"
+                                        )
+                                        existing_props = {}
                                 existing_props.update(edge_props)
                                 self._db.execute(
                                     """UPDATE edges SET
@@ -1360,16 +1382,20 @@ class L3KGAdapter(Component):
 
                 self._db.commit()
 
-            if merged_count > 0:
-                logger.info(
-                    f"节点合并完成：合并了 {merged_count} 组重复节点，"
-                    f"删除了 {deleted_count} 个重复节点"
-                )
+                if merged_count > 0:
+                    logger.info(
+                        f"节点合并完成：合并了 {merged_count} 组重复节点，"
+                        f"删除了 {deleted_count} 个重复节点"
+                    )
 
-            return merged_count, deleted_count
-        except Exception as e:
-            logger.error(f"合并重复节点失败：{e}")
-            return 0, 0
+                return merged_count, deleted_count
+            except Exception as e:
+                # 循环内任一异常（如损坏 JSON、约束冲突）必须回滚未提交的
+                # 半合并 DELETE/INSERT/UPDATE，否则这些脏数据会被下一个无关
+                # _db_write 的 commit 一并刷盘，造成节点/边不一致的半提交损坏。
+                self._db.rollback()
+                logger.error(f"合并重复节点失败：{e}", exc_info=True)
+                return 0, 0
 
     async def export_all(self) -> dict:
         """导出所有知识图谱数据"""

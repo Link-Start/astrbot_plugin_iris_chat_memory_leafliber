@@ -139,6 +139,15 @@ class TokenStatsManager:
             input_tokens: 输入 Token 数
             output_tokens: 输出 Token 数
         """
+        # 重启后 _cache 从 0 起，若不先回读历史累计，本次会话的小值会
+        # 用 _save_to_kv 覆盖历史总量。get_stats 是唯一触发 _load_from_kv
+        # 的路径——若重启后先调 record_usage 再调 get_stats，历史已丢失。
+        # 修复：对未加载的模块（含 global）先 _load_from_kv 回读。
+        if module not in self._cache:
+            await self._load_from_kv(module)
+        if module != "global" and "global" not in self._cache:
+            await self._load_from_kv("global")
+
         self._cache[module].total_input_tokens += input_tokens
         self._cache[module].total_output_tokens += output_tokens
         self._cache[module].total_calls += 1

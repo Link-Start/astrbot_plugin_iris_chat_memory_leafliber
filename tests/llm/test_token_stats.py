@@ -150,3 +150,74 @@ class TestTokenStatsManager:
         keys = [call[0][0] for call in mock_storage.put_kv_data.call_args_list]
         assert "token_stats:module:l1_summarizer" in keys
         assert "token_stats:global" in keys
+
+    @pytest.mark.asyncio
+    async def test_record_usage_loads_from_kv_before_accumulating(self, mock_storage):
+        """回归：record_usage 重启后必须先 _load_from_kv 回读历史累计
+
+        历史 bug：_cache 从 0 起，record_usage 在 += 前从不 _load_from_kv
+        回读历史累计；唯一加载路径只在 get_stats 触发。重启后首次调用
+        基于 0 累加，_save_to_kv 用本次会话小值覆盖历史总量。
+        """
+        # 模拟 KV 中已有历史数据
+        stored_module = {
+            "total_input_tokens": 1000,
+            "total_output_tokens": 500,
+            "total_calls": 10,
+        }
+        stored_global = {
+            "total_input_tokens": 2000,
+            "total_output_tokens": 1000,
+            "total_calls": 20,
+        }
+
+        def get_kv_side_effect(key, default=None):
+            if key == "token_stats:module:l1_summarizer":
+                return stored_module
+            if key == "token_stats:global":
+                return stored_global
+            return {}
+
+        mock_storage.get_kv_data = AsyncMock(side_effect=get_kv_side_effect)
+
+        # 模拟重启：新建 manager（_cache 为空 defaultdict）
+        manager = TokenStatsManager(mock_storage)
+
+        # 重启后先调 record_usage（不先调 get_stats）
+        await manager.record_usage("l1_summarizer", 100, 50)
+
+        module_stats = manager._cache["l1_summarizer"]
+        # 应在历史 1000 的基础上累加，不是从 0 累加
+        assert module_stats.total_input_tokens == 1100, (
+            "重启后应加载历史累计 1000 再 +100，不得从 0 覆盖"
+        )
+        assert module_stats.total_output_tokens == 550
+        assert module_stats.total_calls == 11
+
+        global_stats = manager._cache["global"]
+        assert global_stats.total_input_tokens == 2100, (
+            "global 同样应加载历史 2000 再 +100"
+        )
+        assert global_stats.total_output_tokens == 1050
+        assert global_stats.total_calls == 21
+
+    @pytest.mark.asyncio
+    async def test_record_usage_global_directly(self, mock_storage):
+        """直接对 global 调 record_usage 也不覆盖历史"""
+        stored_global = {
+            "total_input_tokens": 5000,
+            "total_output_tokens": 2000,
+            "total_calls": 50,
+        }
+        mock_storage.get_kv_data = AsyncMock(
+            side_effect=lambda key, default=None: (
+                stored_global if key == "token_stats:global" else {}
+            )
+        )
+
+        manager = TokenStatsManager(mock_storage)
+        await manager.record_usage("global", 100, 50)
+
+        global_stats = manager._cache["global"]
+        assert global_stats.total_input_tokens == 5100
+        assert global_stats.total_calls == 51

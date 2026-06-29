@@ -380,9 +380,14 @@ class MemoryImporter:
                 # 否则 add_memory 默认 "default" 会把所有人格的记忆混入同一命名空间。
                 persona_id = entry_data.get("persona_id", file_persona_id)
 
+                # skip_duplicates 映射为 skip_dedup：skip_duplicates=False 时
+                # 必须传 skip_dedup=True 关闭去重，否则相似度≥阈值的条目被
+                # add_memory 静默丢弃（返回已存在 id），迁移时丢失近重复记忆。
+                skip_dedup = not skip_duplicates
+
                 # 添加记忆
                 memory_id = await self._adapter.add_memory(
-                    content, metadata, persona_id=persona_id
+                    content, metadata, skip_dedup=skip_dedup, persona_id=persona_id
                 )
 
                 if memory_id:
@@ -469,6 +474,7 @@ class MemoryImporter:
                 memory_id = await self._adapter.add_memory(
                     entry.content,
                     entry.metadata,
+                    skip_dedup=not skip_duplicates,
                     persona_id=entry.persona_id,
                 )
 

@@ -126,7 +126,12 @@ class ImageQuotaManager(Component):
             logger.warning(f"保存配额状态到 KV 存储失败：{e}")
 
     async def _check_and_reset_if_needed(self) -> None:
-        """检查是否需要重置配额（跨天）"""
+        """检查是否需要重置配额（跨天）
+
+        调用方必须已持有 self._lock。此方法内部直接调 _reset_quota_locked
+        （不加锁），避免在持锁状态下重入 asyncio.Lock 导致死锁。
+        asyncio.Lock 不可重入——持锁后再次 async with self._lock 会永久挂起。
+        """
         if not self._quota_status:
             return
 
@@ -136,7 +141,26 @@ class ImageQuotaManager(Component):
             logger.info(
                 f"检测到日期变更，重置配额：{self._quota_status.date} → {today}"
             )
-            await self.reset_quota()
+            await self._reset_quota_locked()
+
+    async def _reset_quota_locked(self) -> None:
+        """重置配额（不加锁版，供已持锁的调用方使用）
+
+        调用方必须已持有 self._lock。公开方法 reset_quota() 在持锁后调用此方法，
+        _check_and_reset_if_needed() 同样如此——两条路径都避免重入 asyncio.Lock。
+        """
+        if not self._quota_status:
+            await self._create_initial_status()
+            return
+
+        config = get_config()
+        today = date.today().isoformat()
+
+        self._quota_status.reset(
+            today, config.get("l1_buffer.image_parsing.daily_quota", 200)
+        )
+        await self._save_quota_status()
+        logger.info(f"配额已重置：{today}")
 
     async def check_quota(self) -> bool:
         """检查配额是否充足
@@ -215,20 +239,9 @@ class ImageQuotaManager(Component):
             return actual
 
     async def reset_quota(self) -> None:
-        """重置配额"""
+        """重置配额（公开方法，加锁后委托 _reset_quota_locked）"""
         async with self._lock:
-            if not self._quota_status:
-                await self._create_initial_status()
-                return
-
-            config = get_config()
-            today = date.today().isoformat()
-
-            self._quota_status.reset(
-                today, config.get("l1_buffer.image_parsing.daily_quota", 200)
-            )
-            await self._save_quota_status()
-            logger.info(f"配额已重置：{today}")
+            await self._reset_quota_locked()
 
     async def get_status(self) -> QuotaStatus | None:
         """获取当前配额状态

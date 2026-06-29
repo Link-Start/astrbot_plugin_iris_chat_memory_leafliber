@@ -1,6 +1,7 @@
 """画像存储组件测试"""
 
 import pytest
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 from iris_memory.profile.storage import ProfileStorage
@@ -116,3 +117,51 @@ class TestProfileStorage:
 
         # 不应该调用任何 KV 操作
         mock_context.get_kv_data.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_update_group_profile_acquires_lock(self, storage, mock_context):
+        """回归：update_group_profile 必须持锁，防止与 update_from_analysis 并发 lost update"""
+        mock_context.get_kv_data.return_value = None
+
+        lock_acquired = False
+        original_lock_group = storage.lock_group
+
+        @asynccontextmanager
+        async def tracking_lock(group_id, persona_id="default"):
+            nonlocal lock_acquired
+            lock_acquired = True
+            async with original_lock_group(group_id, persona_id):
+                yield
+
+        storage.lock_group = tracking_lock
+
+        result = await storage.update_group_profile(
+            "group_123", {"group_name": "测试群"}
+        )
+
+        assert result is True
+        assert lock_acquired, "update_group_profile 必须持 lock_group 锁"
+
+    @pytest.mark.asyncio
+    async def test_update_user_profile_acquires_lock(self, storage, mock_context):
+        """回归：update_user_profile 必须持锁，防止与 update_from_analysis 并发 lost update"""
+        mock_context.get_kv_data.return_value = None
+
+        lock_acquired = False
+        original_lock_user = storage.lock_user
+
+        @asynccontextmanager
+        async def tracking_lock(user_id, group_id="default", persona_id="default"):
+            nonlocal lock_acquired
+            lock_acquired = True
+            async with original_lock_user(user_id, group_id, persona_id):
+                yield
+
+        storage.lock_user = tracking_lock
+
+        result = await storage.update_user_profile(
+            "user_456", "group_123", {"user_name": "小明"}
+        )
+
+        assert result is True
+        assert lock_acquired, "update_user_profile 必须持 lock_user 锁"

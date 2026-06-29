@@ -9,7 +9,11 @@ from iris_memory.core.message_hook import (
     handle_user_message,
     update_l1_buffer,
     _backfill_reply_from_buffer,
+    _parse_images_if_enabled,
+    _queue_images_to_l1_buffer,
 )
+from iris_memory.image import ImageParseStatus
+from iris_memory.image.models import ImageInfo, ImageQueueItem, ParseResult
 from iris_memory.l1_buffer.models import ContextMessage
 from iris_memory.platform.base import ReplyInfo
 
@@ -682,3 +686,335 @@ class TestHandleWithApiBackfill:
         call_kwargs = buffer.add_message.call_args[1]
         assert call_kwargs["metadata"]["reply_user_name"] == "平台提供的名字"
         assert call_kwargs["metadata"]["reply_content"] == "API返回的内容"
+
+
+def _make_image_item(
+    image_hash: str, url: str = "", file_path: str = ""
+) -> ImageQueueItem:
+    """构造一个 PENDING 状态的图片队列项"""
+    info = ImageInfo(url=url or None, file_path=file_path or None)
+    return ImageQueueItem(
+        image_hash=image_hash,
+        image_url=url,
+        image_info=info,
+        group_id="group_test",
+    )
+
+
+def _build_all_mode_deps(pending_images, parse_results, *, with_cache=True):
+    """构造 _parse_images_if_enabled 所需的全部 mock 依赖。
+
+    返回 (component_manager, l1_buffer, cache_manager, quota_manager)，
+    parse_results 用于 stub ImageParser.parse_batch。
+    """
+    config = MagicMock()
+    config.get = lambda key, default=None: {
+        "l1_buffer.image_parsing.enable": True,
+        "l1_buffer.image_parsing.mode": "all",
+        "image_max_parse_per_request": 10,
+        "l1_buffer.image_parsing.provider": "",
+    }.get(key, default)
+
+    adapter = MagicMock()
+    adapter.get_group_id = MagicMock(return_value="group_test")
+
+    l1_buffer = MagicMock()
+    l1_buffer.get_images = MagicMock(return_value=list(pending_images))
+    l1_buffer.mark_image_parsed = MagicMock(return_value=True)
+    l1_buffer.replace_image_placeholder = MagicMock(return_value=True)
+
+    cache_manager = None
+    if with_cache:
+        cache_manager = MagicMock()
+        cache_manager.is_available = True
+        cache_manager.get_cache = AsyncMock(return_value=None)
+        cache_manager.set_cache = AsyncMock(return_value=None)
+
+    quota_manager = MagicMock()
+    quota_manager.is_available = True
+    quota_manager.check_quota = AsyncMock(return_value=True)
+    quota_manager.use_quota = AsyncMock(return_value=True)
+    quota_manager.release_quota = AsyncMock(return_value=None)
+
+    llm_manager = MagicMock()
+    llm_manager.is_available = True
+
+    component_manager = MagicMock()
+    component_manager.get_available_component = lambda name: {
+        "l1_buffer": l1_buffer,
+        "image_cache": cache_manager,
+        "image_quota": quota_manager,
+        "llm_manager": llm_manager,
+    }.get(name)
+
+    return config, adapter, component_manager, l1_buffer, cache_manager, quota_manager
+
+
+class TestParseImagesAllModeIndexAlignment:
+    """回归：all 模式图片解析结果下标与 images_to_parse 对齐
+
+    历史 bug：image_infos 按 has_url 过滤（更短），parse_batch 按它返回结果，
+    但回写用 parse_results[i] 索引未过滤的 images_to_parse[i]，存在仅 file_path
+    无 url 的图片时两列表错位，解析结果归属错误 img_item，缓存写入（以 image_hash
+    为键）与 mark_image_parsed 全部错位，被过滤项还永久残留 [IMG:...] 占位符。
+    """
+
+    @pytest.mark.asyncio
+    async def test_mixed_url_and_no_url_alignment(self):
+        """仅 file_path 无 url 的图片在前，有 url 的在后：结果不得错位"""
+        # img_nourl: 仅 file_path，无 url —— 会被过滤出 image_infos
+        img_nourl = _make_image_item("hash_nourl", file_path="/tmp/a.jpg")
+        # img_url: 有 url —— 唯一可解析项
+        img_url = _make_image_item("hash_url", url="https://x.com/b.jpg")
+
+        # parse_batch 仅收到 img_url 的 info，返回一条成功结果
+        parse_results = [
+            ParseResult(content="这是 URL 图片的描述", success=True),
+        ]
+
+        (
+            config,
+            adapter,
+            component_manager,
+            l1_buffer,
+            cache_manager,
+            quota_manager,
+        ) = _build_all_mode_deps([img_nourl, img_url], parse_results)
+
+        with (
+            patch("iris_memory.config.get_config", return_value=config),
+            patch("iris_memory.platform.get_adapter", return_value=adapter),
+            patch("iris_memory.image.ImageParser") as MockParser,
+            patch(
+                "iris_memory.image.recorder_bridge.get_recorder_bridge",
+                return_value=None,
+            ),
+        ):
+            MockParser.return_value.parse_batch = AsyncMock(return_value=parse_results)
+            await _parse_images_if_enabled(MagicMock(), component_manager)
+
+        # 关键断言：img_url 的解析结果写入 img_url 的缓存，不是 img_nourl 的
+        cache_manager.set_cache.assert_awaited_once()
+        cache_entry = cache_manager.set_cache.call_args[0][0]
+        assert cache_entry.image_hash == "hash_url", (
+            "解析结果应归属有 URL 的图片，不得错位到无 URL 图片"
+        )
+        assert cache_entry.content == "这是 URL 图片的描述"
+
+        # img_nourl 被标记 FAILED 并清占位符（不留残留）
+        mark_calls = l1_buffer.mark_image_parsed.call_args_list
+        marked = {c[0][1]: c[0][2] for c in mark_calls}
+        assert marked.get("hash_nourl") == ImageParseStatus.FAILED
+        assert marked.get("hash_url") == ImageParseStatus.SUCCESS
+
+        # img_nourl 的占位符被清空
+        replace_calls = l1_buffer.replace_image_placeholder.call_args_list
+        replaced = {c[0][1]: c[0][2] for c in replace_calls}
+        assert replaced.get("[IMG:hash_nourl]") == "", "无 URL 项占位符应清空"
+        assert replaced.get("[IMG:hash_url]") == "[图:这是 URL 图片的描述]", (
+            "有 URL 项占位符应替换为解析结果"
+        )
+
+    @pytest.mark.asyncio
+    async def test_all_have_url_no_misalignment(self):
+        """对照：全部有 URL 时不应错位（无过滤发生）"""
+        img1 = _make_image_item("hash_1", url="https://x.com/1.jpg")
+        img2 = _make_image_item("hash_2", url="https://x.com/2.jpg")
+
+        parse_results = [
+            ParseResult(content="描述一", success=True),
+            ParseResult(content="描述二", success=True),
+        ]
+
+        (
+            config,
+            adapter,
+            component_manager,
+            l1_buffer,
+            cache_manager,
+            quota_manager,
+        ) = _build_all_mode_deps([img1, img2], parse_results)
+
+        with (
+            patch("iris_memory.config.get_config", return_value=config),
+            patch("iris_memory.platform.get_adapter", return_value=adapter),
+            patch("iris_memory.image.ImageParser") as MockParser,
+            patch(
+                "iris_memory.image.recorder_bridge.get_recorder_bridge",
+                return_value=None,
+            ),
+        ):
+            MockParser.return_value.parse_batch = AsyncMock(return_value=parse_results)
+            await _parse_images_if_enabled(MagicMock(), component_manager)
+
+        cache_calls = cache_manager.set_cache.call_args_list
+        hashes = [c[0][0].image_hash for c in cache_calls]
+        assert hashes == ["hash_1", "hash_2"], "全有 URL 时顺序应保持"
+
+    @pytest.mark.asyncio
+    async def test_all_no_url_skips_parse_and_releases_quota(self):
+        """全部无 URL：不调 parse_batch，标记 FAILED，退还配额"""
+        img1 = _make_image_item("hash_1", file_path="/tmp/1.jpg")
+        img2 = _make_image_item("hash_2", file_path="/tmp/2.jpg")
+
+        (
+            config,
+            adapter,
+            component_manager,
+            l1_buffer,
+            cache_manager,
+            quota_manager,
+        ) = _build_all_mode_deps([img1, img2], parse_results=[])
+
+        with (
+            patch("iris_memory.config.get_config", return_value=config),
+            patch("iris_memory.platform.get_adapter", return_value=adapter),
+            patch("iris_memory.image.ImageParser") as MockParser,
+            patch(
+                "iris_memory.image.recorder_bridge.get_recorder_bridge",
+                return_value=None,
+            ),
+        ):
+            MockParser.return_value.parse_batch = AsyncMock(return_value=[])
+            await _parse_images_if_enabled(MagicMock(), component_manager)
+
+        MockParser.return_value.parse_batch.assert_not_awaited()
+        # 两项均标记 FAILED
+        mark_calls = l1_buffer.mark_image_parsed.call_args_list
+        marked = {c[0][1]: c[0][2] for c in mark_calls}
+        assert marked.get("hash_1") == ImageParseStatus.FAILED
+        assert marked.get("hash_2") == ImageParseStatus.FAILED
+        # 退还预扣配额
+        quota_manager.release_quota.assert_awaited_once_with(2)
+
+
+class TestQueueImagesPersonaId:
+    """回归：占位消息（prepend 失败时新建）必须携带 persona_id
+
+    历史 bug：_queue_images_to_l1_buffer 在 prepend 失败时新建占位消息
+    add_message 不传 persona_id（默认 default），且从不调 resolve_persona。
+    该占位常是最后入队消息，buffer.py 用 messages[-1].persona_id 决定
+    画像与 L2 摘要归属，default 占位会污染人格命名空间。
+    """
+
+    @pytest.mark.asyncio
+    async def test_placeholder_message_carries_persona_id(self):
+        """prepend 失败时新建的占位消息必须透传 persona_id"""
+        from pathlib import Path
+
+        config = MagicMock()
+        config.get = lambda key, default=None: {
+            "l1_buffer.image_parsing.enable": True,
+            "image_phash_enable": False,
+            "image_filter_enable": False,
+        }.get(key, default)
+        config.data_dir = Path("/tmp/iris_test")
+
+        adapter = MagicMock()
+        adapter.get_images = MagicMock(
+            return_value=[ImageInfo(url="https://x.com/img.jpg")]
+        )
+        adapter.get_group_id = MagicMock(return_value="group_test")
+        adapter.get_user_id = MagicMock(return_value="user_1")
+        adapter.get_raw_message = MagicMock(return_value={"message_id": "mid_1"})
+        adapter.get_user_name = MagicMock(return_value="测试用户")
+
+        l1_buffer = MagicMock()
+        l1_buffer.get_all_phash_hashes = MagicMock(return_value=[])
+        l1_buffer.add_image = MagicMock()
+        # prepend 失败 → 触发 add_message 占位路径
+        l1_buffer.prepend_to_last_message = MagicMock(return_value=False)
+        l1_buffer.add_message = AsyncMock(return_value=True)
+
+        cache_manager = MagicMock()
+        cache_manager.is_available = True
+        cache_manager.get_cache = AsyncMock(return_value=None)
+
+        component_manager = MagicMock()
+        component_manager.get_available_component = lambda name: {
+            "l1_buffer": l1_buffer,
+            "image_cache": cache_manager,
+        }.get(name)
+
+        with (
+            patch("iris_memory.config.get_config", return_value=config),
+            patch("iris_memory.platform.get_adapter", return_value=adapter),
+            patch(
+                "iris_memory.core.persona.resolve_persona",
+                new=AsyncMock(return_value="yuki"),
+            ),
+            patch(
+                "iris_memory.image.image_utils.compute_image_hash",
+                new=AsyncMock(return_value="testhash123456"),
+            ),
+            patch("httpx.AsyncClient") as MockClient,
+        ):
+            # 避免 httpx 真实下载
+            MockClient.side_effect = RuntimeError("mock: no network")
+            await _queue_images_to_l1_buffer(MagicMock(), component_manager)
+
+        # 核心断言：占位消息 add_message 携带 persona_id="yuki"
+        l1_buffer.add_message.assert_awaited_once()
+        call_kwargs = l1_buffer.add_message.call_args[1]
+        assert call_kwargs["persona_id"] == "yuki", (
+            "占位消息必须透传 persona_id，不得默认 default 污染人格命名空间"
+        )
+        # 占位内容是图片占位符
+        assert "[IMG:" in call_kwargs["content"]
+
+    @pytest.mark.asyncio
+    async def test_prepend_success_no_add_message(self):
+        """对照：prepend 成功时不新建占位消息"""
+        from pathlib import Path
+
+        config = MagicMock()
+        config.get = lambda key, default=None: {
+            "l1_buffer.image_parsing.enable": True,
+            "image_phash_enable": False,
+            "image_filter_enable": False,
+        }.get(key, default)
+        config.data_dir = Path("/tmp/iris_test")
+
+        adapter = MagicMock()
+        adapter.get_images = MagicMock(
+            return_value=[ImageInfo(url="https://x.com/img.jpg")]
+        )
+        adapter.get_group_id = MagicMock(return_value="group_test")
+        adapter.get_user_id = MagicMock(return_value="user_1")
+        adapter.get_raw_message = MagicMock(return_value={"message_id": "mid_1"})
+        adapter.get_user_name = MagicMock(return_value="测试用户")
+
+        l1_buffer = MagicMock()
+        l1_buffer.get_all_phash_hashes = MagicMock(return_value=[])
+        l1_buffer.add_image = MagicMock()
+        # prepend 成功 → 不触发 add_message
+        l1_buffer.prepend_to_last_message = MagicMock(return_value=True)
+        l1_buffer.add_message = AsyncMock(return_value=True)
+
+        cache_manager = MagicMock()
+        cache_manager.is_available = True
+        cache_manager.get_cache = AsyncMock(return_value=None)
+
+        component_manager = MagicMock()
+        component_manager.get_available_component = lambda name: {
+            "l1_buffer": l1_buffer,
+            "image_cache": cache_manager,
+        }.get(name)
+
+        with (
+            patch("iris_memory.config.get_config", return_value=config),
+            patch("iris_memory.platform.get_adapter", return_value=adapter),
+            patch(
+                "iris_memory.core.persona.resolve_persona",
+                new=AsyncMock(return_value="yuki"),
+            ),
+            patch(
+                "iris_memory.image.image_utils.compute_image_hash",
+                new=AsyncMock(return_value="testhash123456"),
+            ),
+            patch("httpx.AsyncClient") as MockClient,
+        ):
+            MockClient.side_effect = RuntimeError("mock: no network")
+            await _queue_images_to_l1_buffer(MagicMock(), component_manager)
+
+        l1_buffer.add_message.assert_not_awaited()

@@ -336,6 +336,87 @@ class TestEmptySummarySegmentPreservation:
             assert buffer._summary_fail_counts["group_test"] == 0
             buffer._write_summary_to_l2.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_rotate_preserves_new_messages_during_await(self, mock_config):
+        """回归：rotate 基于快照精确移除已总结消息，保留 await 期间新添加的消息
+
+        历史 bug：快照 target_messages 后 await summarize 让出循环，其间
+        add_message 可使新消息进 segment_2；随后 rotate 基于"当前"segment_2
+        取尾入 L1-3 并清空。已写入 L2 的旧消息被保留为 L1-3，下轮再次参与
+        总结，产生重复 L2 记忆；新消息也被误移除。
+        """
+        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+            mock_get_config.return_value.get = Mock(
+                side_effect=lambda key, default=None: {
+                    "l1_buffer.enable": True,
+                }.get(key, default)
+            )
+            buffer, queue = self._build_buffer_with_queue(mock_config, seg2_count=3)
+
+            # 在 summarize 的 await 期间，模拟新消息入队 segment_2
+            new_msg = _make_msg(content="await 期间新消息", token_count=10)
+
+            async def summarize_side_effect(**kwargs):
+                # 模拟 await 期间新消息到达
+                queue.segment_2.append(new_msg)
+                return "有内容的总结"
+
+            buffer._summarizer.summarize = AsyncMock(side_effect=summarize_side_effect)
+
+            await buffer._check_and_summarize("group_test")
+
+            # 关键断言：新消息保留在 segment_2（不被 rotate 误移除）
+            assert len(queue.segment_2) == 1, "await 期间新添加的消息应保留在 segment_2"
+            assert queue.segment_2[0] is new_msg
+            # segment_3 仅含快照尾部（已总结消息），不含新消息
+            assert new_msg not in list(queue.segment_3)
+            # L2 仅被写入一次（旧消息不重复总结）
+            buffer._write_summary_to_l2.assert_awaited_once()
+
+
+class TestRotateAfterSummarySnapshot:
+    """rotate_after_summary 快照模式单元测试（不依赖 buffer 初始化）"""
+
+    def test_snapshot_mode_preserves_new_messages(self):
+        """快照模式：仅移除快照中的消息，保留新消息"""
+        from iris_memory.l1_buffer.models import SegmentedMessageQueue
+
+        queue = SegmentedMessageQueue(group_id="g1")
+        old_msgs = [_make_msg(content=f"旧消息{i}", token_count=5) for i in range(3)]
+        new_msg = _make_msg(content="新消息", token_count=5)
+        for m in old_msgs:
+            queue.segment_2.append(m)
+        queue.total_tokens = 15
+
+        # 快照 = 旧消息（不含新消息）
+        snapshot = list(old_msgs)
+        # 模拟 await 期间新消息入队
+        queue.segment_2.append(new_msg)
+        queue.total_tokens += 5
+
+        queue.rotate_after_summary(summarized_messages=snapshot)
+
+        # 新消息保留在 segment_2
+        assert len(queue.segment_2) == 1
+        assert queue.segment_2[0] is new_msg
+        # segment_3 含快照尾部
+        assert len(queue.segment_3) > 0
+        assert new_msg not in list(queue.segment_3)
+
+    def test_legacy_mode_clears_all(self):
+        """旧模式（不传快照）：清空整个 segment_2（向后兼容）"""
+        from iris_memory.l1_buffer.models import SegmentedMessageQueue
+
+        queue = SegmentedMessageQueue(group_id="g1")
+        for i in range(3):
+            queue.segment_2.append(_make_msg(content=f"消息{i}", token_count=5))
+        queue.total_tokens = 15
+
+        queue.rotate_after_summary()
+
+        assert len(queue.segment_2) == 0
+        assert len(queue.segment_3) > 0
+
 
 class TestUserIdentification:
     """测试用户识别逻辑"""

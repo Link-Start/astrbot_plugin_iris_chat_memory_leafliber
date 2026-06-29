@@ -313,6 +313,67 @@ class OneBot11Adapter(PlatformAdapter):
             logger.error(f"提取回复信息失败: {e}")
             return ReplyInfo()
 
+    def get_mentioned_users(self, event: Any) -> list[tuple[str, str]]:
+        """获取消息中 @提及的用户列表
+
+        从 OneBot11 消息段中提取 [CQ:at,qq=xxx] 类型的提及用户。
+        OneBot11 的 at 段结构：{"type": "at", "data": {"qq": "123456", "name": "张三"}}
+        其中 name 字段为可选（go-cqhttp 等实现会提供）。
+
+        Args:
+            event: AstrBot 消息事件对象
+
+        Returns:
+            (user_id, user_name) 元组列表
+        """
+        import re
+
+        mentioned: list[tuple[str, str]] = []
+
+        try:
+            raw_msg = self.get_raw_message(event)
+            if not raw_msg:
+                return mentioned
+
+            message_segments = raw_msg.get("message", [])
+
+            # 字符串格式：解析 CQ 码 [CQ:at,qq=123456,name=张三]
+            if isinstance(message_segments, str):
+                for match in re.finditer(
+                    r"\[CQ:at,qq=(\d+)(?:,name=([^,\]]+))?\]",
+                    message_segments,
+                ):
+                    uid = match.group(1)
+                    name = match.group(2) or ""
+                    mentioned.append((uid, name))
+                return mentioned
+
+            if not isinstance(message_segments, list):
+                return mentioned
+
+            # 段列表格式
+            for segment in message_segments:
+                if not isinstance(segment, dict):
+                    continue
+
+                if segment.get("type") == "at":
+                    data = segment.get("data", {})
+                    qq = str(data.get("qq", ""))
+                    if not qq or qq == "all":
+                        # 跳过 @全体成员
+                        continue
+                    name = str(data.get("name", ""))
+                    mentioned.append((qq, name))
+
+            if mentioned:
+                logger.debug(f"提取到 {len(mentioned)} 个被@用户")
+
+            return mentioned
+
+        except Exception as e:
+            logger.error(f"提取被@用户失败: {e}")
+            return mentioned
+
     def _parse_reply_from_cq(self, message_str: str) -> ReplyInfo:
         """从 CQ 码字符串格式中提取回复信息
 

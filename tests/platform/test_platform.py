@@ -492,3 +492,109 @@ class TestBaseAdapterGetMsgById:
         result = await adapter.get_msg_by_id(Mock(), "123")
 
         assert result.has_reply is False
+
+
+class TestGetMentionedUsers:
+    """get_mentioned_users 测试（@用户定向功能回归）"""
+
+    def test_base_default_returns_empty(self):
+        """基类默认实现返回空列表"""
+
+        class DummyAdapter(PlatformAdapter):
+            def get_user_id(self, event):
+                return ""
+
+            def get_user_name(self, event):
+                return ""
+
+            def get_user_nickname(self, event):
+                return ""
+
+            def get_group_id(self, event):
+                return ""
+
+            def get_group_name(self, event):
+                return ""
+
+            def get_user_role(self, event):
+                return ""
+
+            def get_raw_message(self, event):
+                return {}
+
+            def is_group_message(self, event):
+                return False
+
+            def get_images(self, event):
+                return []
+
+            def get_reply_info(self, event):
+                return ReplyInfo()
+
+        adapter = DummyAdapter()
+        result = adapter.get_mentioned_users(Mock())
+        assert result == []
+
+    def test_onebot11_segment_format(self):
+        """OneBot11 段列表格式提取 @用户"""
+        adapter = OneBot11Adapter()
+
+        event = Mock()
+        event.message_obj = Mock()
+        event.message_obj.raw_message = {
+            "message": [
+                {"type": "text", "data": {"text": "你好 "}},
+                {"type": "at", "data": {"qq": "123456", "name": "张三"}},
+                {"type": "at", "data": {"qq": "789", "name": "李四"}},
+            ]
+        }
+
+        result = adapter.get_mentioned_users(event)
+        assert len(result) == 2
+        assert result[0] == ("123456", "张三")
+        assert result[1] == ("789", "李四")
+
+    def test_onebot11_cq_code_format(self):
+        """OneBot11 CQ 码字符串格式提取 @用户"""
+        adapter = OneBot11Adapter()
+
+        event = Mock()
+        event.message_obj = Mock()
+        event.message_obj.raw_message = {
+            "message": "[CQ:at,qq=123456,name=张三] 你好 [CQ:at,qq=789,name=李四]"
+        }
+
+        result = adapter.get_mentioned_users(event)
+        assert len(result) == 2
+        assert result[0] == ("123456", "张三")
+        assert result[1] == ("789", "李四")
+
+    def test_onebot11_skip_at_all(self):
+        """@全体成员应被跳过"""
+        adapter = OneBot11Adapter()
+
+        event = Mock()
+        event.message_obj = Mock()
+        event.message_obj.raw_message = {
+            "message": [
+                {"type": "at", "data": {"qq": "all"}},
+                {"type": "at", "data": {"qq": "123456", "name": "张三"}},
+            ]
+        }
+
+        result = adapter.get_mentioned_users(event)
+        assert len(result) == 1
+        assert result[0] == ("123456", "张三")
+
+    def test_onebot11_no_at_returns_empty(self):
+        """无 @ 段时返回空列表"""
+        adapter = OneBot11Adapter()
+
+        event = Mock()
+        event.message_obj = Mock()
+        event.message_obj.raw_message = {
+            "message": [{"type": "text", "data": {"text": "你好"}}]
+        }
+
+        result = adapter.get_mentioned_users(event)
+        assert result == []

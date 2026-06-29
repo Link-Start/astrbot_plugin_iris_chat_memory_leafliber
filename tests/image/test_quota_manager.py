@@ -264,3 +264,100 @@ class TestImageQuotaManager:
             await quota_manager.shutdown()
 
             assert not quota_manager.is_available
+
+    @pytest.mark.asyncio
+    async def test_cross_day_reset_no_deadlock(self, mock_context):
+        """回归：跨天重置在持锁中不得重入 asyncio.Lock 导致死锁
+
+        历史 bug：check_quota/use_quota/get_status 持 _lock 后调
+        _check_and_reset_if_needed，跨天时内部 await reset_quota() 又
+        async with self._lock。asyncio.Lock 不可重入，真实时钟跨过午夜后
+        必然挂死。现有测试在 init 前固定 today 绕过了该路径。
+        """
+        import asyncio
+
+        # 存储昨天的数据
+        yesterday = "2026-03-28"
+        stored_data = {
+            "date": yesterday,
+            "used": 100,
+            "total": 200,
+            "last_reset_time": "2026-03-28T00:00:00",
+        }
+        mock_context.get_kv_data = AsyncMock(return_value=stored_data)
+
+        with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
+            mock_config = Mock()
+            mock_config.get = Mock(
+                side_effect=lambda key, default=None: {
+                    "l1_buffer.image_parsing.enable": True,
+                    "l1_buffer.image_parsing.daily_quota": 200,
+                }.get(key, default)
+            )
+            mock_get_config.return_value = mock_config
+
+            with patch("iris_memory.image.quota_manager.date") as mock_date:
+                # init 时是 3-28（不触发重置）
+                mock_date.today.return_value = date(2026, 3, 28)
+                manager = ImageQuotaManager(mock_context)
+                await manager.initialize()
+
+                # 模拟跨天到 3-29
+                mock_date.today.return_value = date(2026, 3, 29)
+
+                # check_quota 持 _lock → _check_and_reset_if_needed →
+                # 跨天 → _reset_quota_locked（不加锁，不重入）
+                # 修复前会调 reset_quota() 重入 _lock → 死锁
+                try:
+                    result = await asyncio.wait_for(manager.check_quota(), timeout=2.0)
+                    # 不死锁即通过
+                    assert result is True
+                except asyncio.TimeoutError:
+                    pytest.fail("跨天重置死锁：check_quota 在持锁中重入 _lock")
+
+                # 验证配额已重置
+                status = manager._quota_status
+                assert status.date == "2026-03-29"
+                assert status.used == 0
+
+    @pytest.mark.asyncio
+    async def test_cross_day_use_quota_no_deadlock(self, mock_context):
+        """use_quota 持锁跨天同样不得死锁"""
+        import asyncio
+
+        yesterday = "2026-03-28"
+        stored_data = {
+            "date": yesterday,
+            "used": 50,
+            "total": 200,
+            "last_reset_time": "2026-03-28T00:00:00",
+        }
+        mock_context.get_kv_data = AsyncMock(return_value=stored_data)
+
+        with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
+            mock_config = Mock()
+            mock_config.get = Mock(
+                side_effect=lambda key, default=None: {
+                    "l1_buffer.image_parsing.enable": True,
+                    "l1_buffer.image_parsing.daily_quota": 200,
+                }.get(key, default)
+            )
+            mock_get_config.return_value = mock_config
+
+            with patch("iris_memory.image.quota_manager.date") as mock_date:
+                mock_date.today.return_value = date(2026, 3, 28)
+                manager = ImageQuotaManager(mock_context)
+                await manager.initialize()
+
+                # 跨天
+                mock_date.today.return_value = date(2026, 3, 29)
+
+                try:
+                    success = await asyncio.wait_for(manager.use_quota(5), timeout=2.0)
+                    assert success
+                except asyncio.TimeoutError:
+                    pytest.fail("跨天重置死锁：use_quota 在持锁中重入 _lock")
+
+                status = manager._quota_status
+                assert status.date == "2026-03-29"
+                assert status.used == 5

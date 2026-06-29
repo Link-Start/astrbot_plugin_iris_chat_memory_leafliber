@@ -391,7 +391,7 @@ class L1Buffer(Component):
                     # 使重试阈值形同虚设。与 except 分支保持一致。
                     return
 
-                queue.rotate_after_summary()
+                queue.rotate_after_summary(summarized_messages=target_messages)
                 self._clear_images_for_summarized_messages(queue_key, target_messages)
 
                 logger.info(
