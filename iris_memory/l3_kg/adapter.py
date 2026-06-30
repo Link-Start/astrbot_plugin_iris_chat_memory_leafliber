@@ -393,10 +393,17 @@ class L3KGAdapter(Component):
             nodes_map: dict[str, dict] = {}
             edges_list: list[dict] = []
 
-            seed_rows = self._db_fetchall(
-                f"SELECT * FROM nodes WHERE id IN ({','.join('?' * len(node_ids))})",
-                tuple(node_ids),
-            )
+            # 种子节点也必须按 group_id 过滤，否则跨群节点作为种子泄漏
+            if group_id:
+                seed_rows = self._db_fetchall(
+                    f"SELECT * FROM nodes WHERE id IN ({','.join('?' * len(node_ids))}) AND group_id = ?",
+                    (*node_ids, group_id),
+                )
+            else:
+                seed_rows = self._db_fetchall(
+                    f"SELECT * FROM nodes WHERE id IN ({','.join('?' * len(node_ids))})",
+                    tuple(node_ids),
+                )
             for row in seed_rows:
                 nodes_map[row["id"]] = dict(row)
 
@@ -441,6 +448,10 @@ class L3KGAdapter(Component):
 
                 next_frontier = []
                 frontier_set = set(frontier)
+                seen_edge_keys: set[tuple[str, str, str]] = {
+                    (e["source"], e["target"], e["relation_type"])
+                    for e in edges_list
+                }
 
                 for row in rows:
                     if len(edges_list) >= max_edges:
@@ -448,6 +459,13 @@ class L3KGAdapter(Component):
 
                     source_id = row["source_id"]
                     target_id = row["target_id"]
+                    relation_type = row["relation_type"]
+
+                    # 跨层去重：同一条边可能在多个 depth 的 frontier 中被重复查出
+                    edge_key = (source_id, target_id, relation_type)
+                    if edge_key in seen_edge_keys:
+                        continue
+                    seen_edge_keys.add(edge_key)
 
                     edge_props = row["properties"]
                     if isinstance(edge_props, str):
@@ -696,20 +714,48 @@ class L3KGAdapter(Component):
             return []
 
     async def update_node_content_by_source_memory(
-        self, memory_id: str, new_content: str
+        self, memory_id: str, new_content: str, new_source_memory_id: str = None
     ) -> Optional[str]:
         """根据 source_memory_id 更新节点内容
 
         用于记忆修正 Tool，返回更新的节点 ID 或 None。
+        可选传入 new_source_memory_id 将节点的 source_memory_id 重指向新记忆，
+        避免 L2↔L3 引用断裂（旧记忆已删除，source_memory_id 指向已删 ID）。
         """
         if not self._is_available:
             return None
 
         try:
+            # 先查 source_memory_id 列（单来源节点）
             row = self._db_fetchone(
                 "SELECT id FROM nodes WHERE source_memory_id = ?",
                 (memory_id,),
             )
+
+            # 列未命中时，回退查 properties.source_memory_ids（批量提取的
+            # 多来源节点，source_memory_id 列仅存逗号连接的完整列表或首条 ID）
+            if not row:
+                rows = self._db_fetchall(
+                    "SELECT id, properties FROM nodes WHERE properties LIKE ?",
+                    (f'%"{memory_id}"%',),
+                )
+                for r in rows:
+                    try:
+                        props = json.loads(r["properties"]) if isinstance(
+                            r["properties"], str
+                        ) else r["properties"]
+                        if not isinstance(props, dict):
+                            continue
+                        ids_str = props.get("source_memory_ids", "")
+                        if ids_str:
+                            ids_list = [
+                                s.strip() for s in ids_str.split(",") if s.strip()
+                            ]
+                            if memory_id in ids_list:
+                                row = r
+                                break
+                    except (json.JSONDecodeError, TypeError):
+                        continue
 
             if not row:
                 return None
@@ -724,11 +770,24 @@ class L3KGAdapter(Component):
             props["corrected"] = "true"
             props["correction_time"] = datetime.now().isoformat()
 
-            self._db_write(
-                """UPDATE nodes SET content = ?, confidence = 1.0, properties = ?
-                WHERE id = ?""",
-                (new_content, json.dumps(props, ensure_ascii=False), node_id),
-            )
+            if new_source_memory_id:
+                self._db_write(
+                    """UPDATE nodes SET content = ?, confidence = 1.0,
+                       source_memory_id = ?, properties = ?
+                    WHERE id = ?""",
+                    (
+                        new_content,
+                        new_source_memory_id,
+                        json.dumps(props, ensure_ascii=False),
+                        node_id,
+                    ),
+                )
+            else:
+                self._db_write(
+                    """UPDATE nodes SET content = ?, confidence = 1.0, properties = ?
+                    WHERE id = ?""",
+                    (new_content, json.dumps(props, ensure_ascii=False), node_id),
+                )
             logger.info(f"已更新图谱节点: node_id={node_id}")
             return node_id
         except Exception as e:
@@ -1502,6 +1561,7 @@ class L3KGAdapter(Component):
         imported_nodes = 0
         imported_edges = 0
         skipped_nodes = 0
+        skipped_edges = 0
         error_count = 0
 
         for node_data in nodes_data:
@@ -1545,14 +1605,15 @@ class L3KGAdapter(Component):
                 )
 
                 if not edge.source_id or not edge.target_id:
-                    skipped_nodes += 1
+                    # 边跳过应计入 skipped_edges，此前误计入 skipped_nodes
+                    skipped_edges += 1
                     continue
 
                 success = await self.add_edge(edge)
                 if success:
                     imported_edges += 1
                 else:
-                    error_count += 1
+                    skipped_edges += 1
 
             except Exception as e:
                 logger.error(f"导入边失败：{e}")
@@ -1561,13 +1622,14 @@ class L3KGAdapter(Component):
         logger.info(
             f"知识图谱导入完成：节点 {imported_nodes}/{len(nodes_data)}，"
             f"边 {imported_edges}/{len(edges_data)}，"
-            f"跳过 {skipped_nodes}，错误 {error_count}"
+            f"跳过节点 {skipped_nodes}，跳过边 {skipped_edges}，错误 {error_count}"
         )
 
         return {
             "imported_nodes": imported_nodes,
             "imported_edges": imported_edges,
             "skipped_nodes": skipped_nodes,
+            "skipped_edges": skipped_edges,
             "error_count": error_count,
         }
 

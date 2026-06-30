@@ -111,7 +111,7 @@ class GraphRetriever:
 
         for keyword in keywords:
             try:
-                found = await self.adapter.search_nodes(keyword, limit=5)
+                found = await self.adapter.search_nodes(keyword, limit=limit)
                 for node in found:
                     node_id = node.get("id")
                     if node_id:
@@ -154,10 +154,10 @@ class GraphRetriever:
             max_content_length: 节点描述最大字符数
 
         Returns:
-            格式化的文本，如果为空则返回空字符串
+            (格式化的文本, 实际纳入文本的节点 ID 集合)，如果为空则返回 ("", set())
         """
         if not nodes:
-            return ""
+            return "", set()
 
         node_map: dict[str, dict] = {}
         for node in nodes:
@@ -172,6 +172,7 @@ class GraphRetriever:
 
         lines: list[str] = []
         token_budget = max_tokens
+        included_node_ids: set[str] = set()
 
         header = "【长期知识】以下是关于相关人物和概念的深层知识，在回答时自然参考："
         lines.append(header)
@@ -205,9 +206,11 @@ class GraphRetriever:
             type_label = _NODE_TYPE_LABELS.get(node_type, node_type)
 
             entity_lines: list[str] = []
+            included_in_group: list[str] = []
             for node in group:
                 name = node.get("name", "")
                 content = node.get("content", "")
+                node_id = node.get("id", "")
                 if name and content:
                     if len(content) > max_content_length:
                         logger.debug(
@@ -222,8 +225,10 @@ class GraphRetriever:
                                 break
                         content = truncated + "…"
                     entity_lines.append(f"  - {name}：{content}")
+                    included_in_group.append(node_id)
                 elif name:
                     entity_lines.append(f"  - {name}")
+                    included_in_group.append(node_id)
 
             if not entity_lines:
                 continue
@@ -239,10 +244,14 @@ class GraphRetriever:
                 )
                 section = f"{type_label}：\n" + "\n".join(entity_lines[:remaining])
                 section_tokens = _estimate_tokens(section)
+                included_in_group = included_in_group[:remaining]
 
             if section_tokens <= token_budget:
                 lines.append(section)
                 token_budget -= section_tokens
+                included_node_ids.update(
+                    nid for nid in included_in_group if nid
+                )
 
         if edges and token_budget > 20:
             edge_lines: list[str] = []
@@ -281,6 +290,6 @@ class GraphRetriever:
 
         result = "\n".join(lines)
         if result.strip() == header.strip():
-            return ""
+            return "", set()
 
-        return result
+        return result, included_node_ids

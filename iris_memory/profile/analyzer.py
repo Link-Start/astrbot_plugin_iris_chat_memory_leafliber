@@ -114,10 +114,10 @@ class ProfileAnalyzer:
             max_messages = config.get("profile_max_messages_for_analysis", 50)
         except RuntimeError:
             max_messages = 50
-        limited_messages = messages[:max_messages]
+        limited_messages = messages[-max_messages:]
         if len(messages) > max_messages:
             logger.debug(
-                f"群聊画像分析消息截断：原始 {len(messages)} 条 → 保留 {max_messages} 条"
+                f"群聊画像分析消息截断：原始 {len(messages)} 条 → 保留最近 {max_messages} 条"
             )
 
         if tier == UpdateTier.LONG:
@@ -214,10 +214,10 @@ class ProfileAnalyzer:
             max_messages = config.get("profile_max_messages_for_user_analysis", 30)
         except RuntimeError:
             max_messages = 30
-        limited_messages = messages[:max_messages]
+        limited_messages = messages[-max_messages:]
         if len(messages) > max_messages:
             logger.debug(
-                f"用户画像分析消息截断：原始 {len(messages)} 条 → 保留 {max_messages} 条"
+                f"用户画像分析消息截断：原始 {len(messages)} 条 → 保留最近 {max_messages} 条"
             )
 
         if tier == UpdateTier.LONG:

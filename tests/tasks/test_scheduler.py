@@ -63,6 +63,34 @@ class TestTaskScheduler:
         await scheduler.shutdown()
 
     @pytest.mark.asyncio
+    async def test_register_periodic_task_clamps_non_positive_interval(self, scheduler):
+        """回归：interval_hours <= 0 应钳制为 1.0，避免 sleep(0) 忙循环
+
+        历史 bug：interval_hours=0 或负值未做下限保护，传入 _periodic_task_wrapper
+        后 ``random.uniform(0, 0)=0`` 与 ``asyncio.sleep(0)`` 形成忙循环。
+        修复后在 register_periodic_task 入口将非正数钳制为 1.0。
+        """
+        await scheduler.initialize()
+        try:
+            with patch.object(
+                scheduler, "_periodic_task_wrapper", new=AsyncMock()
+            ) as mock_wrapper:
+                scheduler.register_periodic_task(
+                    task_name="zero_task", coro_func=AsyncMock(), interval_hours=0
+                )
+                scheduler.register_periodic_task(
+                    task_name="neg_task", coro_func=AsyncMock(), interval_hours=-1
+                )
+
+            # 两次注册都应将 interval_hours 钳制为 1.0
+            # register_periodic_task 以位置参数 (task_name, coro_func, interval_hours)
+            # 调用 _periodic_task_wrapper，interval_hours 是第 3 个参数
+            intervals = [call.args[2] for call in mock_wrapper.call_args_list]
+            assert intervals == [1.0, 1.0]
+        finally:
+            await scheduler.shutdown()
+
+    @pytest.mark.asyncio
     async def test_periodic_task_execution(self, scheduler):
         """测试周期性任务执行"""
         await scheduler.initialize()

@@ -127,6 +127,46 @@ class TestL3KGAdapter:
         assert len(edges) >= 1
 
     @pytest.mark.asyncio
+    async def test_expand_from_nodes_filters_seeds_by_group_id(self, adapter):
+        """回归：种子节点必须按 group_id 过滤，避免跨群节点泄漏
+
+        此前 expand_from_nodes 未对种子节点按 group_id 过滤，
+        传入其他群的节点 ID 作为种子时仍会被返回，导致跨群数据泄漏。
+        """
+        # 在两个群中各插入一个节点
+        node_a = GraphNode(
+            id="",
+            label="Person",
+            name="Alice",
+            content="group A member",
+            group_id="group_A",
+        )
+        node_a.id = node_a.generate_id()
+
+        node_b = GraphNode(
+            id="",
+            label="Person",
+            name="Bob",
+            content="group B member",
+            group_id="group_B",
+        )
+        node_b.id = node_b.generate_id()
+
+        await adapter.add_node(node_a)
+        await adapter.add_node(node_b)
+
+        # 以两个群的节点 ID 作为种子，但只查 group_A
+        nodes, edges = await adapter.expand_from_nodes(
+            node_ids=[node_a.id, node_b.id], group_id="group_A", max_depth=1
+        )
+
+        returned_ids = {n["id"] for n in nodes}
+        assert node_a.id in returned_ids
+        assert node_b.id not in returned_ids, (
+            "group_B 种子节点不应出现在 group_A 检索结果中"
+        )
+
+    @pytest.mark.asyncio
     async def test_get_stats(self, adapter):
         """测试获取统计信息"""
         stats = await adapter.get_stats()

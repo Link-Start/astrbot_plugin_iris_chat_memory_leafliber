@@ -209,7 +209,10 @@ class ProfileCommandHandler(CommandHandler):
         group_sub_command = None
 
         for arg in raw_args:
-            if arg.lower() not in ["group", "--group", "-g", "--all", "-a"]:
+            if arg.lower() not in [
+                "group", "--group", "-g", "--all", "-a",
+                "—group", "—all",  # em-dash 变体（parser.SCOPE_FLAGS 支持）
+            ]:
                 group_sub_command = arg.lower()
                 break
 

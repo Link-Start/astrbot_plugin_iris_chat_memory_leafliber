@@ -168,7 +168,10 @@ class CommandParser:
 
             return None, f"未找到用户 @{args.target_user_name}"
 
-        if args.scope.value in ["current_user", "specified_user"]:
+        # 仅对 specified_user 解析目标用户 ID；current_user 不应返回 user_id，
+        # 否则 executor 会把它写入 target_user_id，使 scope 实际变为
+        # specified_user，各 handler 的 current-user 分支成为死代码。
+        if args.scope.value == "specified_user":
             if not args.target_user_id:
                 adapter = get_adapter(event)
                 user_id = adapter.get_user_id(event)

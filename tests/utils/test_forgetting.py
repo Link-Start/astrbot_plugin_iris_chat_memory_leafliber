@@ -275,3 +275,30 @@ class TestShouldEvict:
 
             # 无访问记录且分数低，应该淘汰
             assert result
+
+    def test_should_evict_uses_explicit_threshold_not_config_default(self, mock_config):
+        """回归：should_evict 应使用显式传入的 threshold，而非配置默认值 0.3
+
+        历史 bug：形参 threshold 被静默忽略，调用方传入 threshold=0.5 时
+        仍回退到配置默认 0.3。修复后 evict_threshold = threshold if threshold
+        != 0.3 else config_threshold。以 forgetting_score=0.4 为例：
+        threshold=0.5 → 0.4 < 0.5 且无访问记录 → 淘汰；
+        threshold=0.3 → 0.4 >= 0.3 → 不淘汰。
+        """
+        entry = MemoryEntry(
+            id="mem_threshold",
+            content="阈值测试记忆",
+            metadata={"access_count": 0, "confidence": 0.4},
+        )
+
+        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+            with patch(
+                "iris_memory.utils.forgetting.calculate_forgetting_score",
+                return_value=0.4,
+            ):
+                # 0.4 >= immediate_threshold(0.1)，不触发立即淘汰
+                # threshold=0.5：evict_threshold=0.5，0.4 < 0.5 且无访问记录 → 淘汰
+                assert should_evict(entry, threshold=0.5, retention_days=30)
+
+                # threshold=0.3：evict_threshold=配置值 0.3，0.4 >= 0.3 → 不淘汰
+                assert not should_evict(entry, threshold=0.3, retention_days=30)

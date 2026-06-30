@@ -2,7 +2,7 @@
 
 import pytest
 import pytest_asyncio
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 from pathlib import Path
 import tempfile
 import shutil
@@ -48,8 +48,9 @@ class TestGraphRetriever:
     @pytest.mark.asyncio
     async def test_format_for_context_empty(self, retriever):
         """测试格式化空结果"""
-        result = retriever.format_for_context([], [])
+        result, included_ids = retriever.format_for_context([], [])
         assert result == ""
+        assert included_ids == set()
 
     @pytest.mark.asyncio
     async def test_format_for_context_with_nodes(self, retriever):
@@ -75,7 +76,7 @@ class TestGraphRetriever:
             },
         ]
 
-        result = retriever.format_for_context(nodes, [])
+        result, included_ids = retriever.format_for_context(nodes, [])
 
         assert "【长期知识】" in result
         assert "人物" in result
@@ -85,6 +86,7 @@ class TestGraphRetriever:
         assert "数据科学家" in result
         assert "事件" in result
         assert "AI Conference" in result
+        assert included_ids == {"person_alice", "person_bob", "event_conf"}
 
     @pytest.mark.asyncio
     async def test_format_for_context_with_edges(self, retriever):
@@ -112,12 +114,14 @@ class TestGraphRetriever:
             }
         ]
 
-        result = retriever.format_for_context(nodes, edges)
+        result, included_ids = retriever.format_for_context(nodes, edges)
 
         assert "关系" in result
         assert "Alice" in result
         assert "AI Conference" in result
         assert "参与" in result
+        assert "person_alice" in included_ids
+        assert "event_conf" in included_ids
 
     @pytest.mark.asyncio
     async def test_format_for_context_truncates_long_content(self, retriever):
@@ -127,10 +131,13 @@ class TestGraphRetriever:
             {"id": "n1", "label": "Person", "name": "Alice", "content": long_content}
         ]
 
-        result = retriever.format_for_context(nodes, [], max_content_length=100)
+        result, included_ids = retriever.format_for_context(
+            nodes, [], max_content_length=100
+        )
 
         assert "Alice" in result
         assert "…" in result
+        assert included_ids == {"n1"}
 
     @pytest.mark.asyncio
     async def test_format_for_context_groups_by_type(self, retriever):
@@ -142,7 +149,7 @@ class TestGraphRetriever:
             {"id": "n4", "label": "Person", "name": "Charlie", "content": "描述4"},
         ]
 
-        result = retriever.format_for_context(nodes, [])
+        result, included_ids = retriever.format_for_context(nodes, [])
 
         assert "【长期知识】" in result
         assert "人物" in result
@@ -151,6 +158,7 @@ class TestGraphRetriever:
         assert "Bob" in result
         assert "会议" in result
         assert "Charlie" in result
+        assert included_ids == {"n1", "n2", "n3", "n4"}
 
     @pytest.mark.asyncio
     async def test_retrieve_with_expansion_empty_ids(self, retriever):
@@ -290,3 +298,25 @@ class TestGraphRetriever:
 
         # 恢复
         retriever.adapter._is_available = True
+
+    @pytest.mark.asyncio
+    async def test_retrieve_by_keywords_passes_limit_to_search_nodes(self, retriever):
+        """回归：retrieve_by_keywords 应将 limit 透传给 search_nodes
+
+        历史 bug：retrieve_by_keywords 内部硬编码 ``search_nodes(keyword, limit=5)``
+        或忽略 limit 形参，调用方传入的 limit 被丢弃。修复后使用
+        ``search_nodes(keyword, limit=limit)`` 透传调用方指定的值。
+        """
+        mock_adapter = MagicMock()
+        mock_adapter.is_available = True
+        mock_adapter.search_nodes = AsyncMock(
+            return_value=[{"id": "node_1"}, {"id": "node_2"}]
+        )
+        mock_adapter.expand_from_nodes = AsyncMock(return_value=([], []))
+
+        retriever.adapter = mock_adapter
+
+        await retriever.retrieve_by_keywords(["alice"], limit=7)
+
+        # search_nodes 应以调用方传入的 limit=7 调用，而非硬编码 5
+        mock_adapter.search_nodes.assert_called_once_with("alice", limit=7)

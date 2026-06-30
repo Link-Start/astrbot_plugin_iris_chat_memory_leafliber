@@ -21,6 +21,8 @@ PLUGIN_NAME = "astrbot_plugin_iris_chat_memory"
 
 async def search_l2_memory():
     data = await request.get_json()
+    if not data:
+        return jsonify({"success": False, "error": "请求正文为空或格式错误"}), 400
     query = data.get("query", "")
     group_id = data.get("group_id")
     top_k = data.get("top_k", 10)
@@ -142,13 +144,15 @@ async def get_latest_l2_memories():
         f"sort_order={sort_order}, 总数={total_count}, 返回={len(formatted_results)}"
     )
 
-    return jsonify({
-        "success": True,
-        "results": formatted_results,
-        "total_count": total_count,
-        "limit": limit,
-        "offset": offset,
-    })
+    return jsonify(
+        {
+            "success": True,
+            "results": formatted_results,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
 
 
 async def list_l1_buffer():
@@ -377,6 +381,8 @@ async def search_l3_edges():
 
 async def delete_l2_entries():
     data = await request.get_json()
+    if not data:
+        return jsonify({"success": False, "error": "请求正文为空或格式错误"}), 400
     ids = data.get("ids", [])
 
     if not ids or not isinstance(ids, list):
@@ -402,6 +408,8 @@ async def delete_l2_entries():
 
 async def update_l2_entry():
     data = await request.get_json()
+    if not data:
+        return jsonify({"success": False, "error": "请求正文为空或格式错误"}), 400
     memory_id = data.get("id", "")
     new_content = data.get("content", "")
 
@@ -425,6 +433,8 @@ async def update_l2_entry():
 
 async def list_l3_nodes():
     limit = request.args.get("limit", default=100, type=int)
+    # 钳制 limit 到合理范围，防止恶意大值导致内存/DB 过载
+    limit = max(1, min(limit, 500))
     keyword = request.args.get("keyword", "")
 
     manager = get_component_manager()
@@ -445,6 +455,8 @@ async def list_l3_nodes():
 
 async def list_l3_edges():
     limit = request.args.get("limit", default=100, type=int)
+    # 钳制 limit 到合理范围，防止恶意大值导致内存/DB 过载
+    limit = max(1, min(limit, 500))
     keyword = request.args.get("keyword", "")
 
     manager = get_component_manager()
@@ -465,6 +477,8 @@ async def list_l3_edges():
 
 async def delete_l3_nodes():
     data = await request.get_json()
+    if not data:
+        return jsonify({"success": False, "error": "请求正文为空或格式错误"}), 400
     ids = data.get("ids", [])
 
     if not ids or not isinstance(ids, list):
@@ -488,6 +502,8 @@ async def delete_l3_nodes():
 
 async def delete_l3_edge():
     data = await request.get_json()
+    if not data:
+        return jsonify({"success": False, "error": "请求正文为空或格式错误"}), 400
     source_id = data.get("source_id", "")
     target_id = data.get("target_id", "")
     relation = data.get("relation", "")

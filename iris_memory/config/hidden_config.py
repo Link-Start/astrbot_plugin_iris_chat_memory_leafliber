@@ -278,4 +278,15 @@ class HiddenConfigManager:
             self._dirty = True
 
         self._persist_if_dirty()
+
+        # 通知所有观察者每个键被重置为新值（默认值）。
+        # 此前 reset 不触发观察者，下游组件（如 LLM manager 读取
+        # temperature）不会收到变更通知，继续用旧缓存值。
+        for key, value in self._cache.items():
+            for observer in self._observers:
+                try:
+                    observer(key, None, value)
+                except Exception as e:
+                    logger.warning(f"配置观察者通知失败（reset {key}）：{e}")
+
         logger.info("已重置隐藏配置为默认值")

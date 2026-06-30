@@ -221,3 +221,45 @@ class TestTokenStatsManager:
         global_stats = manager._cache["global"]
         assert global_stats.total_input_tokens == 5100
         assert global_stats.total_calls == 51
+
+    @pytest.mark.asyncio
+    async def test_get_all_stats_loads_from_kv_after_restart(self):
+        """回归：get_all_stats 重启后应从 KV 加载，而非仅返回空内存缓存
+
+        历史 bug：get_all_stats 直接返回 ``dict(self._cache)``，重启后 _cache
+        为空 defaultdict，返回空字典，丢失所有持久化统计。修复后遍历
+        ``_known_modules`` 从 KV 回读；``_known_modules`` 由 record_usage
+        登记模块名（KV 存储无 list_keys 接口）。
+        """
+        # 使用真实持久化的 dict-backed KV 存储
+        store: dict = {}
+        storage = MagicMock()
+
+        async def _get_kv_data(key, default=None):
+            return store.get(key, default if default is not None else {})
+
+        async def _put_kv_data(key, value):
+            store[key] = value
+
+        storage.get_kv_data = _get_kv_data
+        storage.put_kv_data = _put_kv_data
+
+        # 会话1：记录 usage，持久化到 KV 并登记模块名
+        manager1 = TokenStatsManager(storage)
+        await manager1.record_usage("test_module", 100, 50)
+
+        # record_usage 应将模块名登记到 _known_modules
+        assert "test_module" in manager1._known_modules
+        assert "global" in manager1._known_modules
+
+        # 模拟重启：新建 manager（_cache 为空，_known_modules 重置为 {"global"}）
+        manager2 = TokenStatsManager(storage)
+
+        all_stats = await manager2.get_all_stats()
+
+        # 不应返回空缓存——应从 KV 加载已持久化的 global 统计
+        # （bug 版本会返回空 dict，"global" 不在结果中）
+        assert "global" in all_stats
+        assert all_stats["global"].total_input_tokens == 100
+        assert all_stats["global"].total_output_tokens == 50
+        assert all_stats["global"].total_calls == 1

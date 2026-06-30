@@ -78,6 +78,9 @@ class TokenStatsManager:
         """
         self._storage = storage
         self._cache: Dict[str, TokenUsage] = defaultdict(TokenUsage)
+        # 已知模块集合：record_usage 时登记，get_all_stats 时遍历加载。
+        # 解决 KV 存储无 list_keys 接口的问题。
+        self._known_modules: set[str] = {"global"}
 
     def _get_kv_key(self, module: str) -> str:
         """获取 KV 存储键名
@@ -148,6 +151,11 @@ class TokenStatsManager:
         if module != "global" and "global" not in self._cache:
             await self._load_from_kv("global")
 
+        # 登记模块名，供 get_all_stats 遍历加载
+        self._known_modules.add(module)
+        if module != "global":
+            self._known_modules.add("global")
+
         self._cache[module].total_input_tokens += input_tokens
         self._cache[module].total_output_tokens += output_tokens
         self._cache[module].total_calls += 1
@@ -196,7 +204,15 @@ class TokenStatsManager:
     async def get_all_stats(self) -> Dict[str, TokenUsage]:
         """获取所有模块的统计
 
+        遍历已知模块列表并从 KV 加载，确保重启后未触达的模块也出现在
+        返回值中，而非仅返回内存缓存。已知模块通过 record_usage 时登记。
+
         Returns:
             模块名到 TokenUsage 的映射
         """
+        # 从 KV 加载所有已知模块（含 global）
+        for module in list(self._known_modules):
+            if module not in self._cache:
+                await self._load_from_kv(module)
+
         return dict(self._cache)

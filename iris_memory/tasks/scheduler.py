@@ -137,11 +137,29 @@ class TaskScheduler(Component):
             ...     interval_hours=6
             ... )
         """
+        # 钳制 interval_hours 下限，防止 0 或负值导致 sleep(0) 忙循环
+        if interval_hours <= 0:
+            logger.warning(
+                f"周期性任务 {task_name} 的 interval_hours={interval_hours} "
+                f"非正数，已钳制为 1 小时"
+            )
+            interval_hours = 1.0
+
         if task_name in self._tasks:
             logger.warning(f"任务 {task_name} 已存在，将被覆盖")
             old_task = self._tasks[task_name]
             if not old_task.done():
                 old_task.cancel()
+
+                # 异步等待旧任务清理完成（不阻塞当前同步方法）。
+                # 此前 cancel 后不 await，旧任务清理可能未完成就启动新任务。
+                async def _await_cancelled(t):
+                    try:
+                        await asyncio.wait_for(t, timeout=5.0)
+                    except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                        pass
+
+                asyncio.ensure_future(_await_cancelled(old_task))
 
         # 创建后台任务
         task = asyncio.create_task(

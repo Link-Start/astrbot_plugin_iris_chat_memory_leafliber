@@ -453,6 +453,14 @@ class L1Buffer(Component):
                 else "default"
             )
 
+            # 总结成功后递增计数器，使 should_update_mid 的"按总结次数触发"生效。
+            # 生产代码此前从未调用 increment_summary_count，导致该路径完全失效。
+            await group_manager.increment_summary_count(group_id, persona_id)
+            for uid in user_messages_by_id:
+                await user_manager.increment_summary_count(
+                    uid, effective_group_id, persona_id
+                )
+
             group_profile_obj = await group_manager.get_or_create(group_id, persona_id)
             if group_manager.should_update_mid(group_profile_obj):
                 await self._update_group_mid_term(
@@ -623,6 +631,8 @@ class L1Buffer(Component):
                     interests=_as_str_list(result.get("interests")),
                     occupation=_as_str(result.get("occupation")),
                     language_style=_as_str(result.get("language_style")),
+                    communication_style=_as_str(result.get("communication_style")),
+                    emotional_baseline=_as_str(result.get("emotional_baseline")),
                     custom_fields=_as_str_dict(result.get("custom_fields")),
                     tier=UpdateTier.MID,
                     confidence=0.7,

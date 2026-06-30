@@ -189,7 +189,7 @@ class UserProfileManager:
                 profile.set_field_meta("emotional_baseline", meta)
                 updated = True
 
-        if occupation is not None and tier == UpdateTier.LONG:
+        if occupation is not None:
             meta = profile.get_field_meta("occupation")
             if should_overwrite_field(
                 profile.occupation, occupation, meta.confidence, confidence
@@ -428,6 +428,23 @@ class UserProfileManager:
 
         tracker = profile.get_update_tracker()
         return tracker.should_update_long(interval_hours)
+
+    async def increment_summary_count(
+        self, user_id: str, group_id: str, persona_id: str = "default"
+    ) -> None:
+        """总结次数 +1（中期更新触发条件之一）
+
+        应在每次 L2 总结成功后调用。生产代码此前从未调用此方法，
+        导致 summary_count_since_mid_update 恒为 0，
+        "按总结次数触发中期更新"完全失效。
+        """
+        profile = await self.get_or_create(user_id, group_id, persona_id)
+        tracker = profile.get_update_tracker()
+        tracker.increment_summary_count()
+        profile.set_update_tracker(tracker)
+        await self._storage.save_user_profile(
+            profile, group_id=group_id, persona_id=persona_id
+        )
 
     @profile_lock("user")
     async def set_bot_relationship(

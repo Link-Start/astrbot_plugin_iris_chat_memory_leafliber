@@ -18,7 +18,7 @@ import threading
 from typing import TYPE_CHECKING
 
 from iris_memory.core import get_logger
-from iris_memory.platform.base import PlatformAdapter, UnsupportedPlatformError
+from iris_memory.platform.base import PlatformAdapter
 from iris_memory.platform.generic import GenericAdapter
 from iris_memory.platform.qq import OneBot11Adapter
 
@@ -103,9 +103,13 @@ def get_adapter(event: "AstrMessageEvent") -> PlatformAdapter:
 
     adapter_class = _ADAPTER_REGISTRY[platform_key]
     if adapter_class is None:
-        raise UnsupportedPlatformError(
-            platform_type, f"平台 {platform_type} 的适配器尚未实现"
-        )
+        # 平台已注册但适配器尚未实现（如 qqofficial/gewechat），降级到通用适配器
+        # 而非抛异常——否则钩子链无 try/except 兜底，每条消息都会崩溃。
+        logger.warning(f"平台 {platform_type} 的适配器尚未实现，使用通用适配器降级。")
+        with _ADAPTER_LOCK:
+            if "__generic__" not in _ADAPTER_INSTANCES:
+                _ADAPTER_INSTANCES["__generic__"] = GenericAdapter()
+            return _ADAPTER_INSTANCES["__generic__"]
 
     # 获取或创建适配器实例（单例）
     with _ADAPTER_LOCK:

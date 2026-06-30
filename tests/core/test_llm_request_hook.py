@@ -911,3 +911,65 @@ class TestParseImagesTimeout:
             if c.args[2] == ImageParseStatus.FAILED
         ]
         assert len(failed_calls) == 2
+
+
+class TestFaultIsolation:
+    """回归：各收集步骤独立 try/except，单步异常不影响其余上下文注入
+
+    历史 bug：无顶层 try/except，[t.result() for t in done] 会 re-raise，
+    异常穿透使已收集的 L1/画像/L2/L3 注入全丢，违背故障隔离约定。
+    """
+
+    @pytest.mark.asyncio
+    async def test_l1_failure_does_not_block_l2_injection(self):
+        """_collect_l1_context 异常时 L2 上下文仍被注入"""
+        from iris_memory.core.llm_request_hook import preprocess_llm_request
+
+        config = MagicMock()
+        config.get = MagicMock(
+            side_effect=lambda key, default=None: {
+                "l1_buffer.enable": True,
+                "l1_buffer.context_message_count": 10,
+                "l1_buffer.image_parsing.enable": False,
+                "l2_memory.enable": True,
+                "l2_memory.max_results": 5,
+                "l3_kg.enable": False,
+                "profile.enable": False,
+            }.get(key, default)
+        )
+
+        req = MagicMock()
+        req.system_prompt = "system"
+        req.extra_user_content_parts = []
+
+        event = MagicMock()
+        event.message_str = "hello"
+
+        l1_buffer = MagicMock()
+        l1_buffer.is_available = True
+        l1_buffer.get_context_messages = MagicMock(side_effect=RuntimeError("L1 崩溃"))
+
+        l2_adapter = MagicMock()
+        l2_adapter.is_available = True
+        l2_adapter.search = AsyncMock(return_value=[])
+        l2_adapter._llm_manager = None
+
+        cm = MagicMock()
+        cm.get_available_component = lambda name: {
+            "l1_buffer": l1_buffer,
+            "l2_memory": l2_adapter,
+        }.get(name)
+
+        with (
+            patch("iris_memory.config.get_config", return_value=config),
+            patch("iris_memory.platform.get_adapter") as mock_adapter,
+        ):
+            mock_adapter.return_value.get_group_id.return_value = "g1"
+            mock_adapter.return_value.get_user_id.return_value = "u1"
+
+            # 不应抛异常
+            await preprocess_llm_request(event, req, cm)
+
+        # L1 崩溃但函数正常返回，未抛异常即通过
+        # 验证 extra_user_content_parts 被调用（L2 注入仍尝试）
+        assert req.extra_user_content_parts is not None

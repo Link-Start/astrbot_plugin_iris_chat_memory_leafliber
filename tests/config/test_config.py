@@ -98,6 +98,33 @@ class TestConfig:
         assert len(changes) == 1
         assert changes[0] == ("debug_mode", None, True)
 
+    def test_has_nonexistent_deep_key_returns_false(self, tmp_path: Path):
+        """回归：has() 对不存在的多段键应返回 False
+
+        历史 bug：has() 使用 ``is not None`` 而非 ``is not _UNSET`` 判断用户
+        配置。_get_user_config 找不到键时返回 _UNSET 哨兵对象，而
+        ``_UNSET is not None`` 恒为 True，导致所有 >=2 段键的 has() 错误返回
+        True。修复后使用 ``is not _UNSET`` 正确识别缺失键。
+        """
+        astrbot_config = {}
+
+        hidden_manager = HiddenConfigManager(
+            tmp_path / "hidden_config.json", HiddenConfig()
+        )
+        defaults = Defaults()
+
+        config = Config(astrbot_config, hidden_manager, defaults, tmp_path)
+
+        # 不存在的深层键应返回 False（此前 bug 会返回 True）
+        assert config.has("nonexistent.key.deep") is False
+
+        # 存在于用户配置中的键仍应返回 True，确保修复未破坏正向判断
+        astrbot_config_with_value = {"l1_buffer": {"enable": True}}
+        config_with_value = Config(
+            astrbot_config_with_value, hidden_manager, defaults, tmp_path
+        )
+        assert config_with_value.has("l1_buffer.enable") is True
+
 
 class TestHiddenConfigManager:
     def test_get_set(self, tmp_path: Path):

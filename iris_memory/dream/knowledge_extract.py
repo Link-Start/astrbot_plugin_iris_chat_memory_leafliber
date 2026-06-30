@@ -125,8 +125,16 @@ class KnowledgeExtractPhase:
                         f"{edge_count}/{len(result.edges)} 条边"
                     )
 
-                    for mem in memories:
-                        all_processed_ids.append(mem.id)
+                    # 仅当至少一条写入成功时才标记为已处理，
+                    # 否则全失败的提取应可重试，不应永久跳过。
+                    if node_count > 0 or edge_count > 0:
+                        for mem in memories:
+                            all_processed_ids.append(mem.id)
+                    else:
+                        logger.warning(
+                            f"群组 [{group_key}] 提取结果非空但全部写入失败，"
+                            f"不标记为已处理以便重试"
+                        )
                 else:
                     logger.debug(f"群组 [{group_key}] 提取结果为空，不标记为已处理")
 

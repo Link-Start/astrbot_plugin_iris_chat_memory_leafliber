@@ -210,9 +210,16 @@ MERGED: <合并后的正确记忆内容>
 
             success = await l2.update_content(keep_entry.id, merged_content)
             if success:
+                # update_content 内部已把 metadata["timestamp"] 刷新为 now，
+                # 随后 update_metadata 若用 keep_entry.metadata（陈旧副本）
+                # 整 blob 覆盖写回，会把新 timestamp 覆盖回旧值。修复：
+                # 先同步 timestamp，再写 confidence。
+                from datetime import datetime
+
                 keep_entry.metadata["confidence"] = min(
                     1.0, keep_entry.metadata.get("confidence", 0.5) + 0.1
                 )
+                keep_entry.metadata["timestamp"] = datetime.now().isoformat()
                 await l2.update_metadata(keep_entry.id, keep_entry.metadata)
 
             if delete_ids:

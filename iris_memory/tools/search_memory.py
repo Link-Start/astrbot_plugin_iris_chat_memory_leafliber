@@ -140,17 +140,21 @@ class SearchMemoryTool(FunctionTool[AstrAgentContext]):
 
             retriever = GraphRetriever(l3_adapter)
 
-            memory_node_ids = []
-            for r in results:
-                source_id = r.entry.metadata.get("source_memory_id", "")
-                if source_id:
-                    memory_node_ids.append(source_id)
+            # L2 条目的 metadata 中不含 source_memory_id（该字段是 L3 图节点的
+            # 属性，不是 L2 元数据）。用 L2 条目自身的 id 反查 L3 图节点。
+            memory_ids = [r.entry.id for r in results if r.entry.id]
+            if not memory_ids:
+                return ""
 
-            if not memory_node_ids:
+            # 通过 source_memory_id 反查图节点 ID
+            graph_node_ids = await l3_adapter.get_node_ids_by_source_memory_ids(
+                memory_ids
+            )
+            if not graph_node_ids:
                 return ""
 
             nodes, edges = await retriever.retrieve_with_expansion(
-                memory_node_ids, group_id=group_id
+                graph_node_ids, group_id=group_id
             )
 
             if not nodes:

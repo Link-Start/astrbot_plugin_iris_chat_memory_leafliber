@@ -156,3 +156,55 @@ async def test_save_knowledge_adapter_unavailable(tool, mock_context, monkeypatc
     )
 
     assert "知识图谱不可用" in result
+
+
+@pytest.mark.asyncio
+async def test_save_knowledge_clamps_confidence(
+    tool, mock_context, mock_adapter, mock_component_manager, monkeypatch
+):
+    """回归：节点 confidence 越界时应钳制到 [0.0, 1.0]
+
+    历史 bug：LLM 返回的 confidence（如 1.5 或 -0.3）原样写入 GraphNode，
+    经 max() 合并后被永久固化，破坏遗忘评分语义。修复后使用
+    ``max(0.0, min(1.0, float(raw_conf)))`` 钳制。
+    """
+    monkeypatch.setattr(
+        "iris_memory.tools.save_knowledge.get_component_manager",
+        lambda: mock_component_manager,
+    )
+    monkeypatch.setattr("iris_memory.utils.sanitize_input", lambda x, source="": x)
+
+    mock_platform_adapter = Mock()
+    mock_platform_adapter.get_group_id = Mock(return_value="group_1")
+    monkeypatch.setattr(
+        "iris_memory.platform.get_adapter", Mock(return_value=mock_platform_adapter)
+    )
+    mock_config = Mock()
+    mock_config.get = Mock(return_value=False)
+    monkeypatch.setattr("iris_memory.config.get_config", lambda: mock_config)
+
+    nodes = [
+        {
+            "label": "Person",
+            "name": "OverConfident",
+            "content": "confidence above 1.0",
+            "confidence": 1.5,
+        },
+        {
+            "label": "Person",
+            "name": "UnderConfident",
+            "content": "confidence below 0.0",
+            "confidence": -0.3,
+        },
+    ]
+
+    result = await tool.call(mock_context, nodes=nodes, edges=[])
+
+    assert "成功保存" in result
+    assert mock_adapter.add_node.call_count == 2
+
+    stored_nodes = [call.args[0] for call in mock_adapter.add_node.call_args_list]
+    # 1.5 应被钳制为 1.0
+    assert stored_nodes[0].confidence == 1.0
+    # -0.3 应被钳制为 0.0
+    assert stored_nodes[1].confidence == 0.0

@@ -7,6 +7,7 @@ from iris_memory.profile.models import (
     dict_to_group_profile,
     dict_to_user_profile,
     merge_custom_fields,
+    merge_list_field,
     _find_similar_key,
 )
 
@@ -183,6 +184,19 @@ class TestMergeCustomFields:
         assert changed is False
         assert merged["家乡"] == "北京"
 
+    def test_overwrite_existing_key_with_mid_confidence(self):
+        """回归：confidence=0.7 应能覆盖已有字段值
+
+        此前 existing_confidence=0.5 时，should_overwrite_field 判定为
+        0.7 > 0.5+0.2=0.7 为 False（非严格大于），导致中期更新无法刷新字段。
+        修复后将 existing_confidence 降至 0.4，0.7 > 0.6=True 可覆盖。
+        """
+        existing = {"key": "old"}
+        new_fields = {"key": "new"}
+        merged, changed = merge_custom_fields(existing, new_fields, confidence=0.7)
+        assert changed is True
+        assert merged["key"] == "new"
+
     def test_merge_similar_key(self):
         existing = {"喜欢的食物": "火锅"}
         new_fields = {"爱吃的食物": "烤肉"}
@@ -236,3 +250,16 @@ class TestMergeCustomFields:
         assert len(merged) == 10
         assert "方言" in merged
         assert "家乡" not in merged
+
+
+class TestMergeListField:
+    """merge_list_field 测试"""
+
+    def test_replaces_when_new_values_above_default_threshold(self):
+        """回归：默认 replace_threshold=1，任何非空新值列表都视为完整替换
+
+        此前默认阈值为 5，导致少于 5 项的新列表会被追加而非替换，
+        造成列表字段无限膨胀。修复后将默认阈值降至 1。
+        """
+        result = merge_list_field(["old1", "old2", "old3"], ["new1"])
+        assert result == ["new1"]

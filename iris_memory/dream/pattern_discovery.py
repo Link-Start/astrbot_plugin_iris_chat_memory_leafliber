@@ -338,7 +338,7 @@ CONFIDENCE: <high/medium/low>
             existing = await l3.search_nodes(person_id_str, limit=5)
             person_node_id = None
             for n in existing:
-                if n.get("label") == "Person" and person_id_str in n.get("name", ""):
+                if n.get("label") == "Person" and n.get("name", "") == person_id_str:
                     person_node_id = n["id"]
                     break
 

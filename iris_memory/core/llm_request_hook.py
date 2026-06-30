@@ -98,11 +98,35 @@ async def preprocess_llm_request(
         req: LLM 提供者请求对象
         component_manager: 组件管理器实例
     """
-    await _parse_images_if_related_mode(event, req, component_manager)
+    # 故障隔离：每个步骤独立 try/except，单步异常不影响其余已收集的上下文。
+    # 历史 bug：无顶层 try/except，[t.result() for t in done] 会 re-raise，
+    # 异常穿透使已收集的 L1/画像/L2/L3 注入全丢，违背故障隔离约定。
 
-    l1_text = await _collect_l1_context(event, req, component_manager)
-    profile_text = await _collect_user_profile(event, component_manager)
-    l2_text, l2_results = await _collect_l2_memory(event, component_manager)
+    l1_text = ""
+    profile_text = ""
+    l2_text = ""
+    l2_results = []
+    l3_text = ""
+
+    try:
+        await _parse_images_if_related_mode(event, req, component_manager)
+    except Exception as e:
+        logger.error(f"图片解析（related 模式）失败，已隔离：{e}", exc_info=True)
+
+    try:
+        l1_text = await _collect_l1_context(event, req, component_manager)
+    except Exception as e:
+        logger.error(f"L1 上下文收集失败，已隔离：{e}", exc_info=True)
+
+    try:
+        profile_text = await _collect_user_profile(event, component_manager)
+    except Exception as e:
+        logger.error(f"用户画像收集失败，已隔离：{e}", exc_info=True)
+
+    try:
+        l2_text, l2_results = await _collect_l2_memory(event, component_manager)
+    except Exception as e:
+        logger.error(f"L2 记忆检索失败，已隔离：{e}", exc_info=True)
 
     user_message = ""
     if hasattr(event, "message_str") and event.message_str:
@@ -110,9 +134,12 @@ async def preprocess_llm_request(
     elif hasattr(event, "get_message_str"):
         user_message = event.get_message_str()
 
-    l3_text = await _collect_l3_knowledge_graph(
-        event, component_manager, l2_results, user_message
-    )
+    try:
+        l3_text = await _collect_l3_knowledge_graph(
+            event, component_manager, l2_results, user_message
+        )
+    except Exception as e:
+        logger.error(f"L3 知识图谱检索失败，已隔离：{e}", exc_info=True)
 
     _inject_to_extra_user_content_parts(req, l1_text, profile_text, l2_text, l3_text)
 
@@ -754,15 +781,16 @@ async def _collect_l3_knowledge_graph(
 
         l3_max_tokens = cast(int, config.get("l3_max_inject_tokens", 600))
 
-        graph_text = retriever.format_for_context(
+        graph_text, included_node_ids = retriever.format_for_context(
             list(all_nodes.values()),
             list(all_edges.values()),
             max_tokens=l3_max_tokens,
         )
 
         if graph_text:
-            node_ids = [nid for nid in all_nodes.keys()]
-            await retriever.update_access_count(node_ids)
+            # 仅对实际注入文本的节点更新访问计数，避免被 token 预算
+            # 裁剪掉的节点 access_count 被错误抬升，污染淘汰评分
+            await retriever.update_access_count(list(included_node_ids))
 
             logger.debug(f"图谱检索完成（{len(all_nodes)} 节点，{len(all_edges)} 边）")
 

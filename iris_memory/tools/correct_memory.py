@@ -144,7 +144,7 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
             if l3_adapter and l3_adapter._is_available:
                 try:
                     node_id = await l3_adapter.update_node_content_by_source_memory(
-                        memory_id, correction
+                        memory_id, correction, new_source_memory_id=new_id
                     )
                     if node_id:
                         kg_message = "已更新知识图谱中的相关节点"

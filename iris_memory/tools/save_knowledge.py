@@ -139,12 +139,16 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
             # 构建 GraphNode 对象
             graph_nodes = []
             for node_data in nodes:
+                # 钳制 confidence 到 [0.0, 1.0]，防止 LLM 返回越界值
+                # 经 max() 合并后被永久固化，破坏遗忘评分语义
+                raw_conf = node_data.get("confidence", 1.0)
+                clamped_conf = max(0.0, min(1.0, float(raw_conf)))
                 node = GraphNode(
                     id="",
                     label=node_data["label"],
                     name=node_data["name"],
                     content=node_data["content"],
-                    confidence=node_data.get("confidence", 1.0),
+                    confidence=clamped_conf,
                     group_id=group_id,
                 )
                 node.id = node.generate_id()
@@ -162,7 +166,7 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
                         source_id=source_id,
                         target_id=target_id,
                         relation_type=edge_data["relation_type"],
-                        confidence=edge_data.get("confidence", 1.0),
+                        confidence=max(0.0, min(1.0, float(edge_data.get("confidence", 1.0)))),
                     )
                     graph_edges.append(edge)
 

@@ -674,7 +674,20 @@ async def _parse_images_if_enabled(
         return
 
     image_infos = [info for _img, info in parse_pairs]
-    parse_results = await parser.parse_batch(image_infos)
+    try:
+        parse_results = await parser.parse_batch(image_infos)
+    except Exception as e:
+        logger.error(f"parse_batch 异常，退还全部预扣配额：{e}", exc_info=True)
+        if quota_manager and quota_manager.is_available:
+            await quota_manager.release_quota(len(images_to_parse))
+        # 标记所有可解析图片为 FAILED 并清占位符
+        for img_item, _info in parse_pairs:
+            l1_buffer.mark_image_parsed(
+                group_id, img_item.image_hash, ImageParseStatus.FAILED
+            )
+            placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
+            l1_buffer.replace_image_placeholder(group_id, placeholder, "")
+        return
 
     success_count = 0
     for (img_item, _info), result in zip(parse_pairs, parse_results):

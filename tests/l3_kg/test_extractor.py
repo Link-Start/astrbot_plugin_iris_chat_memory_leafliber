@@ -243,3 +243,30 @@ class TestEntityExtractor:
 
         assert len(result.edges) == 1
         assert result.edges[0].relation_type == "CUSTOM_RELATION"
+
+    def test_parse_source_memory_ids_joined_by_comma(self, extractor):
+        """回归：source_memory_ids 列表应全部用逗号拼接，而非仅取 [0]
+
+        此前 node.source_memory_id 仅取 context["source_memory_ids"][0]，
+        导致多来源记忆的引用丢失。修复后用 ",".join 拼接全部 ID。
+        """
+        llm_response = """{
+  "nodes": [
+    {
+      "label": "Person",
+      "name": "Alice",
+      "content": "软件工程师",
+      "confidence": 0.9
+    }
+  ],
+  "edges": [],
+  "extraction_confidence": 0.9
+}"""
+
+        context = {"group_id": "group_123", "source_memory_ids": ["mem_1", "mem_2"]}
+
+        result = extractor._parse_extraction_result(llm_response, context)
+
+        assert len(result.nodes) == 1
+        node = result.nodes[0]
+        assert node.source_memory_id == "mem_1,mem_2"

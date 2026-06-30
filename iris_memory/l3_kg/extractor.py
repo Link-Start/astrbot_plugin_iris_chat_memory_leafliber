@@ -259,7 +259,7 @@ class EntityExtractor:
                     content=content,
                     confidence=node_data.get("confidence", 1.0),
                     source_memory_id=(
-                        context.get("source_memory_ids", [None])[0]
+                        ",".join(context["source_memory_ids"])
                         if context.get("source_memory_ids")
                         else context.get("source_memory_id")
                     ),
@@ -336,7 +336,20 @@ class EntityExtractor:
                 return exact_id
 
         for key, nid in node_key_to_id.items():
+            if label and key.endswith(f":{name}"):
+                # 回退匹配时优先要求 label 一致，避免同名不同 label 的节点错连
+                # （如 Skill:Python 与 Preference:Python）
+                key_label = key.rsplit(":", 1)[0] if ":" in key else ""
+                if key_label == label:
+                    return nid
+
+        # label 不一致时仍允许按 name 回退，但记录警告
+        for key, nid in node_key_to_id.items():
             if key.endswith(f":{name}"):
+                logger.warning(
+                    f"节点名称回退匹配：'{name}' 存在同名不同 label 的节点，"
+                    f"使用 {key}（可能非预期）"
+                )
                 return nid
 
         return None

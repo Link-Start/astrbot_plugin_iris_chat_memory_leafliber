@@ -11,7 +11,12 @@ DreamTask 梦境任务测试
 import pytest
 from unittest.mock import Mock, patch
 
-from iris_memory.dream.dream_task import DreamTask, DreamReport, DreamPhaseReport
+from iris_memory.dream.dream_task import (
+    DreamTask,
+    DreamReport,
+    DreamPhaseReport,
+    _PHASES_THAT_MUTATE_ENTRIES,
+)
 
 
 class TestDreamReport:
@@ -77,6 +82,14 @@ class TestDreamTask:
 
     def test_init(self, dream_task):
         assert dream_task._component_manager is not None
+
+    def test_temporal_anchor_in_mutating_phases(self):
+        """回归：temporal_anchor 必须在 _PHASES_THAT_MUTATE_ENTRIES 中
+
+        temporal_anchor 阶段会修改 L2 entries（将相对时间表达锚定为绝对时间），
+        因此执行后必须使缓存的 entries 失效以重载，否则后续阶段使用过期缓存。
+        """
+        assert "temporal_anchor" in _PHASES_THAT_MUTATE_ENTRIES
 
     @pytest.mark.asyncio
     async def test_execute_dream_disabled(self, dream_task):

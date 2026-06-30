@@ -1,7 +1,7 @@
 """画像分析器测试"""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 import json
 
 from iris_memory.profile.analyzer import ProfileAnalyzer
@@ -112,3 +112,38 @@ class TestProfileAnalyzer:
         assert "用户消息1" in prompt
         assert "用户消息2" in prompt
         assert "外向" in prompt
+
+    @pytest.mark.asyncio
+    async def test_group_analysis_truncates_to_newest_messages(
+        self, analyzer, mock_llm_manager
+    ):
+        """回归：消息超过 max_messages 时应保留最新（末尾）的消息
+
+        历史 bug：使用 ``messages[:max_messages]`` 保留最旧的 N 条，丢弃了
+        最近对话。修复后使用 ``messages[-max_messages:]`` 保留最新的 N 条。
+        """
+        mock_llm_manager.generate_direct.return_value = "{}"
+        messages = [f"message-{i}" for i in range(10)]
+        current_profile = {}
+
+        mock_config = MagicMock()
+        mock_config.get = MagicMock(
+            side_effect=lambda key, default=None: {
+                "profile_max_messages_for_analysis": 5,
+            }.get(key, default)
+        )
+
+        with patch(
+            "iris_memory.profile.analyzer.get_config", return_value=mock_config
+        ):
+            await analyzer.analyze_group_profile(messages, current_profile)
+
+        mock_llm_manager.generate_direct.assert_called_once()
+        prompt = mock_llm_manager.generate_direct.call_args.kwargs["prompt"]
+
+        # 最新的 5 条（message-5 .. message-9）应出现在 prompt 中
+        for i in range(5, 10):
+            assert f"message-{i}" in prompt
+        # 最旧的 5 条（message-0 .. message-4）不应出现在 prompt 中
+        for i in range(0, 5):
+            assert f"message-{i}" not in prompt

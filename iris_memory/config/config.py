@@ -270,7 +270,7 @@ class Config:
 
         # 检查用户配置
         if len(parts) >= 2:
-            if self._get_user_config(flat_key) is not None:
+            if self._get_user_config(flat_key) is not _UNSET:
                 return True
 
         # 检查隐藏配置

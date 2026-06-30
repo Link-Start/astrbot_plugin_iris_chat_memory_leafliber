@@ -123,3 +123,43 @@ CONFIDENCE: medium"""
         assert _TYPE_TO_RELATION["Belief"] == "HAS_BELIEF"
         assert _TYPE_TO_RELATION["Goal"] == "HAS_GOAL"
         assert _TYPE_TO_RELATION["Skill"] == "HAS_SKILL"
+
+    @pytest.mark.asyncio
+    async def test_link_to_person_uses_exact_name_match(self, phase):
+        """回归：_link_to_person 应使用精确名称匹配，而非子串匹配
+
+        历史 bug：使用 ``person_id_str in n.get("name", "")`` 子串匹配，
+        导致搜索 "alice" 时会错误命中 "malice"（"alice" in "malice" 为 True）。
+        修复后使用 ``n.get("name", "") == person_id_str`` 精确匹配。
+
+        将 "malice" 放在搜索结果首位以暴露 bug：子串匹配会先命中 "malice"，
+        而精确匹配只会命中 "alice"。
+        """
+        l3 = Mock()
+        l3.is_available = True
+        l3.search_nodes = AsyncMock(
+            return_value=[
+                {"id": "malice_id", "label": "Person", "name": "malice"},
+                {"id": "alice_id", "label": "Person", "name": "alice"},
+            ]
+        )
+        l3.add_node = AsyncMock(return_value=True)
+        l3.add_edge = AsyncMock(return_value=True)
+
+        await phase._link_to_person(
+            l3,
+            person_id_str="alice",
+            target_node_id="target_node_id",
+            node_type="Trait",
+            group_key="_all",
+            confidence=0.7,
+        )
+
+        # 应精确匹配到 "alice"，而非子串命中的 "malice"
+        l3.add_edge.assert_called_once()
+        edge = l3.add_edge.call_args.args[0]
+        assert edge.source_id == "alice_id"
+        assert edge.target_id == "target_node_id"
+
+        # alice 已存在，不应创建新的 Person 节点
+        l3.add_node.assert_not_called()

@@ -245,7 +245,10 @@ def should_evict(
         True
     """
     config = get_config()
-    evict_threshold = cast(float, config.get("forgetting_threshold", 0.3))
+    # 形参 threshold 优先；未显式传入时回退到配置值。与 should_evict_kg_node
+    # 保持一致——此前形参被静默忽略，调用方传入的 threshold 被丢弃。
+    config_threshold = cast(float, config.get("forgetting_threshold", 0.3))
+    evict_threshold = threshold if threshold != 0.3 else config_threshold
     immediate_threshold = cast(
         float, config.get("forgetting_immediate_eviction_threshold", 0.1)
     )

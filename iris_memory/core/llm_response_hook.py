@@ -32,6 +32,7 @@ async def handle_llm_response(
         component_manager: 组件管理器实例
     """
     from iris_memory.platform import get_adapter
+    from iris_memory.core.persona import resolve_persona
 
     # 提取助手响应内容
     assistant_msg = resp.completion_text
@@ -51,8 +52,17 @@ async def handle_llm_response(
     adapter = get_adapter(event)
     group_id = adapter.get_group_id(event)
 
+    # 解析 persona_id：助手响应必须携带正确人格归属，
+    # 否则 buffer.py 用 messages[-1].persona_id 决定画像与 L2 摘要归属时，
+    # default 占位会污染人格命名空间。
+    persona_id = await resolve_persona(component_manager, event)
+
     await l1_buffer.add_message(
-        group_id=group_id, role="assistant", content=assistant_msg, source="assistant"
+        group_id=group_id,
+        role="assistant",
+        content=assistant_msg,
+        source="assistant",
+        persona_id=persona_id,
     )
 
     logger.debug(f"已添加助手响应到群聊 {group_id} 的 L1 Buffer")

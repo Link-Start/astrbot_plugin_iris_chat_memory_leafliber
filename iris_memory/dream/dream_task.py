@@ -74,7 +74,7 @@ _PHASE_CONFIG_KEYS = {
     "pruning": "scheduled_tasks.dream_enable_pruning",
 }
 
-_PHASES_THAT_MUTATE_ENTRIES = {"consolidation", "contradiction"}
+_PHASES_THAT_MUTATE_ENTRIES = {"consolidation", "contradiction", "temporal_anchor"}
 
 
 class DreamTask:

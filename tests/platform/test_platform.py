@@ -497,6 +497,23 @@ class TestBaseAdapterGetMsgById:
 class TestGetMentionedUsers:
     """get_mentioned_users 测试（@用户定向功能回归）"""
 
+    def test_factory_degrades_unimplemented_platform(self):
+        """回归：已注册未实现的平台降级到 GenericAdapter，不抛异常
+
+        历史 bug：qqofficial/gewechat 已注册但 adapter_class=None，
+        get_adapter 抛 UnsupportedPlatformError，钩子链无 try/except 兜底，
+        每条消息崩溃。
+        """
+        event = Mock()
+        event.platform_meta = Mock()
+        event.platform_meta.name = "qqofficial"
+        event.platform_meta.id = "test_bot"
+
+        adapter = get_adapter(event)
+        assert isinstance(adapter, GenericAdapter), (
+            "已注册未实现的平台应降级到 GenericAdapter，不抛异常"
+        )
+
     def test_base_default_returns_empty(self):
         """基类默认实现返回空列表"""
 

@@ -117,16 +117,64 @@ async def update_hidden_config():
     try:
         config = get_config()
         data = await request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "请求正文为空或格式错误"}), 400
         updates = data.get("updates", {})
 
         if not updates:
             return jsonify({"success": False, "error": "未提供更新内容"}), 400
 
-        valid_keys = {f.name for f in fields(HiddenConfig)}
-        invalid_keys = [k for k in updates if k not in valid_keys]
+        # 构建字段名→类型映射，校验键名和值类型
+        field_types = {}
+        for f in fields(HiddenConfig):
+            type_name = (
+                f.type
+                if isinstance(f.type, str)
+                else getattr(f.type, "__name__", str(f.type))
+            )
+            # 解析 "int" / "float" / "str" / "bool" 类型注解
+            if "int" in type_name:
+                field_types[f.name] = (int, "整数")
+            elif "float" in type_name:
+                field_types[f.name] = (float, "浮点数")
+            elif "str" in type_name:
+                field_types[f.name] = (str, "字符串")
+            elif "bool" in type_name:
+                field_types[f.name] = (bool, "布尔值")
+
+        invalid_keys = [k for k in updates if k not in field_types]
         if invalid_keys:
             return jsonify(
                 {"success": False, "error": f"无效的配置键: {', '.join(invalid_keys)}"}
+            ), 400
+
+        # 校验值类型：字符串污染下游算术/wait_for
+        type_errors = []
+        for key, value in updates.items():
+            expected_type, type_label = field_types[key]
+            # bool 是 int 的子类，需单独检查：不允许用 int 给 bool 字段
+            if expected_type is bool and not isinstance(value, bool):
+                type_errors.append(
+                    f"{key} 需要{type_label}，实际 {type(value).__name__}"
+                )
+            elif expected_type is int and isinstance(value, bool):
+                type_errors.append(f"{key} 需要整数，实际布尔值")
+            elif expected_type is int and not isinstance(value, int):
+                type_errors.append(
+                    f"{key} 需要{type_label}，实际 {type(value).__name__}"
+                )
+            elif expected_type is float and not isinstance(value, (int, float)):
+                type_errors.append(
+                    f"{key} 需要{type_label}，实际 {type(value).__name__}"
+                )
+            elif expected_type is str and not isinstance(value, str):
+                type_errors.append(
+                    f"{key} 需要{type_label}，实际 {type(value).__name__}"
+                )
+
+        if type_errors:
+            return jsonify(
+                {"success": False, "error": "类型错误: " + "; ".join(type_errors)}
             ), 400
 
         config.update_hidden(updates)

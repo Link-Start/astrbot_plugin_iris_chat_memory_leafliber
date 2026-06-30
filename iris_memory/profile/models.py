@@ -423,7 +423,7 @@ def merge_list_field(
     existing: List[str],
     new_values: List[str],
     max_items: int = 10,
-    replace_threshold: int = 5,
+    replace_threshold: int = 1,
 ) -> List[str]:
     """智能合并列表字段
 
@@ -582,14 +582,18 @@ def merge_custom_fields(
             continue
 
         if new_key in merged:
-            if should_overwrite_field(merged[new_key], new_value, 0.5, confidence):
+            # 精确匹配：LLM 显式提供了该 key 的更新值，按置信度决定覆盖。
+            # 此前用 existing_confidence=0.5 导致中期更新（confidence=0.7）
+            # 无法刷新（0.7 > 0.5+0.2=0.7 为 False，非严格大于）。
+            # 降至 0.4 使 0.7 > 0.6=True 可覆盖，0.3 > 0.6=False 仍不覆盖。
+            if should_overwrite_field(merged[new_key], new_value, 0.4, confidence):
                 merged[new_key] = new_value
                 changed = True
             continue
 
         similar_key = _find_similar_key(merged, new_key, similarity_threshold)
         if similar_key is not None:
-            if should_overwrite_field(merged[similar_key], new_value, 0.5, confidence):
+            if should_overwrite_field(merged[similar_key], new_value, 0.4, confidence):
                 merged[similar_key] = new_value
                 changed = True
             continue
