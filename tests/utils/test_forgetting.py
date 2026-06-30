@@ -302,3 +302,45 @@ class TestShouldEvict:
 
                 # threshold=0.3：evict_threshold=配置值 0.3，0.4 >= 0.3 → 不淘汰
                 assert not should_evict(entry, threshold=0.3, retention_days=30)
+
+    def test_should_evict_subjectless_accelerated(self, mock_config):
+        """回归：subjectless 标记的记忆应加速淘汰
+
+        无主体记忆（总结时未能关联到具体用户）在遗忘清洗时阈值提高 20%，
+        使其比同等条件的正常记忆更容易被淘汰。
+        以 forgetting_score=0.34 为例：
+        - 正常记忆：evict_threshold=0.3，0.34 >= 0.3 → 不淘汰
+        - subjectless 记忆：evict_threshold=0.3*1.2=0.36，0.34 < 0.36 → 淘汰
+        """
+        # 正常记忆（有 user_id）
+        normal_entry = MemoryEntry(
+            id="mem_normal",
+            content="张三喜欢Python编程",
+            metadata={
+                "access_count": 0,
+                "confidence": 0.34,
+                "user_id": "532706126",
+            },
+        )
+
+        # 无主体记忆（无 user_id，标记 subjectless）
+        subjectless_entry = MemoryEntry(
+            id="mem_subjectless",
+            content="有特定角色偏好",
+            metadata={
+                "access_count": 0,
+                "confidence": 0.34,
+                "subjectless": True,
+            },
+        )
+
+        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+            with patch(
+                "iris_memory.utils.forgetting.calculate_forgetting_score",
+                return_value=0.34,
+            ):
+                # 正常记忆：0.34 >= 0.3，不淘汰
+                assert not should_evict(normal_entry, retention_days=30)
+
+                # 无主体记忆：0.34 < 0.3*1.2=0.36，且无访问记录 → 淘汰
+                assert should_evict(subjectless_entry, retention_days=30)

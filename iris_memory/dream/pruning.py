@@ -65,6 +65,7 @@ class PruningPhase:
             "l3_evicted": 0,
             "l2_low_confidence_marked": 0,
             "l3_low_confidence_marked": 0,
+            "l3_orphaned_removed": 0,
         }
 
         l2_marked = await self._mark_low_confidence_l2(l2, entries)
@@ -77,12 +78,17 @@ class PruningPhase:
             result["l3_merged"] = merged
             l3_marked = await self._mark_low_confidence_l3(l3)
             result["l3_low_confidence_marked"] = l3_marked
+            # 无主节点清理：在遗忘淘汰之前，先定向清除无 Person 关联的
+            # 主体绑定类型节点（Preference/Trait/Belief/Goal/Skill）
+            orphaned_removed = await self._cleanup_orphaned_subject_nodes(l3)
+            result["l3_orphaned_removed"] = orphaned_removed
             l3_evicted = await self._evict_l3_nodes(l3, llm)
             result["l3_evicted"] = l3_evicted
 
         logger.info(
             f"遗忘清洗完成：L2 淘汰 {result['l2_evicted']}，"
-            f"L3 合并 {result['l3_merged']}，L3 淘汰 {result['l3_evicted']}"
+            f"L3 合并 {result['l3_merged']}，L3 淘汰 {result['l3_evicted']}，"
+            f"L3 无主清理 {result['l3_orphaned_removed']}"
         )
         return result
 
@@ -172,6 +178,33 @@ class PruningPhase:
         except Exception as e:
             logger.error(f"L3 去重合并失败：{e}", exc_info=True)
             return 0, 0
+
+    async def _cleanup_orphaned_subject_nodes(self, l3: "L3KGAdapter") -> int:
+        """清理无 Person 关联的主体绑定类型节点（无主节点）
+
+        Preference/Trait/Belief/Goal/Skill 类型的节点如果没有连接到
+        Person 节点的边，则无法确定主体是谁（如"有特定角色偏好"但
+        不知道是谁的偏好），这类节点应当被删除。
+
+        在遗忘淘汰之前执行，因为这些节点的遗忘评分可能不足以触发淘汰
+        （新建节点置信度尚可、时间戳较新），但它们对用户没有任何价值。
+        """
+        try:
+            orphaned = await l3.find_orphaned_subject_nodes()
+            if not orphaned:
+                return 0
+
+            orphaned_ids = [n["id"] for n in orphaned]
+            removed = await l3.evict_nodes(orphaned_ids)
+
+            logger.info(
+                f"无主节点清理：删除 {removed} 个无 Person 关联的节点："
+                f"{[n['name'] for n in orphaned]}"
+            )
+            return removed
+        except Exception as e:
+            logger.error(f"无主节点清理失败：{e}", exc_info=True)
+            return 0
 
     async def _mark_low_confidence_l3(self, l3: "L3KGAdapter") -> int:
         try:

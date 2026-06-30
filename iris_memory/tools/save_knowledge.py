@@ -174,6 +174,32 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
             added_nodes = 0
             added_edges = 0
 
+            # 主体关联检查：对缺少 Person 边的主体绑定类型节点降级置信度
+            # 不阻止保存——这些节点可能仍有价值，降级后由梦境遗忘清洗处理
+            _SUBJECT_LABELS = {"Preference", "Trait", "Belief", "Goal", "Skill"}
+            nodes_with_person_edge: set[str] = set()
+            for edge in graph_edges:
+                source_node = next((n for n in graph_nodes if n.id == edge.source_id), None)
+                target_node = next((n for n in graph_nodes if n.id == edge.target_id), None)
+                if source_node and target_node:
+                    if source_node.label == "Person" and target_node.label in _SUBJECT_LABELS:
+                        nodes_with_person_edge.add(target_node.id)
+                    if target_node.label == "Person" and source_node.label in _SUBJECT_LABELS:
+                        nodes_with_person_edge.add(source_node.id)
+
+            orphaned = [
+                n for n in graph_nodes
+                if n.label in _SUBJECT_LABELS and n.id not in nodes_with_person_edge
+            ]
+            if orphaned:
+                for n in orphaned:
+                    n.confidence = min(n.confidence, 0.4)
+                    n.properties["orphaned_subject"] = "true"
+                logger.warning(
+                    f"保存知识：{len(orphaned)} 个 {_SUBJECT_LABELS} 节点缺少 "
+                    f"Person 关联边，已降级置信度：{[n.name for n in orphaned]}"
+                )
+
             for node in graph_nodes:
                 if await kg_adapter.add_node(node):
                     added_nodes += 1
@@ -182,8 +208,11 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
                 if await kg_adapter.add_edge(edge):
                     added_edges += 1
 
-            logger.info(f"手动保存知识：{added_nodes} 个节点，{added_edges} 条边")
-            return f"成功保存 {added_nodes} 个节点和 {added_edges} 条边到知识图谱"
+            msg = f"成功保存 {added_nodes} 个节点和 {added_edges} 条边到知识图谱"
+            if orphaned:
+                msg += f"（{len(orphaned)} 个节点因缺少主体关联已降级置信度）"
+            logger.info(msg)
+            return msg
 
         except Exception as e:
             logger.error(f"保存知识失败：{e}")

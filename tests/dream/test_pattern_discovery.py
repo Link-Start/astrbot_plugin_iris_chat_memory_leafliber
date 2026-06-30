@@ -163,3 +163,35 @@ CONFIDENCE: medium"""
 
         # alice 已存在，不应创建新的 Person 节点
         l3.add_node.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_write_pattern_skips_subjectless_node(self, phase):
+        """回归：_write_pattern 在 person 字段为空时跳过创建 L3 节点
+
+        此前 person_id 为空仍创建节点，导致无主节点（如"有特定角色偏好"
+        不知道是谁的偏好）无法关联到用户，成为图谱中的孤儿。修复后当
+        PERSON 字段为空时直接返回，不调用 l3.add_node。
+        """
+        l2 = Mock()
+        l2.add_memory = AsyncMock(return_value="mem_new_id")
+        l3 = Mock()
+        l3.is_available = True
+        l3.add_node = AsyncMock(return_value=True)
+        l3.add_edge = AsyncMock(return_value=True)
+
+        pattern = {
+            "type": "Preference",
+            "person": "",
+            "description": "有特定角色偏好",
+            "evidence": "1,3",
+            "confidence": "high",
+        }
+
+        written = await phase._write_pattern(pattern, "_all", l2, l3)
+
+        # L2 仍然写入
+        l2.add_memory.assert_called_once()
+        # 返回 True（L2 写入成功），但 L3 不应创建节点
+        assert written is True
+        l3.add_node.assert_not_called()
+        l3.add_edge.assert_not_called()

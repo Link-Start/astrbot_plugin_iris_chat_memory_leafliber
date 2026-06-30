@@ -208,3 +208,63 @@ async def test_save_knowledge_clamps_confidence(
     assert stored_nodes[0].confidence == 1.0
     # -0.3 应被钳制为 0.0
     assert stored_nodes[1].confidence == 0.0
+
+
+@pytest.mark.asyncio
+async def test_save_knowledge_skips_subjectless_preference(
+    tool, mock_context, mock_adapter, mock_component_manager, monkeypatch
+):
+    """回归：save_knowledge 降级无 Person 关联的主体绑定节点
+
+    Preference/Trait/Belief/Goal/Skill 节点缺少 Person 关联边时，
+    不再硬阻止保存（避免误伤有用信息），而是降级置信度并标记，
+    交由梦境遗忘清洗按综合评分处理。
+    """
+    monkeypatch.setattr(
+        "iris_memory.tools.save_knowledge.get_component_manager",
+        lambda: mock_component_manager,
+    )
+    monkeypatch.setattr("iris_memory.utils.sanitize_input", lambda x, source="": x)
+
+    mock_platform_adapter = Mock()
+    mock_platform_adapter.get_group_id = Mock(return_value="group_1")
+    monkeypatch.setattr(
+        "iris_memory.platform.get_adapter", Mock(return_value=mock_platform_adapter)
+    )
+    mock_config = Mock()
+    mock_config.get = Mock(return_value=False)
+    monkeypatch.setattr("iris_memory.config.get_config", lambda: mock_config)
+
+    # Person 节点 + Preference 节点（无 Person 边，应被降级但仍保存）
+    nodes = [
+        {
+            "label": "Person",
+            "name": "Alice",
+            "content": "Alice 是一名工程师",
+            "confidence": 0.9,
+        },
+        {
+            "label": "Preference",
+            "name": "角色偏好",
+            "content": "有特定角色偏好",
+            "confidence": 0.8,
+        },
+    ]
+
+    result = await tool.call(mock_context, nodes=nodes, edges=[])
+
+    # 返回信息包含"降级"
+    assert "降级" in result
+
+    # 两个节点都被保存（不阻止保存）
+    assert mock_adapter.add_node.call_count == 2
+
+    # Preference 节点被降级置信度
+    saved_nodes = [call.args[0] for call in mock_adapter.add_node.call_args_list]
+    pref_node = next(n for n in saved_nodes if n.label == "Preference")
+    assert pref_node.confidence <= 0.4
+    assert pref_node.properties.get("orphaned_subject") == "true"
+
+    # Person 节点保持原置信度
+    person_node = next(n for n in saved_nodes if n.label == "Person")
+    assert person_node.confidence == 0.9

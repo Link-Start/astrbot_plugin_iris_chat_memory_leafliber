@@ -221,6 +221,7 @@ def should_evict(
     1. 遗忘评分极低（低于 immediate_eviction_threshold），无需等待保留期直接淘汰
     2. 遗忘评分低于阈值 且 距上次访问超过保留期
     3. 被标记为低置信度的记忆，阈值提高 30% 以加速淘汰
+    4. 被标记为无主体的记忆（subjectless），阈值提高 20% 以加速淘汰
 
     Args:
         entry: 记忆条目
@@ -255,6 +256,13 @@ def should_evict(
 
     if entry.metadata.get("low_confidence"):
         evict_threshold *= 1.3
+
+    # 无主体记忆（总结时未能关联到具体用户）加速淘汰：
+    # 这类记忆无法在下游 L3 图谱中建立 Person 关联，长期占据 L2 无实际价值。
+    # 提高淘汰阈值 20%（比 low_confidence 的 30% 温和，因为提示词优化后
+    # LLM 已尽量包含主体，仍无主体的可能是群聊通用话题）。
+    if entry.metadata.get("subjectless"):
+        evict_threshold *= 1.2
 
     score = calculate_forgetting_score(entry)
 

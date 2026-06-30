@@ -1,7 +1,7 @@
 <template>
   <div class="l3-sidebar">
     <!-- 统一搜索 -->
-    <v-card color="surface" variant="flat" class="mb-3">
+    <v-card color="surface" variant="flat" class="mb-3 iris-card iris-card-hover">
       <v-card-text class="pb-2">
         <v-text-field
           v-model="keyword"
@@ -78,7 +78,7 @@
     </v-card>
 
     <!-- 图谱控制 -->
-    <v-card color="surface" variant="flat" class="mb-3">
+    <v-card color="surface" variant="flat" class="mb-3 iris-card iris-card-hover">
       <v-card-text>
         <div class="text-subtitle-2 mb-3 iris-section-title">
           <v-icon icon="mdi-tune" size="small" class="mr-1" />
@@ -144,7 +144,7 @@
     </v-card>
 
     <!-- 过滤器 -->
-    <v-card color="surface" variant="flat" class="mb-3">
+    <v-card color="surface" variant="flat" class="mb-3 iris-card iris-card-hover">
       <v-card-text>
         <div class="d-flex align-center mb-3">
           <v-icon icon="mdi-filter-variant" size="small" class="mr-1" />
@@ -229,7 +229,7 @@
     </v-card>
 
     <!-- 全局统计 -->
-    <v-card color="surface" variant="flat" class="mb-3">
+    <v-card color="surface" variant="flat" class="mb-3 iris-card iris-card-hover">
       <v-card-text>
         <div class="text-subtitle-2 mb-3 iris-section-title">
           <v-icon icon="mdi-chart-box" size="small" class="mr-1" />
@@ -268,7 +268,7 @@
     </v-card>
 
     <!-- 图例 -->
-    <v-card color="surface" variant="flat">
+    <v-card color="surface" variant="flat" class="iris-card iris-card-hover">
       <v-card-text>
         <div class="text-subtitle-2 mb-2 iris-section-title">
           <v-icon icon="mdi-palette" size="small" class="mr-1" />
@@ -402,17 +402,6 @@ const handleClearSearch = () => {
 
 .l3-sidebar::-webkit-scrollbar-thumb:hover {
   background: rgba(var(--v-theme-on-surface), 0.32);
-}
-
-/* 卡片统一圆角与阴影（与全局 iris-card 保持一致：12px） */
-.l3-sidebar :deep(.v-card) {
-  border-radius: var(--iris-card-radius, 12px) !important;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.06);
-  transition: box-shadow 0.2s ease;
-}
-
-.l3-sidebar :deep(.v-card:hover) {
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
 }
 
 /* 分区标题统一风格（与 iris-section-title 协同） */

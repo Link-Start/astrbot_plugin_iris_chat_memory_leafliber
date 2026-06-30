@@ -316,20 +316,14 @@ class ConsolidationPhase:
         self, content1: str, content2: str, llm_manager: "LLMManager"
     ) -> Optional[str]:
         try:
-            prompt = f"""请将以下两条关于同一话题的记忆归拢为一条更完整、更准确的话题摘要。
+            prompt = f"""将以下两条关于同一话题的记忆合并为一条更完整的摘要。
 
 记忆1：{content1}
-
 记忆2：{content2}
 
-要求：
-1. 合并重复信息，归拢同一话题的所有细节
-2. 保留每条记忆中独特的细节和信息
-3. 如果有时间信息冲突，保留更近期的
-4. 生成一条简洁清晰的话题摘要
-5. 仅输出合并后的记忆内容，不要添加额外说明
+要求：合并重复信息，保留独特细节，时间冲突保留更近期的。仅输出合并后的内容。
 
-合并后的记忆："""
+合并后："""
 
             merged = await llm_manager.generate_direct(
                 prompt=prompt, module="dream_consolidation"

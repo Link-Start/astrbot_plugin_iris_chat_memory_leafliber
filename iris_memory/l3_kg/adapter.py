@@ -1072,6 +1072,60 @@ class L3KGAdapter(Component):
             logger.error(f"获取节点连接数失败：{e}")
             return {}
 
+    async def find_orphaned_subject_nodes(
+        self,
+        subject_labels: set[str] | None = None,
+        max_confidence: float = 0.5,
+    ) -> list[dict]:
+        """查找无 Person 关联且置信度低于阈值的主体绑定类型节点
+
+        这些节点（如 Preference/Trait/Belief/Goal/Skill）描述的是"某人的属性"，
+        但没有任何边连接到 Person 节点，因此无法确定主体是谁。
+        仅返回置信度低于 max_confidence 的节点，避免误删高置信度的有用信息。
+
+        Args:
+            subject_labels: 需要绑定 Person 的节点类型集合。
+                            默认为 Preference/Trait/Belief/Goal/Skill。
+            max_confidence: 置信度上限，仅清理低于此值的节点。默认 0.5。
+
+        Returns:
+            无主节点列表，每项包含 id/label/name/content/confidence
+        """
+        if not self._is_available:
+            return []
+
+        if subject_labels is None:
+            subject_labels = {
+                "Preference", "Trait", "Belief", "Goal", "Skill"
+            }
+
+        try:
+            label_placeholders = ",".join("?" * len(subject_labels))
+            labels_list = list(subject_labels)
+
+            rows = self._db_fetchall(f"""
+                SELECT n.id, n.label, n.name, n.content, n.confidence
+                FROM nodes n
+                WHERE n.label IN ({label_placeholders})
+                  AND n.confidence < ?
+                  AND n.id NOT IN (
+                    SELECT CASE
+                        WHEN e.source_id IN (
+                            SELECT id FROM nodes WHERE label = 'Person'
+                        ) THEN e.target_id
+                        ELSE e.source_id
+                    END
+                    FROM edges e
+                    WHERE e.source_id IN (SELECT id FROM nodes WHERE label = 'Person')
+                       OR e.target_id IN (SELECT id FROM nodes WHERE label = 'Person')
+                  )
+            """, labels_list + [max_confidence])
+
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"查找无主节点失败：{e}")
+            return []
+
     async def update_node_properties(self, node_id: str, properties: dict) -> bool:
         """更新节点扩展属性"""
         if not self._is_available:

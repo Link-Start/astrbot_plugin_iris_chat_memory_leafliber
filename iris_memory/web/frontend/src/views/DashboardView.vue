@@ -555,6 +555,7 @@ onUnmounted(() => {
 
 .memory-card :deep(.v-card-text) {
   flex-grow: 1;
+  min-height: 0; /* 允许 flex 子项收缩，防止内容过长时溢出 */
 }
 
 .memory-content {

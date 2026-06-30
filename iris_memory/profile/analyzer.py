@@ -131,24 +131,19 @@ class ProfileAnalyzer:
 近期对话：
 {chr(10).join(limited_messages)}
 
-请分析并返回JSON格式结果：
+返回JSON：
 {{
-    "interests": ["群聊兴趣点1", "兴趣点2"],
-    "atmosphere_tags": ["氛围标签1", "标签2"],
-    "custom_fields": {{
-        "自定义字段名": "字段值"
-    }}
+    "interests": ["兴趣点"],
+    "atmosphere_tags": ["氛围标签"],
+    "custom_fields": {{"字段名": "值"}}
 }}
 
-注意：
-1. 基于对话内容客观分析
-2. interests 必须返回完整的兴趣列表（包含仍然相关的旧兴趣 + 新发现的兴趣），最多5个。如果旧兴趣已不再活跃，不要保留
-3. 氛围标签描述群聊整体风格，最多3个
-4. custom_fields 用于存储额外有价值信息，最多3个字段
-5. custom_fields 的 key 应简短明确（如"活跃时段"、"常用语言"），尽量复用当前画像中已有的 key，避免创建语义重复的新字段
-6. 不确定或无法判断的字段返回空数组
+1. interests 返回完整列表（旧兴趣+新发现），最多5个，不再活跃的不要保留
+2. atmosphere_tags 最多3个
+3. custom_fields 最多3个，key 简短明确，复用已有 key
+4. 不确定的返回空数组
 
-仅返回JSON，不要其他内容。"""
+仅返回JSON。"""
 
     def _build_group_long_prompt(
         self, messages: List[str], current_profile: Dict
@@ -164,7 +159,7 @@ class ProfileAnalyzer:
         Returns:
             长期分析提示词
         """
-        return f"""深度分析以下群聊对话，提取群聊的核心长期特征。
+        return f"""深度分析以下群聊对话，提取核心长期特征。
 
 当前画像：
 {json.dumps(current_profile, ensure_ascii=False, indent=2)}
@@ -172,26 +167,22 @@ class ProfileAnalyzer:
 近期对话：
 {chr(10).join(messages)}
 
-请分析并返回JSON格式结果：
+返回JSON：
 {{
-    "long_term_tags": ["核心特征标签1", "标签2"],
-    "blacklist_topics": ["禁忌话题1", "话题2"],
-    "interests": ["兴趣点（如有变化，返回完整替换列表）"],
-    "atmosphere_tags": ["氛围标签（如有变化，返回完整替换列表）"],
-    "custom_fields": {{
-        "自定义字段名": "字段值"
-    }}
+    "long_term_tags": ["核心特征标签"],
+    "blacklist_topics": ["禁忌话题"],
+    "interests": ["兴趣（如有变化，返回完整替换列表）"],
+    "atmosphere_tags": ["氛围标签（如有变化）"],
+    "custom_fields": {{"字段名": "值"}}
 }}
 
-注意：
-1. 长期标签描述群聊的核心身份特征（如"技术交流群"、"游戏群"），最多3个
-2. 禁忌话题是群内明确不宜讨论的内容，必须非常确定才填写
-3. 标注"如有变化"的字段：如果与当前画像相比无显著变化，返回空数组；如有变化，返回完整的替换列表（而非增量）
-4. 宁可少标不要多标，长期特征必须高度可靠
-5. custom_fields 最多3个字段，key 应简短明确，尽量复用当前画像中已有的 key，避免创建语义重复的新字段
-6. 不确定或无法判断的字段返回空数组
+1. long_term_tags 描述群聊核心身份（如"技术交流群"），最多3个，宁可少标
+2. blacklist_topics 必须非常确定才填写
+3. "如有变化"字段：无显著变化返回空数组，有变化返回完整替换列表
+4. custom_fields 最多3个，key 简短明确，复用已有 key
+5. 不确定的返回空数组
 
-仅返回JSON，不要其他内容。"""
+仅返回JSON。"""
 
     def _build_user_analysis_prompt(
         self,
@@ -231,29 +222,24 @@ class ProfileAnalyzer:
 用户近期对话：
 {chr(10).join(limited_messages)}
 
-请分析并返回JSON格式结果：
+返回JSON：
 {{
-    "personality_tags": ["性格标签1", "标签2"],
-    "interests": ["兴趣1", "兴趣2"],
-    "language_style": "语言风格描述",
+    "personality_tags": ["性格标签"],
+    "interests": ["兴趣"],
+    "language_style": "语言风格",
     "communication_style": "沟通偏好",
     "emotional_baseline": "情感基线",
-    "custom_fields": {{
-        "自定义字段名": "字段值"
-    }}
+    "custom_fields": {{"字段名": "值"}}
 }}
 
-注意：
-1. 性格标签基于对话风格推断，最多3个标签
-2. interests 必须返回完整的兴趣列表（包含仍然相关的旧兴趣 + 新发现的兴趣），最多5个。如果旧兴趣已不再活跃，不要保留
-3. 语言风格描述用户的表达习惯（如"简洁"、"幽默"、"正式"）
-4. communication_style 描述用户期望的回复方式，从以下选择：简洁/详细/随意/正式。如无法判断则留空
-5. emotional_baseline 描述用户近期的情感倾向，从以下选择：稳定/敏感/乐观/低落/焦虑。如无法判断则留空
-6. custom_fields 用于存储额外有价值信息，最多3个字段
-7. custom_fields 的 key 应简短明确（如"家乡"、"宠物"），尽量复用当前画像中已有的 key，避免创建语义重复的新字段
-8. 不确定或无法判断的字段返回空数组或空字符串
+1. personality_tags 最多3个
+2. interests 返回完整列表，最多5个，不再活跃的不要保留
+3. communication_style 选：简洁/详细/随意/正式，无法判断留空
+4. emotional_baseline 选：稳定/敏感/乐观/低落/焦虑，无法判断留空
+5. custom_fields 最多3个，key 简短明确，复用已有 key
+6. 不确定的返回空数组或空字符串
 
-仅返回JSON，不要其他内容。"""
+仅返回JSON。"""
 
     def _build_user_long_prompt(
         self, messages: List[str], current_profile: Dict
@@ -269,7 +255,7 @@ class ProfileAnalyzer:
         Returns:
             长期分析提示词
         """
-        return f"""深度分析以下用户对话，提取用户的长期稳定特征。
+        return f"""深度分析以下用户对话，提取长期稳定特征。
 
 当前画像：
 {json.dumps(current_profile, ensure_ascii=False, indent=2)}
@@ -277,36 +263,30 @@ class ProfileAnalyzer:
 用户近期对话：
 {chr(10).join(messages)}
 
-请分析并返回JSON格式结果：
+返回JSON：
 {{
-    "occupation": "职业/身份（如能判断）",
-    "bot_relationship": "用户对AI助手的称呼或关系设定（如能判断）",
-    "important_events": ["重要事件1", "事件2"],
-    "taboo_topics": ["禁忌话题1"],
+    "occupation": "职业/身份",
+    "bot_relationship": "对AI的称呼或关系设定",
+    "important_events": ["重要事件"],
+    "taboo_topics": ["禁忌话题"],
     "important_dates": [{{"date": "日期", "description": "描述"}}],
-    "personality_tags": ["性格标签（如有变化，返回完整替换列表）"],
-    "interests": ["兴趣（如有变化，返回完整替换列表）"],
+    "personality_tags": ["性格标签（如有变化）"],
+    "interests": ["兴趣（如有变化）"],
     "language_style": "语言风格（如有变化）",
     "communication_style": "沟通偏好（如有变化）",
     "emotional_baseline": "情感基线（如有变化）",
-    "custom_fields": {{
-        "自定义字段名": "字段值"
-    }}
+    "custom_fields": {{"字段名": "值"}}
 }}
 
-注意：
 1. 长期特征必须高度可靠，宁可留空不要猜测
-2. occupation 仅在对话中有明确线索时填写（如提到"今天加班写代码"）
-3. bot_relationship 仅在用户有明确称呼习惯时填写（如"小助手"、"老师"）
-4. important_events 只记录真正重要的事件（如工作变动、人生里程碑），最多5个
-5. 标注"如有变化"的字段：如果与当前画像相比无显著变化，返回空数组或空字符串；如有变化，返回完整的替换值（而非增量）
-6. language_style 描述用户的表达习惯（如"简洁"、"幽默"、"正式"）
-7. communication_style 从以下选择：简洁/详细/随意/正式
-8. emotional_baseline 从以下选择：稳定/敏感/乐观/低落/焦虑
-9. custom_fields 最多3个字段，key 应简短明确，尽量复用当前画像中已有的 key，避免创建语义重复的新字段
-10. 不确定或无法判断的字段返回空数组或空字符串
+2. occupation/bot_relationship 仅在有明确线索时填写
+3. important_events 最多5个（工作变动、人生里程碑等）
+4. "如有变化"字段：无变化返回空数组/空字符串，有变化返回完整替换值
+5. communication_style 选：简洁/详细/随意/正式
+6. emotional_baseline 选：稳定/敏感/乐观/低落/焦虑
+7. custom_fields 最多3个，key 简短明确，复用已有 key
 
-仅返回JSON，不要其他内容。"""
+仅返回JSON。"""
 
     def _parse_json_response(self, response: str) -> Dict:
         """解析 JSON 响应

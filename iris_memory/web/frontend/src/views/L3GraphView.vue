@@ -100,7 +100,7 @@
       </div>
 
       <!-- 节点列表 -->
-      <div v-show="activeTab === 'nodes'">
+      <div v-show="activeTab === 'nodes'" class="l3-panel-container">
         <L3NodeListPanel
           :nodes="memoryStore.l3Nodes"
           :loading="memoryStore.l3NodesLoading"
@@ -112,7 +112,7 @@
       </div>
 
       <!-- 关系列表 -->
-      <div v-show="activeTab === 'edges'">
+      <div v-show="activeTab === 'edges'" class="l3-panel-container">
         <L3EdgeListPanel
           :edges="memoryStore.l3Edges"
           :loading="memoryStore.l3EdgesLoading"
@@ -449,5 +449,22 @@ onUnmounted(() => {
 .l3-graph-view :deep(.v-btn-toggle) {
   border-radius: 8px;
   overflow: hidden;
+}
+
+/* 节点/边列表面板容器：建立高度约束，使子组件的 h-100 / flex-grow-1
+   能形成内部滚动表格，而非整页滚动。
+   此前 v-show 的 div 无高度，导致 height:100% 解析为 auto，表格无法滚动。 */
+.l3-panel-container {
+  height: calc(100vh - 200px);
+  min-height: 400px;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 1280px) {
+  .l3-panel-container {
+    height: auto;
+    min-height: 500px;
+  }
 }
 </style>

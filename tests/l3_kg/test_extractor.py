@@ -6,7 +6,12 @@ from pathlib import Path
 import tempfile
 import shutil
 
-from iris_memory.l3_kg import EntityExtractor
+from iris_memory.l3_kg import (
+    EntityExtractor,
+    GraphNode,
+    GraphEdge,
+    ExtractionResult,
+)
 from iris_memory.config import init_config
 
 
@@ -270,3 +275,79 @@ class TestEntityExtractor:
         assert len(result.nodes) == 1
         node = result.nodes[0]
         assert node.source_memory_id == "mem_1,mem_2"
+
+    def test_filter_low_quality_removes_subjectless_nodes(self, extractor):
+        """回归：_filter_low_quality 降级无 Person 关联的主体绑定节点
+
+        Preference/Trait/Belief/Goal/Skill 节点描述的是"某人的属性"，
+        若没有边连接到 Person 节点则成为无主节点（如"有特定角色偏好"
+        不知道是谁的偏好）。此前硬删除会误伤有用信息，现改为降级置信度
+        并标记 orphaned_subject，交由梦境遗忘清洗按综合评分处理。
+
+        场景：
+        - Person 节点 "张三"（应保留，非主体绑定类型）
+        - Preference 节点 "角色偏好"（无 Person 边，应被降级标记）
+        - Trait 节点 "性格开朗"（有 Person -> HAS_TRAIT 边，应保留原置信度）
+        """
+        # 构建 Person 节点
+        person = GraphNode(
+            id="",
+            label="Person",
+            name="张三",
+            content="一个用户",
+            confidence=0.9,
+        )
+        person.id = person.generate_id()
+
+        # 无 Person 关联的 Preference 节点（应被降级标记，不删除）
+        preference = GraphNode(
+            id="",
+            label="Preference",
+            name="角色偏好",
+            content="有特定角色偏好",
+            confidence=0.9,
+        )
+        preference.id = preference.generate_id()
+
+        # 有 Person 关联的 Trait 节点（应保留原置信度）
+        trait = GraphNode(
+            id="",
+            label="Trait",
+            name="性格开朗",
+            content="性格开朗",
+            confidence=0.9,
+        )
+        trait.id = trait.generate_id()
+
+        # Person -> Trait 的边（让 Trait 通过主体关联检查）
+        edge = GraphEdge(
+            source_id=person.id,
+            target_id=trait.id,
+            relation_type="HAS_TRAIT",
+            confidence=0.8,
+        )
+
+        result = ExtractionResult(
+            nodes=[person, preference, trait],
+            edges=[edge],
+            extraction_confidence=0.85,
+        )
+
+        filtered = extractor._filter_low_quality(result)
+
+        node_names = {n.name for n in filtered.nodes}
+
+        # 所有节点都保留（不硬删除）
+        assert "性格开朗" in node_names
+        assert "张三" in node_names
+        assert "角色偏好" in node_names
+
+        # Preference 节点被降级置信度并标记
+        pref_node = next(n for n in filtered.nodes if n.name == "角色偏好")
+        assert pref_node.confidence <= 0.4
+        assert pref_node.properties.get("orphaned_subject") == "true"
+
+        # Trait 节点保持原置信度，无 orphaned 标记
+        trait_node = next(n for n in filtered.nodes if n.name == "性格开朗")
+        assert trait_node.confidence == 0.9
+        assert "orphaned_subject" not in trait_node.properties

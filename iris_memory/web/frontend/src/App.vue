@@ -186,8 +186,10 @@ watch(error, (val) => {
 }
 
 /* 全局：所有 v-card 圆角统一 */
+/* !important 覆盖 Vuetify 的 .v-card { border-radius: 4px }
+   （同为 0,1,0，Vuetify 按需注入的组件样式在构建产物中排列在后会胜出） */
 .v-card {
-  border-radius: 12px;
+  border-radius: var(--iris-card-radius) !important;
 }
 
 /* 全局：v-tabs 下划线 */

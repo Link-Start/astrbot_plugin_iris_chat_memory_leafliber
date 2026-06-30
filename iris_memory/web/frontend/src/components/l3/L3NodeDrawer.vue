@@ -100,7 +100,7 @@
         <div v-if="neighbors.length === 0" class="text-caption text-disabled py-2">
           无关联节点
         </div>
-        <v-list density="compact" class="pa-0 bg-transparent">
+        <v-list density="compact" class="pa-0 bg-transparent iris-list">
           <v-list-item
             v-for="nb in neighbors"
             :key="nb.node.id"
@@ -132,7 +132,7 @@
           <v-icon icon="mdi-information" size="small" class="mr-1" />
           元数据
         </div>
-        <v-table density="compact" class="bg-transparent">
+        <v-table density="compact" class="bg-transparent iris-table">
           <tbody>
             <tr>
               <td class="text-caption text-medium-emphasis" style="width: 100px">ID</td>
@@ -232,12 +232,6 @@ const degree = computed(() => (props.node ? neighbors.value.length : null))
 </script>
 
 <style scoped>
-/* 抽屉整体可滚动 */
-:deep(.v-navigation-drawer__content) {
-  display: flex;
-  flex-direction: column;
-}
-
 .drawer-header {
   background: linear-gradient(
     135deg,
@@ -276,17 +270,6 @@ const degree = computed(() => (props.node ? neighbors.value.length : null))
   border-left: 3px solid rgba(var(--v-theme-primary), 0.4);
 }
 
-/* 邻居列表项美化 */
-:deep(.v-list-item) {
-  border-radius: 8px;
-  margin-bottom: 2px;
-  transition: background 0.15s ease;
-}
-
-:deep(.v-list-item:hover) {
-  background: rgba(var(--v-theme-primary), 0.06);
-}
-
 .prop-row {
   display: flex;
   justify-content: space-between;
@@ -308,15 +291,5 @@ const degree = computed(() => (props.node ? neighbors.value.length : null))
 .prop-row span:last-child {
   text-align: right;
   word-break: break-all;
-}
-
-/* 元数据表格 */
-:deep(.v-table) {
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-:deep(.v-table tbody tr:hover) {
-  background: rgba(var(--v-theme-on-surface), 0.03) !important;
 }
 </style>

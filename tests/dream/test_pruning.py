@@ -159,3 +159,57 @@ class TestPruningPhase:
             result = await phase.execute(l2, l3, llm, entries=[entry])
 
         assert result["l2_low_confidence_marked"] == 0
+
+    @pytest.mark.asyncio
+    async def test_cleanup_orphaned_subject_nodes(self, phase):
+        """回归：_cleanup_orphaned_subject_nodes 清理无 Person 关联的节点
+
+        无主节点（如"有特定角色偏好"但不知道是谁的偏好）对用户没有价值，
+        应当在遗忘淘汰之前被定向清除。该方法通过 find_orphaned_subject_nodes
+        查找，再调用 evict_nodes 批量删除。
+        """
+        l3 = Mock()
+        l3.find_orphaned_subject_nodes = AsyncMock(
+            return_value=[
+                {
+                    "id": "preference_abc123",
+                    "label": "Preference",
+                    "name": "角色偏好",
+                    "content": "有特定角色偏好",
+                    "confidence": 0.7,
+                },
+                {
+                    "id": "trait_def456",
+                    "label": "Trait",
+                    "name": "性格特点",
+                    "content": "某种性格特点",
+                    "confidence": 0.6,
+                },
+            ]
+        )
+        l3.evict_nodes = AsyncMock(return_value=2)
+
+        removed = await phase._cleanup_orphaned_subject_nodes(l3)
+
+        assert removed == 2
+        l3.find_orphaned_subject_nodes.assert_called_once()
+        l3.evict_nodes.assert_called_once()
+
+        # evict_nodes 应收到正确的孤儿节点 ID 列表
+        evicted_ids = l3.evict_nodes.call_args.args[0]
+        assert "preference_abc123" in evicted_ids
+        assert "trait_def456" in evicted_ids
+        assert len(evicted_ids) == 2
+
+    @pytest.mark.asyncio
+    async def test_cleanup_orphaned_subject_nodes_empty(self, phase):
+        """回归：_cleanup_orphaned_subject_nodes 无孤儿节点时返回 0 且不调用 evict_nodes"""
+        l3 = Mock()
+        l3.find_orphaned_subject_nodes = AsyncMock(return_value=[])
+        l3.evict_nodes = AsyncMock(return_value=0)
+
+        removed = await phase._cleanup_orphaned_subject_nodes(l3)
+
+        assert removed == 0
+        l3.find_orphaned_subject_nodes.assert_called_once()
+        l3.evict_nodes.assert_not_called()

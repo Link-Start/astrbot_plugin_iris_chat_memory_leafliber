@@ -564,7 +564,7 @@ onUnmounted(() => {
   position: relative;
   flex: 1;
   width: 100%;
-  min-height: 360px;
+  min-height: 0; /* 允许 flex 子项收缩，配合 min-height: 360px 的下限 */
   background: rgb(var(--v-theme-surface));
   overflow: hidden;
 }
@@ -585,29 +585,5 @@ onUnmounted(() => {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
   background: rgba(var(--v-theme-surface), 0.95) !important;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.1) !important;
-}
-
-/* Tooltip 全局样式（G6 渲染到 body） */
-:deep(.l3-tip) {
-  padding: 8px 12px;
-  font-size: 12px;
-  line-height: 1.6;
-  max-width: 240px;
-}
-
-:deep(.l3-tip-title) {
-  font-weight: 600;
-  margin-bottom: 4px;
-  font-size: 13px;
-}
-
-:deep(.l3-tip-row) {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-:deep(.l3-tip-row span) {
-  opacity: 0.7;
 }
 </style>

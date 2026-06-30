@@ -18,6 +18,10 @@ import json
 logger = get_logger("l3_kg")
 
 _MIN_NODE_CONFIDENCE = 0.5
+
+# 需要绑定到 Person 主体的节点类型——这些类型描述的是"某人的属性"，
+# 若没有关联的 Person 边则成为无主节点（如"有特定角色偏好"不知道是谁的偏好）
+_SUBJECT_BOUND_LABELS = {"Preference", "Trait", "Belief", "Goal", "Skill"}
 _MIN_EDGE_CONFIDENCE = 0.4
 _MAX_CONTENT_LENGTH = 120
 
@@ -161,20 +165,21 @@ class EntityExtractor:
         else:
             whitelist_hint = ""
 
-        return f"""你是一个知识抽象引擎，任务是从对话总结中提取**高度抽象的结构化知识**。
+        return f"""从对话总结中提取高度抽象的结构化知识。
 
 ## 核心原则
-你提取的是**脱离具体对话场景仍具有长期价值的知识**，而非对话内容的简单索引。
-- ✅ 提取：偏好、技能、性格特征、目标、信念、深层关联、因果逻辑
-- ❌ 不提取：临时性对话内容、寒暄、即时指令、纯情绪表达、一次性问答
+提取脱离具体对话场景仍具有长期价值的知识，而非对话内容的简单索引。
+- ✅ 偏好、技能、性格特征、目标、信念、深层关联、因果逻辑
+- ❌ 临时性内容、寒暄、即时指令、纯情绪、一次性问答
 
 ## 提取规则
-1. **抽象优先**：将具体事实上升为抽象知识。例如"张三说喜欢Python"→ Person(张三) -HAS_PREFERENCE→ Preference(Python编程)
-2. **关联优先**：重点提取实体间的深层关系（因果、支持、矛盾），而非浅层提及
-3. **内容浓缩**：每个节点的 content 必须是一句话的高度概括（不超过{_MAX_CONTENT_LENGTH}字），不要复制原文
-4. **关系精准**：优先使用具体关系类型（HAS_PREFERENCE, HAS_SKILL 等），RELATED_TO 仅作为最后手段
-5. **置信度诚实**：对不确定的提取给予低置信度（0.3-0.6），确定的给予高置信度（0.7-1.0）
-6. **宁缺毋滥**：如果文本中没有值得长期保留的抽象知识，返回空结果
+1. **抽象优先**："张三说喜欢Python"→ Person(张三) -HAS_PREFERENCE→ Preference(Python编程)
+2. **关联优先**：重点提取实体间深层关系（因果、支持、矛盾），而非浅层提及
+3. **内容浓缩**：content 为一句话概括（≤{_MAX_CONTENT_LENGTH}字），不复制原文
+4. **关系精准**：优先使用具体关系类型，RELATED_TO 仅作最后手段
+5. **置信度诚实**：不确定 0.3-0.6，确定 0.7-1.0
+6. **宁缺毋滥**：无值得保留的抽象知识则返回空结果
+7. **主体完整**：Preference/Trait/Belief/Goal/Skill 必须同时提取对应 Person 节点并用边连接，缺少主体的属性节点无价值
 {whitelist_hint}
 ## 输出格式（JSON）
 {{
@@ -182,7 +187,7 @@ class EntityExtractor:
     {{
       "label": "Person",
       "name": "实体名称",
-      "content": "一句话高度概括（不超过{_MAX_CONTENT_LENGTH}字）",
+      "content": "一句话概括（≤{_MAX_CONTENT_LENGTH}字）",
       "confidence": 0.9
     }}
   ],
@@ -202,8 +207,7 @@ class EntityExtractor:
 ## 待提取文本
 {text}
 
-## 输出
-请严格按照 JSON 格式输出，不要添加任何其他内容。"""
+严格按 JSON 格式输出，不要添加其他内容。"""
 
     def _parse_extraction_result(
         self, response: str, context: dict
@@ -362,6 +366,10 @@ class EntityExtractor:
         - 置信度低于阈值的边
         - 引用已过滤节点的边
 
+        对于 Preference/Trait/Belief/Goal/Skill 节点缺少 Person 关联边
+        的情况，不做硬删除（避免误伤有用信息），而是降级置信度并标记，
+        交由梦境遗忘清洗阶段按综合评分决定是否淘汰。
+
         Args:
             result: 原始提取结果
 
@@ -378,6 +386,41 @@ class EntityExtractor:
             and e.source_id in valid_node_ids
             and e.target_id in valid_node_ids
         ]
+
+        # 主体关联检查：对缺少 Person 边的主体绑定类型节点降级置信度
+        # 不做硬删除——这些节点可能仍有价值，只是主体关联未被 LLM 提取到。
+        # 降级后由梦境遗忘清洗按综合评分处理。
+        person_node_ids = {
+            n.id for n in valid_nodes if n.label == "Person"
+        }
+        nodes_with_person_edge: set[str] = set()
+        for e in valid_edges:
+            if e.source_id in person_node_ids and e.target_id not in person_node_ids:
+                nodes_with_person_edge.add(e.target_id)
+            if e.target_id in person_node_ids and e.source_id not in person_node_ids:
+                nodes_with_person_edge.add(e.source_id)
+
+        downgraded_count = 0
+        for n in valid_nodes:
+            if (
+                n.label in _SUBJECT_BOUND_LABELS
+                and n.id not in nodes_with_person_edge
+            ):
+                # 降级置信度，使遗忘评分更容易触发淘汰
+                original = n.confidence
+                n.confidence = min(n.confidence, 0.4)
+                n.properties["orphaned_subject"] = "true"
+                downgraded_count += 1
+                logger.debug(
+                    f"主体关联缺失：节点 '{n.name}' ({n.label}) "
+                    f"无 Person 边，置信度 {original} → {n.confidence}"
+                )
+
+        if downgraded_count > 0:
+            logger.info(
+                f"主体关联检查：{downgraded_count} 个 {_SUBJECT_BOUND_LABELS} "
+                f"节点缺少 Person 边，已降级置信度并标记"
+            )
 
         filtered_nodes = len(result.nodes) - len(valid_nodes)
         filtered_edges = len(result.edges) - len(valid_edges)

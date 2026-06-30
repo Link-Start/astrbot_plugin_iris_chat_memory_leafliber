@@ -47,7 +47,9 @@
 .iris-card {
   border-radius: var(--iris-card-radius) !important;
   border: 1px solid var(--iris-border-color) !important;
-  transition: box-shadow var(--iris-transition), transform var(--iris-transition);
+  /* !important 覆盖 Vuetify 的 .v-card { transition-property: box-shadow, opacity, background }
+     （同为 0,1,0，Vuetify 排列在后会胜出），确保 transform 也参与过渡 */
+  transition: box-shadow var(--iris-transition), transform var(--iris-transition) !important;
 }
 
 .iris-card-hover:hover {
@@ -67,7 +69,12 @@
 }
 
 /* 列表卡片：固定高度可滚动 */
-.iris-list-card {
+/* 用 .v-card.iris-list-card 提高特异性到 (0,2,0)，覆盖 Vuetify 的
+   .v-card { display: block } (0,1,0)。此前仅用 .iris-list-card (0,1,0)
+   与 Vuetify 同级，且 Vuetify 规则在构建产物中排列更靠后，
+   导致 display: flex 被覆盖为 display: block，flex 布局失效，
+   v-card-text 的 flex:1 / min-height:0 无效，无法形成滚动容器。 */
+.v-card.iris-list-card {
   border-radius: var(--iris-card-radius) !important;
   border: 1px solid var(--iris-border-color) !important;
   display: flex;
@@ -75,7 +82,8 @@
   max-height: calc(100vh - 200px);
 }
 
-.iris-list-card > .v-card-text {
+/* 用后代选择器替代直接子选择器，兼容可能的中间包裹层 */
+.iris-list-card .v-card-text {
   flex: 1;
   min-height: 0; /* 关键：允许 flex 子项收缩以触发 overflow */
   overflow-y: auto;
@@ -85,10 +93,13 @@
 /* ============ 统一分区标题 ============ */
 
 .iris-section-title {
-  display: flex;
+  /* !important 覆盖 Vuetify .v-card-title { display: block; letter-spacing: 0.0125em }
+     （同为 0,1,0，Vuetify 排列在后会胜出），否则 flex 布局失效，
+     图标和文字无法水平对齐 */
+  display: flex !important;
   align-items: center;
   font-weight: 600 !important;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.01em !important;
   color: rgba(var(--v-theme-on-surface), 0.88);
 }
 
@@ -219,8 +230,10 @@
 /* ============ 统一表格 ============ */
 
 .iris-table {
-  border: 1px solid var(--iris-border-color);
-  border-radius: var(--iris-card-radius-xs);
+  /* !important 覆盖 Vuetify .v-table { border-radius: inherit }
+     （同为 0,1,0，Vuetify 排列在后会胜出），否则自定义圆角丢失 */
+  border: 1px solid var(--iris-border-color) !important;
+  border-radius: var(--iris-card-radius-xs) !important;
   overflow: hidden;
 }
 
@@ -287,4 +300,31 @@
 /* 修复 v-list-item 三行高度不足 */
 .v-list-item--three-line .v-list-item__content {
   padding: 6px 0;
+}
+
+/* ============ G6 Tooltip 全局样式 ============ */
+/* G6 将 tooltip 渲染到 document.body 下，不在任何 Vue 组件树内，
+   因此 scoped :deep() 选择器（编译为 [data-v-xxx] .l3-tip）永远无法命中。
+   必须放在全局非 scoped 样式表中。 */
+.l3-tip {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 240px;
+}
+
+.l3-tip-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.l3-tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.l3-tip-row span {
+  opacity: 0.7;
 }

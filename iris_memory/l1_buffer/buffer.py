@@ -801,6 +801,11 @@ class L1Buffer(Component):
 
                 if user_id:
                     metadata["user_id"] = user_id
+                else:
+                    # 标记为无主体记忆：总结未能关联到具体用户。
+                    # 遗忘清洗阶段会对无主体记忆加速淘汰，避免无主信息
+                    # 长期占据 L2 并流入下游 L3 图谱产生孤儿节点。
+                    metadata["subjectless"] = True
 
                 if active_users:
                     metadata["active_users"] = ",".join(active_users)
