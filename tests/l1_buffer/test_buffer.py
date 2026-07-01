@@ -712,3 +712,80 @@ class TestParseSummaryItems:
         assert items == []
         assert "```json" not in items
         assert '"memories": []' not in items
+
+
+class TestLowQualityMemoryFilter:
+    """测试记忆内容质量校验"""
+
+    def test_first_person_without_subject(self):
+        """第一人称开头且无法关联用户 → 低质量"""
+        is_lq, reason = L1Buffer._is_low_quality_memory("我想吃煎蛋", None)
+        assert is_lq is True
+        assert "第一人称" in reason
+
+    def test_first_person_with_subject_passes(self):
+        """第一人称开头但能关联用户 → 通过（第一人称检查跳过，但不含即时性内容）"""
+        is_lq, _ = L1Buffer._is_low_quality_memory("我是张三，一名程序员", "user_001")
+        assert is_lq is False
+
+    def test_garbled_concatenation(self):
+        """拼接痕迹：'我想吃煎蛋8岁' → 低质量"""
+        is_lq, reason = L1Buffer._is_low_quality_memory("我想吃煎蛋8岁", None)
+        assert is_lq is True
+        # 第一人称和拼接痕迹都可能命中，任一即可
+        assert reason != ""
+
+    def test_immediate_desire(self):
+        """即时性欲望 → 低质量"""
+        is_lq, reason = L1Buffer._is_low_quality_memory("张三想吃煎蛋", "user_001")
+        assert is_lq is True
+        assert "即时性" in reason
+
+    def test_too_short(self):
+        """内容过短 → 低质量"""
+        is_lq, reason = L1Buffer._is_low_quality_memory("好", None)
+        assert is_lq is True
+        assert "过短" in reason
+
+    def test_too_long(self):
+        """内容过长 → 低质量"""
+        long_content = "张三是一个非常厉害的程序员" * 30
+        is_lq, reason = L1Buffer._is_low_quality_memory(long_content, "user_001")
+        assert is_lq is True
+        assert "过长" in reason
+
+    def test_valid_memory_passes(self):
+        """正常第三人称记忆 → 通过"""
+        is_lq, _ = L1Buffer._is_low_quality_memory(
+            "张三是Python程序员，正在学习装饰器", "user_001"
+        )
+        assert is_lq is False
+
+    def test_valid_memory_without_subject_passes(self):
+        """无法关联用户但非第一人称 → 通过（由 subjectless 标记处理）"""
+        is_lq, _ = L1Buffer._is_low_quality_memory(
+            "张三是Python程序员，正在学习装饰器", None
+        )
+        assert is_lq is False
+
+    def test_age_concatenation_pattern(self):
+        """末尾突兀年龄数字 → 低质量"""
+        is_lq, reason = L1Buffer._is_low_quality_memory(
+            "张三喜欢玩游戏18岁", "user_001"
+        )
+        assert is_lq is True
+        assert "拼接" in reason
+
+    def test_normal_age_not_filtered(self):
+        """正常包含年龄的记忆 → 通过"""
+        is_lq, _ = L1Buffer._is_low_quality_memory(
+            "张三今年18岁，是一名大学生", "user_001"
+        )
+        assert is_lq is False
+
+    def test_immediate_desire_variants(self):
+        """各种即时性欲望变体 → 低质量"""
+        for content in ["张三想去玩", "张三想买手机", "张三想睡觉"]:
+            is_lq, reason = L1Buffer._is_low_quality_memory(content, "user_001")
+            assert is_lq is True, f"应过滤: {content}"
+            assert "即时性" in reason

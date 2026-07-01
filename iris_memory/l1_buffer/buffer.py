@@ -780,6 +780,7 @@ class L1Buffer(Component):
                 )
 
             memory_ids = []
+            quality_filtered = 0
             for item in filtered_items:
                 content = item.get("content", "")
                 if not content:
@@ -789,6 +790,18 @@ class L1Buffer(Component):
                 confidence_value = confidence_to_float(confidence_str)
 
                 user_id = self._extract_user_from_item(content, name_to_id)
+
+                # 内容质量校验：拦截第一人称片段、即时性内容、拼接痕迹等
+                # 低质量提取，避免无效记忆污染 L2。
+                is_low_quality, reason = self._is_low_quality_memory(
+                    content, user_id
+                )
+                if is_low_quality:
+                    quality_filtered += 1
+                    logger.info(
+                        f"过滤低质量记忆：{content[:50]}（原因：{reason}）"
+                    )
+                    continue
 
                 metadata = {
                     "group_id": group_id,
@@ -827,13 +840,19 @@ class L1Buffer(Component):
                     for item in filtered_items[: len(memory_ids)]
                     if item.get("confidence") == "medium"
                 )
+                quality_msg = f"，质量过滤 {quality_filtered} 条" if quality_filtered else ""
                 logger.info(
                     f"已将 {len(memory_ids)} 条记忆写入 L2 记忆库 "
-                    f"(high={high_count}, medium={medium_count})"
+                    f"(high={high_count}, medium={medium_count}{quality_msg})"
                 )
                 return memory_ids[0]
             else:
-                logger.debug("写入 L2 记忆库：无新记忆（可能全部去重）")
+                if quality_filtered:
+                    logger.info(
+                        f"写入 L2 记忆库：全部 {quality_filtered} 条记忆被质量校验过滤"
+                    )
+                else:
+                    logger.debug("写入 L2 记忆库：无新记忆（可能全部去重）")
                 return None
 
         except Exception as e:
@@ -862,6 +881,64 @@ class L1Buffer(Component):
                 return user_id
 
         return None
+
+    # 第一人称代词开头模式——这些是原始对话片段而非提取后的记忆。
+    # 记忆应以第三人称表述（如"张三喜欢Python"），不应以"我想"/"我是"开头。
+    _FIRST_PERSON_PATTERNS: list[re.Pattern[str]] = [
+        re.compile(r"^(我想|我要|我喜欢|我爱|我讨厌|我是|我在|我有|我去|我正|我的|我觉|我认为|我觉得|我打算|我准备|我希望|我需要|我正在|我最近|我今天|我昨天|我明天|我这|我那|我会|我能|我可以|我想要)"),
+    ]
+
+    # 即时性内容模式——这些是临时性内容，不具备长期价值。
+    _IMMEDIATE_DESIRE_PATTERNS: list[re.Pattern[str]] = [
+        re.compile(r"(想吃|想喝|想去|想看|想玩|想买|想睡|想休息|想吃煎蛋|想做饭)"),
+    ]
+
+    @classmethod
+    def _is_low_quality_memory(cls, content: str, user_id: Optional[str]) -> tuple[bool, str]:
+        """检查记忆内容是否为低质量提取
+
+        检测 LLM 常见的不当提取模式：
+        1. 第一人称开头且无法关联用户——记忆应以第三人称表述
+        2. 即时性内容——"想吃""想去"等临时欲望不具备长期价值
+        3. 内容过短——可能是碎片化提取
+        4. 拼接痕迹——多个不相关片段被合并为一条
+
+        Args:
+            content: 记忆内容文本
+            user_id: 从对话中解析出的用户 ID（None 表示无法关联主体）
+
+        Returns:
+            (是否低质量, 原因说明)
+        """
+        stripped = content.strip()
+
+        # 过短：可能是碎片化提取
+        if len(stripped) < 4:
+            return True, "内容过短（<4字符），可能是碎片化提取"
+
+        # 过长：可能不是精炼的记忆而是整段对话复制
+        if len(stripped) > 300:
+            return True, "内容过长（>300字符），可能不是精炼提取"
+
+        # 第一人称开头且无法关联用户——记忆应以第三人称表述
+        # 例如"我想吃煎蛋"而非"张三想吃煎蛋"
+        if user_id is None:
+            for pattern in cls._FIRST_PERSON_PATTERNS:
+                if pattern.match(stripped):
+                    return True, "第一人称开头且无法关联用户，应为第三人称表述"
+
+        # 即时性内容——"想吃""想去"等临时欲望
+        for pattern in cls._IMMEDIATE_DESIRE_PATTERNS:
+            if pattern.search(stripped):
+                return True, "即时性内容（临时欲望），不具备长期价值"
+
+        # 拼接痕迹检测：内容中包含明显不连贯的语义断裂
+        # 如"我想吃煎蛋8岁"——"想吃煎蛋"和"8岁"是两个不相关的片段
+        # 启发式：末尾突然出现年龄/数字且与前文无语义连接
+        if re.search(r"[^\d]{2,}\d+岁$", stripped):
+            return True, "疑似拼接痕迹（末尾突兀年龄数字）"
+
+        return False, ""
 
     def _parse_summary_items(self, summary: str, min_length: int = 5) -> list[str]:
         items = []
