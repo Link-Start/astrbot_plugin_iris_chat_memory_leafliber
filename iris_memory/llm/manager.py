@@ -248,6 +248,7 @@ class LLMManager(Component):
         contexts: Optional[List[Dict[str, Any]]] = None,
         system_prompt: Optional[str] = None,
         timeout: Optional[float] = None,
+        image_urls: Optional[List[str]] = None,
         **kwargs,
     ) -> str:
         """直接调用 Provider 生成文本响应（绕过 on_llm_request 钩子）
@@ -310,6 +311,7 @@ class LLMManager(Component):
                     prompt=prompt,
                     contexts=contexts or [],
                     system_prompt=system_prompt,
+                    image_urls=image_urls,
                 ),
                 timeout_sec,
             )
@@ -600,7 +602,8 @@ class LLMManager(Component):
     ) -> str:
         """生成文本响应（支持图片输入）
 
-        构建 OpenAI Vision API 格式的 contexts，支持图片输入。
+        通过 provider.text_chat 的 image_urls 参数传递图片，
+        由 AstrBot Provider 负责构建正确的多模态消息格式。
 
         Args:
             prompt: 输入提示词
@@ -619,18 +622,11 @@ class LLMManager(Component):
         if not self._is_available:
             raise RuntimeError("LLMManager 未初始化")
 
-        content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
-
-        for url in image_urls:
-            content.append({"type": "image_url", "image_url": {"url": url}})
-
-        contexts = [{"role": "user", "content": content}]
-
         return await self.generate_direct(
-            prompt="",
+            prompt=prompt,
             module=module,
             provider_id=provider_id,
-            contexts=contexts,
+            image_urls=image_urls,
             **kwargs,
         )
 
