@@ -4,6 +4,80 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - 2026-07-02
+
+> 本次更新聚焦稳定性与 Token 效率：修复了人格隔离导入导出、画像并发丢失更新、L3 节点合并回滚等多处数据安全问题；全面精简 LLM Prompt 并优化总结解析逻辑以降低 Token 消耗；新增 L3 无主节点治理机制和前端构建拆分。
+
+### 新增
+
+- **多模态图片传递优化**：`LLMManager.generate_with_images` 改用 `image_urls` 参数直接传递图片给 AstrBot Provider，由 Provider 负责构建正确的多模态消息格式，不再手动拼接 OpenAI Vision 格式的 contexts。
+- **前端构建拆分与体积优化**：移除 `vite-plugin-singlefile` 插件，将前端产物从单文件拆分为 `index.html` + `iris.css` + `iris.js` 三文件；改用 Terser 压缩（drop console/debugger、3 趟压缩、target es2020），原始体积减小约 53 kB（2.6%），gzip 体积减小约 32 kB（5.2%）。
+- **L3 无主节点治理机制**：针对 Preference/Trait/Belief/Goal/Skill 类型节点缺少 Person 关联边成为"孤儿"的问题，建立全链路治理：
+  - **知识提取阶段**：对缺少 Person 边的主体绑定类型节点降级置信度至 0.4 并标记 `orphaned_subject`，交由遗忘清洗按综合评分处理，不做硬删除以避免误伤。
+  - **梦境遗忘清洗**：新增 `_cleanup_orphaned_subject_nodes` 阶段，在遗忘淘汰前定向清除无 Person 关联且置信度低于 0.5 的节点。
+  - **模式挖掘阶段**：`person_id` 为空时跳过节点创建，从源头杜绝无主节点产生。
+  - **L1 总结标记**：总结未能关联到具体用户时标记 `subjectless`，遗忘评分对该类记忆阈值提高 20% 加速淘汰。
+  - **save_knowledge 工具**：手动保存知识时同样对无主体节点降级置信度并提示用户。
+- **@提及用户提取**：平台适配层新增 `get_mentioned_users` 抽象方法，OneBot11 适配器实现从消息段（段列表格式与 CQ 码字符串格式）提取 `[CQ:at,qq=xxx]` 提及用户列表，支持 `@用户` 定向查询功能。
+
+### 变更
+
+- **L1 总结解析逻辑重构**：
+  - 新增 `_strip_code_fences` 函数剥离 Markdown 代码块围栏（` ```json ... ``` `），支持小模型常用围栏包裹的 JSON 输出。
+  - 总结 Prompt 重写为紧凑格式，强调"第一个字符必须是 `{`"、禁止使用代码块，减少 Token 消耗。
+  - JSON 解析成功但 `memories` 为空时不再触发行式回退——此前会把 JSON 骨架行（`"memories": []`）当作记忆导入 L2。
+  - 行式回退增加对 Markdown 代码块标记和 JSON 结构行（花括号、方括号、键名行）的跳过逻辑。
+- **多 LLM Prompt 全面精简**：画像分析（群聊短期/长期、用户短期/长期）、知识提取、查询改写、记忆合并、模式挖掘等 Prompt 统一精简为紧凑格式，去除冗余说明文字，降低 Token 消耗。
+- **画像消息截取修正**：群聊/用户画像分析的消息截取从 `messages[:max]`（取最早 N 条）改为 `messages[-max:]`（取最近 N 条），确保分析基于最新对话内容。
+- **画像自定义字段合并阈值调整**：`merge_list_field` 的 `replace_threshold` 从 5 降为 1；`merge_custom_fields` 的 `existing_confidence` 从 0.5 降为 0.4，使中期更新（置信度 0.7）能覆盖已有字段（0.7 > 0.6 = True），此前 0.7 > 0.7 = False 无法覆盖。
+- **用户画像 occupation 字段更新层级放宽**：从仅长期更新（`UpdateTier.LONG`）改为所有层级均可更新，使中期更新也能修正职业信息。
+- **全局 CSS 样式覆盖修复**：多处 Vuetify 3 默认样式覆盖失效问题修复：
+  - `.v-card` border-radius 添加 `!important`，覆盖 Vuetify 默认的 4px。
+  - `.iris-card` transition 添加 `!important`，确保 `transform` 参与过渡。
+  - `.iris-list-card` 选择器提升为 `.v-card.iris-list-card`（特异性 0,2,0），修复 `display: flex` 被 Vuetify 的 `display: block` 覆盖导致 flex 布局失效、列表无法滚动的问题。
+  - `.iris-section-title` 的 `display` / `letter-spacing` 添加 `!important`。
+  - `.iris-table` 的 `border` / `border-radius` 添加 `!important`。
+  - G6 Tooltip 样式从 `L3GraphCanvas.vue` 的 scoped `:deep()` 迁移到全局 `iris-common.css`——G6 将 tooltip 渲染到 `document.body`，scoped 选择器（编译为 `[data-v-xxx] .l3-tip`）无法命中。
+  - L3 侧栏卡片统一添加 `iris-card iris-card-hover` 类，移除冗余的 `:deep(.v-card)` 样式。
+  - `L3NodeDrawer` 移除冗余的 `:deep` 样式，改用全局 `iris-list` / `iris-table` 类。
+- **L3 列表面板高度约束**：`L3GraphView` 节点/边列表容器添加 `.l3-panel-container` 类（`height: calc(100vh - 200px)` / `display: flex` / `flex-direction: column`），建立高度约束使内部表格可独立滚动；小屏（≤1280px）降级为 `height: auto`。
+- **L3 图谱检索种子节点群隔离**：图谱扩展检索的种子节点查询添加 `group_id` 过滤，防止跨群节点作为种子泄漏。
+- **L3 图谱检索边跨层去重**：多深度扩展检索时使用 `seen_edge_keys` 集合去重，避免同一条边在不同 depth 的 frontier 中被重复查出。
+- **L3 图谱格式化返回纳入节点 ID**：`GraphRetriever.format_graph_context` 返回值从 `str` 改为 `(str, set[str])` 元组，附带实际纳入文本的节点 ID 集合，供上游访问统计使用。
+- **L3 图谱节点搜索 limit 透传**：`GraphRetriever._search_by_keywords` 使用传入的 `limit` 参数而非硬编码 5。
+
+### 修复
+
+- **persona_id 记忆导入导出人格隔离**：`MemoryEntry` 新增 `persona_id` 字段并透传至 L2 adapter 的所有查询/导出/导入路径。导入时逐条 `persona_id` 优先、文件级 `persona_id` 回退、再回退 `"default"`，避免模型迁移的"导出→删库→重导入"回合将所有人格记忆塌缩为 `"default"` 命名空间，永久破坏人格隔离。同时修复导入时 `skip_duplicates` 未正确映射为 `skip_dedup` 的问题——`skip_duplicates=False` 时相似记忆被 `add_memory` 静默丢弃。
+- **L1 空总结段位误推进**：空总结（`summary_items` 为空）时不再推进段位。此前无论是否达到重试阈值都会执行 `rotate_after_summary`，使未写入 L2 的内容被丢弃、重试阈值形同虚设。
+- **L1 总结后段位转移精确化**：`rotate_after_summary` 新增 `summarized_messages` 快照参数，基于快照按对象标识精确移除已总结消息，保留 `await` 期间新添加到 segment_2 的消息，避免误移除或误保留导致下轮重复总结。
+- **L2 模型迁移空库跳过**：`_migrate_on_model_change` 在数据库未打开时先打开数据库再计数。此前 `_db` 为 `None` 时 `_count_db()` 返回 0，导致迁移被静默跳过、索引与元数据不一致。
+- **L2 导出函数异步标注修正**：`MemoryExporter.export_to_json` 实为同步方法，`data_routes.py` 的 `await` 调用修正为同步调用。
+- **画像 Web 更新并发丢失**：`ProfileStorage.update_group_profile` / `update_user_profile` 加入命名空间锁（`lock_group` / `lock_user`），避免 Web 路由直接调用时与消息驱动的 `update_from_analysis` 并发互相覆盖（lost update）。
+- **图片配额重置死锁**：`ImageQuotaManager` 拆分 `_reset_quota_locked` 不加锁版，`check_quota` 持锁后调 `_reset_quota_locked` 而非 `reset_quota`，避免重入 `asyncio.Lock` 死锁。
+- **图片解析 batch 异常配额泄漏**：`_parse_images_if_enabled` 中 `parse_batch` 抛异常时退还全部预扣配额、标记图片为 FAILED 并清占位符，避免配额泄漏和占位符残留。
+- **L3 节点合并异常未回滚**：合并重复节点的异常路径添加 `self._db.rollback()`，避免半合并的 DELETE/INSERT/UPDATE 被下一个无关写入的 `commit` 一并刷盘造成节点/边不一致的半提交损坏。同时将 `try/except` 移入 `with self._db_lock` 内确保锁正确释放。
+- **L3 properties JSON 损坏崩溃**：节点/边的 `properties` JSON 解析添加 try/except，损坏时回退为空字典而非崩溃，影响范围包括节点查询、边合并、已有边属性合并三处。
+- **L3 图谱导入边跳过计数错误**：边导入失败时计入 `skipped_edges` 而非 `skipped_nodes`，此前计数归类错误。
+- **L3 节点内容修正 source_memory_id 回退查询**：`update_node_content_by_source_memory` 在 `source_memory_id` 列未命中时，回退查 `properties.source_memory_ids`（批量提取的多来源节点），避免漏更新。同时支持传入 `new_source_memory_id` 重指向新记忆，避免 L2 记忆修正后 L3 引用断裂。
+- **Token 统计重启丢失历史**：`record_usage` 在累计前先 `_load_from_kv` 回读未加载模块的历史数据；新增 `_known_modules` 集合登记模块名，`get_all_stats` 遍历已知模块从 KV 加载，避免重启后未触达模块不出现在统计中。
+- **TaskScheduler 忙循环**：`interval_hours` 非正数时钳制为 1 小时，防止 `sleep(0)` 忙循环。任务覆盖时异步 `await` 旧任务清理（5 秒超时），避免 `cancel` 后不 `await` 导致旧任务清理未完成。
+- **should_evict threshold 参数被忽略**：形参 `threshold` 优先于配置默认值，与 `should_evict_kg_node` 行为一致。此前形参被静默忽略，调用方传入的 `threshold` 被丢弃。
+- **SaveKnowledgeTool confidence 越界**：节点和边的 `confidence` 钳制到 `[0.0, 1.0]`，防止 LLM 返回越界值经 `max()` 合并后被永久固化，破坏遗忘评分语义。
+- **SearchMemoryTool 图节点反查错误**：此前从 L2 metadata 取 `source_memory_id`（L2 无此字段，该字段是 L3 图节点属性），改为用 L2 条目自身 `id` 通过 `get_node_ids_by_source_memory_ids` 反查 L3 图节点。
+- **CorrectMemoryTool 节点关联断裂**：更新记忆时透传 `new_source_memory_id`，确保 L3 图节点的 `source_memory_id` 重指向新记忆 ID，避免旧记忆已删除但图节点仍指向已删 ID。
+- **助手响应 persona_id 丢失**：`handle_llm_response` 添加助手消息到 L1 Buffer 时解析并传入正确的 `persona_id`，此前使用 `"default"` 占位污染人格命名空间。
+- **指令解析 current_user 误写 target_user_id**：`CommandParser` 中 `current_user` scope 不再返回 `user_id`，否则 executor 会把它写入 `target_user_id`，使 scope 实际变为 `specified_user`，各 handler 的 current-user 分支成为死代码。
+- **指令 profile 子命令 em-dash 变体**：`ProfileCommandHandler` 支持 em-dash 变体（`—group` / `—all`），与 `parser.SCOPE_FLAGS` 对齐。
+- **隐藏配置 Web 更新无校验**：新增键名和值类型校验（int/float/str/bool），拒绝空请求体和类型不匹配的值，防止字符串污染下游算术与 `wait_for`。
+- **Web API 空请求体崩溃**：`search_l2_memory`、`delete_l2_entries`、`update_l2_entry`、`delete_l3_nodes`、`delete_l3_edge` 等路由添加空请求体检查，返回 400 而非崩溃。
+- **L3 列表 limit 无上限**：`list_l3_nodes` / `list_l3_edges` 的 `limit` 钳制到 `[1, 500]`，防止恶意大值导致内存/DB 过载。
+- **未实现平台适配器崩溃**：平台已注册但适配器未实现时（如 `qqofficial` / `gewechat`）降级到 `GenericAdapter` 而非抛 `UnsupportedPlatformError`，避免钩子链无 try/except 兜底时每条消息崩溃。
+- **梦境矛盾消解 timestamp 覆盖**：`update_content` 内部已把 `metadata["timestamp"]` 刷新为 `now`，随后 `update_metadata` 用 `keep_entry.metadata`（陈旧副本）整 blob 覆盖写回会把新 timestamp 覆盖回旧值。修复为先同步 `timestamp` 再写 `confidence`。
+- **梦境时间锚定未纳入变更阶段**：`_PHASES_THAT_MUTATE_ENTRIES` 集合添加 `"temporal_anchor"`，确保时间锚定阶段正确参与变更标记。
+- **知识提取全失败仍标记已处理**：提取结果非空但全部写入失败时不再标记为已处理，允许下轮梦境任务重试，避免永久跳过。
+- **DashboardView flex 子项溢出**：`.memory-card :deep(.v-card-text)` 添加 `min-height: 0`，允许 flex 子项收缩，防止内容过长时溢出。
+
 ## [0.1.2] - 2026-06-28
 
 > 本次更新主要尝试支持合并转发消息的解析与入队，同时附带前端管理界面（pages）的若干显示修复。
