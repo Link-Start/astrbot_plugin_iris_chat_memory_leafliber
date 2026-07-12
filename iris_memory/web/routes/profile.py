@@ -183,14 +183,15 @@ async def delete_group_profile():
 
 async def delete_user_profile():
     try:
-        user_id = request.args.get("user_id") or (
-            await request.get_json(silent=True) or {}
-        ).get("user_id")
+        body = await request.get_json(silent=True) or {}
+        user_id = request.args.get("user_id") or body.get("user_id")
         if not user_id:
             return jsonify({"success": False, "error": "缺少 user_id 参数"}), 400
 
-        group_id = request.args.get("group_id", "default")
-        persona_id = request.args.get("persona", "default")
+        # 同时从 query args 和 POST body 读取 group_id，
+        # 前端 apiPost 发送 JSON body，此处此前只读 args 导致恒为 "default"
+        group_id = request.args.get("group_id") or body.get("group_id") or "default"
+        persona_id = request.args.get("persona", body.get("persona", "default"))
 
         profile_storage, error = get_profile_storage()
         if error:
@@ -227,14 +228,20 @@ async def list_group_profiles():
 
 async def list_user_profiles():
     try:
-        group_id = request.args.get("group_id", "default")
+        group_id = request.args.get("group_id")
         persona_id = request.args.get("persona", "default")
 
         profile_storage, error = get_profile_storage()
         if error:
             return error
+        assert profile_storage is not None
 
-        users = await profile_storage.list_users(group_id, persona_id)
+        # 未指定 group_id 时返回所有群聊的用户（遍历 user_group_index），
+        # 避免恒返回 "default" 群的用户导致隔离开启后看不到真实群聊的用户
+        if group_id:
+            users = await profile_storage.list_users(group_id, persona_id)
+        else:
+            users = await profile_storage.list_all_users(persona_id)
 
         return jsonify({"success": True, "users": users})
 

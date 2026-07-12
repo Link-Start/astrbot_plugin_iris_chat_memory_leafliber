@@ -442,6 +442,37 @@ class ProfileStorage(Component):
             logger.error(f"获取用户列表失败: {e}", exc_info=True)
             return []
 
+    async def list_all_users(self, persona_id: str = "default") -> list:
+        """列出所有群聊下的用户画像
+
+        遍历 user_group_index 获取有用户画像的 group_id 列表，
+        再逐个群聊拉取用户列表。用于 Web UI 无指定群聊时展示全部用户。
+
+        Args:
+            persona_id: 人格ID
+
+        Returns:
+            用户列表，每项包含 user_id / nickname / group_id
+        """
+        persona_id = self._effective_persona(persona_id)
+        ug_index_key = f"user_group_index:{persona_id}"
+
+        try:
+            group_ids = await self._storage.get_kv_data(ug_index_key, [])
+            if not group_ids:
+                return []
+
+            all_users = []
+            for gid in group_ids:
+                users = await self.list_users(gid, persona_id)
+                all_users.extend(users)
+
+            return all_users
+
+        except Exception as e:
+            logger.error(f"获取全部用户列表失败: {e}", exc_info=True)
+            return []
+
     async def _add_to_group_index(self, group_id: str, persona_id: str) -> None:
         index_key = f"group_index:{persona_id}"
         try:
@@ -463,6 +494,16 @@ class ProfileStorage(Component):
                 if user_id not in user_ids:
                     user_ids.append(user_id)
                     await self._storage.put_kv_data(index_key, user_ids)
+                # 同时维护 user_group_index：记录有用户画像的 group_id，
+                # 供 delete_all_user_profiles / list_all_users 遍历。
+                # group_index 只记录群聊画像的 group_id，当隔离关闭时
+                # 用户画像存于 "default" 而 group_index 不含 "default"，
+                # 导致按 group_index 遍历会漏删用户画像。
+                ug_index_key = f"user_group_index:{persona_id}"
+                group_ids = await self._storage.get_kv_data(ug_index_key, [])
+                if group_id not in group_ids:
+                    group_ids.append(group_id)
+                    await self._storage.put_kv_data(ug_index_key, group_ids)
         except Exception as e:
             logger.error(f"更新用户索引失败: {e}")
 
@@ -578,7 +619,9 @@ class ProfileStorage(Component):
     async def delete_all_user_profiles(self) -> int:
         """删除所有用户画像
 
-        通过 persona_index / group_index / user_index 遍历，无需 KV 列表功能。
+        通过 persona_index / user_group_index / user_index 遍历，无需 KV 列表功能。
+        使用 user_group_index（而非 group_index）是因为群聊画像和用户画像的
+        group_id 可能不一致：隔离关闭时群聊画像用真实 group_id，用户画像用 "default"。
 
         Returns:
             删除的画像数量
@@ -589,9 +632,8 @@ class ProfileStorage(Component):
         deleted = 0
         try:
             for persona_id in await self._get_known_personas():
-                group_ids = await self._storage.get_kv_data(
-                    f"group_index:{persona_id}", []
-                )
+                ug_index_key = f"user_group_index:{persona_id}"
+                group_ids = await self._storage.get_kv_data(ug_index_key, [])
                 for group_id in group_ids:
                     user_ids = await self._storage.get_kv_data(
                         f"user_index:{persona_id}:{group_id}", []
@@ -605,6 +647,8 @@ class ProfileStorage(Component):
                         await self._storage.delete_kv_data(
                             f"user_index:{persona_id}:{group_id}"
                         )
+                if group_ids:
+                    await self._storage.delete_kv_data(ug_index_key)
         except Exception as e:
             logger.error(f"删除所有用户画像失败: {e}", exc_info=True)
 
@@ -649,6 +693,12 @@ class ProfileStorage(Component):
         """
         user_count = await self.delete_all_user_profiles()
         group_count = await self.delete_all_group_profiles()
+
+        # 清理 persona_index（所有命名空间已清空，索引不再有意义）
+        try:
+            await self._storage.delete_kv_data("persona_index")
+        except Exception as e:
+            logger.warning(f"清理 persona_index 失败: {e}")
 
         return {"user_profiles": user_count, "group_profiles": group_count}
 

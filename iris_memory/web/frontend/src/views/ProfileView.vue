@@ -266,6 +266,27 @@
 
         <v-window-item value="user">
           <v-row>
+            <v-col cols="12">
+              <v-alert
+                :type="isolationStatus.enable_group_isolation ? 'success' : 'info'"
+                variant="tonal"
+                density="compact"
+                class="mb-2"
+              >
+                <div class="text-body-2">
+                  <v-icon icon="mdi-information-outline" class="mr-1" />
+                  <template v-if="isolationStatus.enable_group_isolation">
+                    群聊隔离已开启：用户画像按真实群聊ID存储，可使用下方筛选器按群聊查看。
+                  </template>
+                  <template v-else>
+                    群聊隔离已关闭：所有用户画像统一存储于「全局」命名空间（group_id=default），不同群聊的用户画像共享。
+                  </template>
+                </div>
+              </v-alert>
+            </v-col>
+          </v-row>
+
+          <v-row>
             <v-col cols="12" md="4">
               <v-card color="surface" variant="flat" class="iris-list-card">
                 <v-card-title class="d-flex align-center iris-section-title">
@@ -281,6 +302,19 @@
                   />
                 </v-card-title>
                 <v-card-text class="pa-0">
+                  <v-select
+                    v-model="userGroupIdFilter"
+                    :items="userGroupOptions"
+                    item-title="title"
+                    item-value="value"
+                    placeholder="全部群聊"
+                    prepend-inner-icon="mdi-account-group"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    class="ma-2"
+                    clearable
+                  />
                   <v-text-field
                     v-model="userSearchQuery"
                     placeholder="搜索用户..."
@@ -288,7 +322,7 @@
                     variant="outlined"
                     density="compact"
                     hide-details
-                    class="ma-2"
+                    class="mx-2 mb-1"
                     clearable
                   />
                   <v-progress-linear
@@ -300,9 +334,9 @@
                   <v-list v-else-if="filteredUserList.length > 0" lines="two" class="iris-list py-0">
                     <v-list-item
                       v-for="user in filteredUserList"
-                      :key="user.user_id + (user.group_id || 'global')"
-                      :active="selectedUserId === user.user_id && selectedUserGroupId === (user.group_id || '')"
-                      @click="selectUser(user.user_id, user.group_id)"
+                      :key="(user.group_id || 'default') + ':' + user.user_id"
+                      :active="selectedUserId === user.user_id && selectedUserGroupId === (user.group_id || 'default')"
+                      @click="selectUser(user.user_id, user.group_id || 'default')"
                     >
                       <template #prepend>
                         <v-avatar color="secondary" variant="tonal" size="36">
@@ -313,7 +347,7 @@
                       <v-list-item-title>{{ user.nickname || user.user_id }}</v-list-item-title>
                       <v-list-item-subtitle>
                         <v-icon icon="mdi-account-group" size="small" class="mr-1" />
-                        {{ user.group_id || '全局' }}
+                        {{ displayGroupId(user.group_id) }}
                       </v-list-item-subtitle>
                     </v-list-item>
                   </v-list>
@@ -363,12 +397,23 @@
                         <v-avatar color="secondary" size="56" class="mr-4">
                           <v-icon icon="mdi-account" size="32" />
                         </v-avatar>
-                        <div>
+                        <div class="flex-grow-1">
                           <div class="d-flex align-center">
                             <div class="text-h5 mr-2">{{ profileStore.currentUserProfile.user_name || '未命名用户' }}</div>
                             <v-btn icon="mdi-pencil" variant="text" size="x-small" @click="startEditUserField('user_name')" />
                           </div>
-                          <div class="text-caption text-medium-emphasis">{{ profileStore.currentUserProfile.user_id }}</div>
+                          <div class="d-flex align-center flex-wrap ga-2 mt-1">
+                            <div class="text-caption text-medium-emphasis">{{ profileStore.currentUserProfile.user_id }}</div>
+                            <v-chip
+                              size="x-small"
+                              variant="tonal"
+                              color="secondary"
+                              label
+                            >
+                              <v-icon icon="mdi-account-group" size="small" class="mr-1" />
+                              {{ displayGroupId(selectedUserGroupId) }}
+                            </v-chip>
+                          </div>
                         </div>
                       </div>
 
@@ -739,6 +784,7 @@ import { useComponentState } from '@/composables/useComponentState'
 import ComponentDisabled from '@/components/ComponentDisabled.vue'
 import IsolationBadge from '@/components/IsolationBadge.vue'
 import { useIsolationStatus } from '@/composables/useIsolationStatus'
+import { getGroupList } from '@/api/profile'
 import type { GroupProfile, UserProfile } from '@/types'
 
 const profileStore = useProfileStore()
@@ -751,6 +797,48 @@ const userSearchQuery = ref('')
 const selectedGroupId = ref<string | null>(null)
 const selectedUserId = ref<string | null>(null)
 const selectedUserGroupId = ref<string | undefined>(undefined)
+
+// 用户列表群聊筛选（null = 全部群聊）
+const userGroupIdFilter = ref<string | null>(null)
+// 群聊下拉选项数据
+const groups = ref<{ group_id: string; group_name?: string }[]>([])
+const userGroupOptions = computed(() => {
+  const opts: Array<{ title: string; value: string }> = []
+  const isolationOff = !isolationStatus.value.enable_group_isolation
+  // 隔离关闭时，用户画像统一存于 "default"；提供 "全局" 选项便于筛选
+  if (isolationOff) {
+    opts.push({ title: '全局（default）', value: 'default' })
+  }
+  for (const g of groups.value) {
+    // 隔离关闭时跳过重复的 default（group_index 可能含真实群ID，但用户画像不在那里）
+    if (isolationOff && g.group_id === 'default') continue
+    opts.push({
+      title: g.group_name || g.group_id,
+      value: g.group_id,
+    })
+  }
+  return opts
+})
+
+const fetchGroups = async () => {
+  try {
+    const list = await getGroupList()
+    groups.value = (list || []).map((g: any) => ({
+      group_id: g.group_id,
+      group_name: g.group_name,
+    }))
+  } catch (e) {
+    console.error('获取群聊列表失败:', e)
+    groups.value = []
+  }
+}
+
+// 展示 group_id：隔离关闭时 "default" 显示为 "全局"
+const displayGroupId = (groupId?: string): string => {
+  if (!groupId) return '全局'
+  if (groupId === 'default' && !isolationStatus.value.enable_group_isolation) return '全局'
+  return groupId
+}
 
 const showEditDialog = ref(false)
 const editFieldType = ref<'group' | 'user'>('group')
@@ -809,7 +897,8 @@ const filteredUserList = computed(() => {
   const query = userSearchQuery.value.toLowerCase()
   return profileStore.userList.filter(u =>
     (u.nickname?.toLowerCase().includes(query)) ||
-    u.user_id.toLowerCase().includes(query)
+    u.user_id.toLowerCase().includes(query) ||
+    (u.group_id?.toLowerCase().includes(query))
   )
 })
 
@@ -842,7 +931,7 @@ const loadGroupList = () => {
 }
 
 const loadUserList = () => {
-  profileStore.fetchUserList()
+  profileStore.fetchUserList(userGroupIdFilter.value || undefined)
 }
 
 const selectGroup = (groupId: string) => {
@@ -1038,6 +1127,10 @@ const executeDelete = async () => {
     } else if (deleteDialogType.value === 'user' && selectedUserId.value) {
       await profileStore.deleteUserProfile(selectedUserId.value, selectedUserGroupId.value)
       selectedUserId.value = null
+      selectedUserGroupId.value = undefined
+      // store 内部按删除目标的 groupId 刷新列表，可能与当前筛选器不一致，
+      // 这里用当前筛选器重新加载以保证列表与筛选状态匹配
+      loadUserList()
       notify('用户画像已删除')
     }
   } catch (e: unknown) {
@@ -1063,8 +1156,16 @@ watch(activeTab, (newTab) => {
   }
 })
 
+// 群聊筛选变化时重新加载用户列表，并清空当前选中
+watch(userGroupIdFilter, () => {
+  selectedUserId.value = null
+  selectedUserGroupId.value = undefined
+  loadUserList()
+})
+
 onMounted(() => {
   loadGroupList()
+  fetchGroups()
   window.addEventListener('iris:refresh', handleRefresh)
 })
 </script>
