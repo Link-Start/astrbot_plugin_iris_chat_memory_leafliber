@@ -85,6 +85,24 @@
           图谱控制
         </div>
 
+        <!-- 群聊过滤 -->
+        <div class="mb-3">
+          <span class="text-caption text-medium-emphasis">群聊范围</span>
+          <v-select
+            :model-value="groupId"
+            :items="groupOptions"
+            item-title="title"
+            item-value="value"
+            variant="outlined"
+            density="compact"
+            hide-details
+            clearable
+            placeholder="全部群聊"
+            class="mt-1"
+            @update:model-value="(v: string | null) => emit('update:groupId', v ?? null)"
+          />
+        </div>
+
         <div class="mb-3">
           <div class="d-flex justify-space-between align-center">
             <span class="text-caption text-medium-emphasis">拓展深度</span>
@@ -317,6 +335,8 @@ const props = defineProps<{
   searchResults: { nodes: L3SearchNodeResult[]; edges: L3SearchEdgeResult[] }
   searchLoading: boolean
   searchKeyword: string
+  groupId: string | null
+  groups: { group_id: string; group_name?: string }[]
 }>()
 
 const emit = defineEmits<{
@@ -326,6 +346,7 @@ const emit = defineEmits<{
   'update:maxNodes': [maxNodes: number]
   'update:layout': [layout: L3LayoutType]
   'update:minConfidence': [v: number]
+  'update:groupId': [groupId: string | null]
   'toggle-node-type': [type: string]
   'toggle-relation-type': [type: string]
   'reset-filters': []
@@ -344,6 +365,14 @@ watch(
 
 const hasResults = computed(
   () => props.searchResults.nodes.length > 0 || props.searchResults.edges.length > 0
+)
+
+// 群聊下拉选项：将后端 group 列表映射为 { title, value }
+const groupOptions = computed(() =>
+  props.groups.map((g) => ({
+    title: g.group_name || g.group_id,
+    value: g.group_id,
+  }))
 )
 
 const hasActiveFilters = computed(

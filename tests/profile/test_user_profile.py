@@ -122,6 +122,152 @@ class TestUserProfileManager:
         assert "游戏" in existing_profile.interests
 
     @pytest.mark.asyncio
+    async def test_update_favorability_delta_positive(self, manager, mock_storage):
+        """正向 delta 增加好感度"""
+        existing_profile = UserProfile(user_id="user_456", favorability=50.0)
+        mock_storage.get_user_profile.return_value = existing_profile
+
+        with patch("iris_memory.profile.user_profile.get_config") as mock_config:
+            mock_config_obj = MagicMock()
+            mock_config_obj.get.side_effect = lambda k, d=None: {
+                "profile.favorability_enable": True,
+                "profile_favorability_max_delta": 20.0,
+            }.get(k, d)
+            mock_config.return_value = mock_config_obj
+
+            await manager.update_from_analysis(
+                user_id="user_456",
+                group_id="group_123",
+                favorability_delta=10,
+                tier=UpdateTier.MID,
+                confidence=0.7,
+            )
+
+        assert existing_profile.favorability == 60.0
+
+    @pytest.mark.asyncio
+    async def test_update_favorability_delta_negative(self, manager, mock_storage):
+        """负向 delta 降低好感度"""
+        existing_profile = UserProfile(user_id="user_456", favorability=50.0)
+        mock_storage.get_user_profile.return_value = existing_profile
+
+        with patch("iris_memory.profile.user_profile.get_config") as mock_config:
+            mock_config_obj = MagicMock()
+            mock_config_obj.get.side_effect = lambda k, d=None: {
+                "profile.favorability_enable": True,
+                "profile_favorability_max_delta": 20.0,
+            }.get(k, d)
+            mock_config.return_value = mock_config_obj
+
+            await manager.update_from_analysis(
+                user_id="user_456",
+                group_id="group_123",
+                favorability_delta=-15,
+                tier=UpdateTier.MID,
+                confidence=0.7,
+            )
+
+        assert existing_profile.favorability == 35.0
+
+    @pytest.mark.asyncio
+    async def test_update_favorability_delta_clamped(self, manager, mock_storage):
+        """delta 超过 max_delta 被夹紧"""
+        existing_profile = UserProfile(user_id="user_456", favorability=50.0)
+        mock_storage.get_user_profile.return_value = existing_profile
+
+        with patch("iris_memory.profile.user_profile.get_config") as mock_config:
+            mock_config_obj = MagicMock()
+            mock_config_obj.get.side_effect = lambda k, d=None: {
+                "profile.favorability_enable": True,
+                "profile_favorability_max_delta": 20.0,
+            }.get(k, d)
+            mock_config.return_value = mock_config_obj
+
+            await manager.update_from_analysis(
+                user_id="user_456",
+                group_id="group_123",
+                favorability_delta=100,  # 远超 max_delta=20
+                tier=UpdateTier.MID,
+                confidence=0.7,
+            )
+
+        # 被夹紧为 +20
+        assert existing_profile.favorability == 70.0
+
+    @pytest.mark.asyncio
+    async def test_update_favorability_clamps_to_100(self, manager, mock_storage):
+        """好感度上限 100"""
+        existing_profile = UserProfile(user_id="user_456", favorability=95.0)
+        mock_storage.get_user_profile.return_value = existing_profile
+
+        with patch("iris_memory.profile.user_profile.get_config") as mock_config:
+            mock_config_obj = MagicMock()
+            mock_config_obj.get.side_effect = lambda k, d=None: {
+                "profile.favorability_enable": True,
+                "profile_favorability_max_delta": 20.0,
+            }.get(k, d)
+            mock_config.return_value = mock_config_obj
+
+            await manager.update_from_analysis(
+                user_id="user_456",
+                group_id="group_123",
+                favorability_delta=20,
+                tier=UpdateTier.MID,
+                confidence=0.7,
+            )
+
+        assert existing_profile.favorability == 100.0
+
+    @pytest.mark.asyncio
+    async def test_update_favorability_disabled(self, manager, mock_storage):
+        """favorability_enable=False 时不更新好感度"""
+        existing_profile = UserProfile(user_id="user_456", favorability=50.0)
+        mock_storage.get_user_profile.return_value = existing_profile
+
+        with patch("iris_memory.profile.user_profile.get_config") as mock_config:
+            mock_config_obj = MagicMock()
+            mock_config_obj.get.side_effect = lambda k, d=None: {
+                "profile.favorability_enable": False,
+                "profile_favorability_max_delta": 20.0,
+            }.get(k, d)
+            mock_config.return_value = mock_config_obj
+
+            await manager.update_from_analysis(
+                user_id="user_456",
+                group_id="group_123",
+                favorability_delta=10,
+                tier=UpdateTier.MID,
+                confidence=0.7,
+            )
+
+        assert existing_profile.favorability == 50.0
+
+    @pytest.mark.asyncio
+    async def test_update_favorability_none_delta_no_change(
+        self, manager, mock_storage
+    ):
+        """favorability_delta=None 时不更新好感度"""
+        existing_profile = UserProfile(user_id="user_456", favorability=50.0)
+        mock_storage.get_user_profile.return_value = existing_profile
+
+        with patch("iris_memory.profile.user_profile.get_config") as mock_config:
+            mock_config_obj = MagicMock()
+            mock_config_obj.get.side_effect = lambda k, d=None: {
+                "profile.favorability_enable": True,
+                "profile_favorability_max_delta": 20.0,
+            }.get(k, d)
+            mock_config.return_value = mock_config_obj
+
+            await manager.update_from_analysis(
+                user_id="user_456",
+                group_id="group_123",
+                tier=UpdateTier.MID,
+                confidence=0.7,
+            )
+
+        assert existing_profile.favorability == 50.0
+
+    @pytest.mark.asyncio
     async def test_update_long_term_from_analysis(self, manager, mock_storage):
         existing_profile = UserProfile(user_id="user_456")
         mock_storage.get_user_profile.return_value = existing_profile

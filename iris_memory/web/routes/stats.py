@@ -144,6 +144,29 @@ async def get_system_stats():
         return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
+async def get_isolation_status():
+    """返回三类隔离开关的当前值，供前端展示状态徽章"""
+    try:
+        from iris_memory.config import get_config
+
+        config = get_config()
+        status = {
+            "enable_group_memory_isolation": bool(
+                config.get("isolation_config.enable_group_memory_isolation")
+            ),
+            "enable_group_isolation": bool(
+                config.get("isolation_config.enable_group_isolation")
+            ),
+            "enable_persona_isolation": bool(
+                config.get("isolation_config.enable_persona_isolation")
+            ),
+        }
+        return jsonify({"success": True, "status": status})
+    except Exception as e:
+        logger.error(f"获取隔离状态失败：{e}", exc_info=True)
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
+
+
 async def get_all_stats():
     try:
         manager = get_component_manager()
@@ -243,6 +266,7 @@ def register_stats_routes(context) -> None:
         (f"{prefix}/memory", get_memory_stats, ["GET"], "获取记忆统计"),
         (f"{prefix}/kg", get_kg_stats, ["GET"], "获取图谱统计"),
         (f"{prefix}/system", get_system_stats, ["GET"], "获取系统统计"),
+        (f"{prefix}/isolation", get_isolation_status, ["GET"], "获取隔离状态"),
         (f"{prefix}/all", get_all_stats, ["GET"], "获取所有统计"),
     ]
 

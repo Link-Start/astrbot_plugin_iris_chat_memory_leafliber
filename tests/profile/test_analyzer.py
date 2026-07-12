@@ -4,7 +4,12 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import json
 
-from iris_memory.profile.analyzer import ProfileAnalyzer
+from iris_memory.profile.analyzer import (
+    ProfileAnalyzer,
+    _slim_profile_dict,
+    _truncate_messages,
+)
+from iris_memory.profile.models import UpdateTier
 
 
 class TestProfileAnalyzer:
@@ -133,9 +138,7 @@ class TestProfileAnalyzer:
             }.get(key, default)
         )
 
-        with patch(
-            "iris_memory.profile.analyzer.get_config", return_value=mock_config
-        ):
+        with patch("iris_memory.profile.analyzer.get_config", return_value=mock_config):
             await analyzer.analyze_group_profile(messages, current_profile)
 
         mock_llm_manager.generate_direct.assert_called_once()
@@ -147,3 +150,183 @@ class TestProfileAnalyzer:
         # 最旧的 5 条（message-0 .. message-4）不应出现在 prompt 中
         for i in range(0, 5):
             assert f"message-{i}" not in prompt
+
+
+class TestSlimProfileDict:
+    """_slim_profile_dict 辅助函数测试"""
+
+    def test_strips_metadata_keys(self):
+        """剥离 field_meta/update_tracker/version"""
+        profile = {
+            "user_id": "u1",
+            "user_name": "小明",
+            "field_meta": {"k": "v"},
+            "update_tracker": {"last_mid_update_time": "2024-01-01"},
+            "version": 1,
+        }
+        slimmed = _slim_profile_dict(profile)
+        assert "field_meta" not in slimmed
+        assert "update_tracker" not in slimmed
+        assert "version" not in slimmed
+        assert slimmed["user_id"] == "u1"
+        assert slimmed["user_name"] == "小明"
+
+    def test_filters_empty_values(self):
+        """过滤空值（None/空字符串/空列表/空字典）"""
+        profile = {
+            "user_id": "u1",
+            "user_name": "",
+            "interests": [],
+            "occupation": None,
+            "custom_fields": {},
+            "language_style": "简洁",
+        }
+        slimmed = _slim_profile_dict(profile)
+        assert "user_name" not in slimmed
+        assert "interests" not in slimmed
+        assert "occupation" not in slimmed
+        assert "custom_fields" not in slimmed
+        assert slimmed["language_style"] == "简洁"
+
+    def test_preserves_numeric_zero(self):
+        """数值 0 不被过滤（favorability=0 是有效值）"""
+        profile = {
+            "user_id": "u1",
+            "favorability": 0,
+            "emotional_baseline": "稳定",
+        }
+        slimmed = _slim_profile_dict(profile)
+        # 0 是有效数值，保留
+        assert slimmed.get("favorability") == 0
+        assert slimmed["emotional_baseline"] == "稳定"
+
+
+class TestTruncateMessages:
+    """_truncate_messages 辅助函数测试"""
+
+    def test_no_truncation_when_max_chars_zero(self):
+        """max_chars=0 不截断"""
+        messages = ["短消息", "一条很长的消息" * 100]
+        result = _truncate_messages(messages, 0)
+        assert result == messages
+
+    def test_truncates_long_messages(self):
+        """超长消息被截断并加省略号"""
+        messages = ["短消息", "x" * 200]
+        result = _truncate_messages(messages, 50)
+        assert result[0] == "短消息"
+        assert len(result[1]) == 51  # 50 字符 + 省略号
+        assert result[1].endswith("…")
+
+    def test_short_messages_unchanged(self):
+        """短于 max_chars 的消息不变"""
+        messages = ["abc", "def"]
+        result = _truncate_messages(messages, 100)
+        assert result == messages
+
+
+class TestFavorabilityDeltaInPrompt:
+    """好感度 delta 在 prompt 中的测试"""
+
+    @pytest.fixture
+    def mock_llm_manager(self):
+        manager = MagicMock()
+        manager.generate_direct = AsyncMock()
+        return manager
+
+    @pytest.fixture
+    def analyzer(self, mock_llm_manager):
+        return ProfileAnalyzer(mock_llm_manager)
+
+    def test_mid_prompt_includes_favorability_delta_when_enabled(self, analyzer):
+        """favorability_enable=True 时 MID prompt 包含 favorability_delta"""
+        mock_config = MagicMock()
+        mock_config.get = MagicMock(
+            side_effect=lambda key, default=None: {
+                "profile.favorability_enable": True,
+                "profile_message_max_chars": 0,
+                "profile_max_messages_for_user_analysis": 30,
+            }.get(key, default)
+        )
+        with patch("iris_memory.profile.analyzer.get_config", return_value=mock_config):
+            prompt = analyzer._build_user_analysis_prompt(["消息"], {}, UpdateTier.MID)
+        assert "favorability_delta" in prompt
+
+    def test_mid_prompt_excludes_favorability_delta_when_disabled(self, analyzer):
+        """favorability_enable=False 时 MID prompt 不包含 favorability_delta"""
+        mock_config = MagicMock()
+        mock_config.get = MagicMock(
+            side_effect=lambda key, default=None: {
+                "profile.favorability_enable": False,
+                "profile_message_max_chars": 0,
+                "profile_max_messages_for_user_analysis": 30,
+            }.get(key, default)
+        )
+        with patch("iris_memory.profile.analyzer.get_config", return_value=mock_config):
+            prompt = analyzer._build_user_analysis_prompt(["消息"], {}, UpdateTier.MID)
+        assert "favorability_delta" not in prompt
+
+    def test_long_prompt_never_includes_favorability_delta(self, analyzer):
+        """LONG prompt 不包含 favorability_delta（好感度是 MID 层职责）"""
+        mock_config = MagicMock()
+        mock_config.get = MagicMock(
+            side_effect=lambda key, default=None: {
+                "profile.favorability_enable": True,
+                "profile_message_max_chars": 0,
+                "profile_max_messages_for_user_analysis": 30,
+            }.get(key, default)
+        )
+        with patch("iris_memory.profile.analyzer.get_config", return_value=mock_config):
+            prompt = analyzer._build_user_analysis_prompt(["消息"], {}, UpdateTier.LONG)
+        assert "favorability_delta" not in prompt
+
+    def test_combined_prompt_includes_favorability_delta(self, analyzer):
+        """combined prompt 包含 favorability_delta 和长期字段"""
+        mock_config = MagicMock()
+        mock_config.get = MagicMock(
+            side_effect=lambda key, default=None: {
+                "profile.favorability_enable": True,
+                "profile_message_max_chars": 0,
+                "profile_max_messages_for_user_analysis": 30,
+            }.get(key, default)
+        )
+        with patch("iris_memory.profile.analyzer.get_config", return_value=mock_config):
+            prompt = analyzer._build_user_analysis_prompt(
+                ["消息"], {}, UpdateTier.MID, combined=True
+            )
+        assert "favorability_delta" in prompt
+        assert "occupation" in prompt
+        assert "bot_relationship" in prompt
+        assert "important_events" in prompt
+
+    @pytest.mark.asyncio
+    async def test_analyze_user_profile_combined_calls_llm_once(
+        self, analyzer, mock_llm_manager
+    ):
+        """combined=True 触发单次 LLM 调用返回 MID+LONG 字段"""
+        llm_response = json.dumps(
+            {
+                "personality_tags": ["外向"],
+                "interests": ["编程"],
+                "language_style": "简洁",
+                "communication_style": "随意",
+                "emotional_baseline": "稳定",
+                "favorability_delta": 5,
+                "occupation": "工程师",
+                "bot_relationship": "朋友",
+                "important_events": ["入职"],
+                "taboo_topics": [],
+                "important_dates": [],
+                "custom_fields": {},
+            },
+            ensure_ascii=False,
+        )
+        mock_llm_manager.generate_direct.return_value = llm_response
+
+        result = await analyzer.analyze_user_profile(
+            ["消息"], {}, tier=UpdateTier.MID, combined=True
+        )
+
+        assert result["favorability_delta"] == 5
+        assert result["occupation"] == "工程师"
+        mock_llm_manager.generate_direct.assert_called_once()

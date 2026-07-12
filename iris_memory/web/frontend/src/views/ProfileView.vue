@@ -7,6 +7,22 @@
       component-name="画像管理"
       @retry="refreshState"
     >
+      <div class="d-flex align-center flex-wrap ga-2 mb-3">
+        <div class="d-flex align-center">
+          <v-icon icon="mdi-account-cog" color="primary" class="mr-2" />
+          <span class="text-h6">画像管理</span>
+        </div>
+        <v-spacer />
+        <IsolationBadge
+          type="profile"
+          :enabled="isolationStatus.enable_group_isolation"
+        />
+        <IsolationBadge
+          type="persona"
+          :enabled="isolationStatus.enable_persona_isolation"
+        />
+      </div>
+
       <v-tabs v-model="activeTab" color="primary" align-tabs="start">
         <v-tab value="group">
           <v-icon icon="mdi-account-group" class="mr-1" />
@@ -356,6 +372,36 @@
                         </div>
                       </div>
 
+                      <v-card variant="outlined" class="iris-card iris-hero-card mb-4 favorability-card">
+                        <v-card-text class="pa-4">
+                          <div class="d-flex align-center">
+                            <v-icon :color="favorabilityColor" size="large" class="mr-3">mdi-heart-pulse</v-icon>
+                            <div class="flex-grow-1">
+                              <div class="d-flex align-center">
+                                <span class="text-subtitle-1 font-weight-medium mr-2">好感度</span>
+                                <v-chip :color="favorabilityColor" variant="tonal" size="small" label>
+                                  {{ favorabilityLevel }}
+                                </v-chip>
+                                <v-spacer />
+                                <span class="text-h6 font-weight-bold" :class="`text-${favorabilityColor}`">
+                                  {{ Math.round(profileStore.currentUserProfile.favorability ?? 0) }}
+                                </span>
+                                <span class="text-caption text-medium-emphasis ml-1">/ 100</span>
+                                <v-btn icon="mdi-pencil" variant="text" size="x-small" class="ml-2"
+                                       @click="startEditUserField('favorability')" />
+                              </div>
+                              <v-progress-linear
+                                :model-value="profileStore.currentUserProfile.favorability ?? 0"
+                                :color="favorabilityColor"
+                                height="10"
+                                rounded
+                                class="mt-2"
+                              />
+                            </div>
+                          </div>
+                        </v-card-text>
+                      </v-card>
+
                       <v-row>
                         <v-col cols="12" sm="6">
                           <v-card variant="outlined" class="iris-card iris-card-hover info-card">
@@ -691,10 +737,13 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useProfileStore } from '@/stores'
 import { useComponentState } from '@/composables/useComponentState'
 import ComponentDisabled from '@/components/ComponentDisabled.vue'
+import IsolationBadge from '@/components/IsolationBadge.vue'
+import { useIsolationStatus } from '@/composables/useIsolationStatus'
 import type { GroupProfile, UserProfile } from '@/types'
 
 const profileStore = useProfileStore()
 const { status, error, errorType, refreshState } = useComponentState('profile')
+const { status: isolationStatus } = useIsolationStatus()
 
 const activeTab = ref('group')
 const groupSearchQuery = ref('')
@@ -743,6 +792,7 @@ const FIELD_LABELS: Record<string, string> = {
   historical_names: '历史曾用名',
   important_events: '重要事件',
   taboo_topics: '禁忌话题',
+  favorability: '好感度',
 }
 
 const filteredGroupList = computed(() => {
@@ -761,6 +811,24 @@ const filteredUserList = computed(() => {
     (u.nickname?.toLowerCase().includes(query)) ||
     u.user_id.toLowerCase().includes(query)
   )
+})
+
+const favorabilityLevel = computed(() => {
+  const v = profileStore.currentUserProfile?.favorability ?? 0
+  if (v < 20) return '陌生'
+  if (v < 40) return '认识'
+  if (v < 60) return '熟悉'
+  if (v < 80) return '友好'
+  return '亲密'
+})
+
+const favorabilityColor = computed(() => {
+  const v = profileStore.currentUserProfile?.favorability ?? 0
+  if (v < 20) return 'grey'
+  if (v < 40) return 'blue-grey'
+  if (v < 60) return 'info'
+  if (v < 80) return 'success'
+  return 'pink'
 })
 
 const notify = (text: string, color = 'success') => {
@@ -820,14 +888,22 @@ const startEditUserField = (field: string) => {
 
 const submitEditField = async () => {
   try {
+    let value: string | number = editFieldValue.value
+    if (editFieldName.value === 'favorability') {
+      value = Number(editFieldValue.value)
+      if (isNaN(value) || value < 0 || value > 100) {
+        notify('好感度需为 0-100 的数字', 'error')
+        return
+      }
+    }
     if (editFieldType.value === 'group' && selectedGroupId.value) {
       await profileStore.updateGroupProfile(selectedGroupId.value, {
-        [editFieldName.value]: editFieldValue.value
+        [editFieldName.value]: value
       })
       notify('已更新')
     } else if (editFieldType.value === 'user' && selectedUserId.value) {
       await profileStore.updateUserProfile(selectedUserId.value, {
-        [editFieldName.value]: editFieldValue.value
+        [editFieldName.value]: value
       }, selectedUserGroupId.value)
       notify('已更新')
     }

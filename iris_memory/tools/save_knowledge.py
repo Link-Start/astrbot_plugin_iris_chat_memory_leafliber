@@ -124,17 +124,13 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
             if not nodes:
                 return "未提供任何节点"
 
-            # 解析群聊隔离上下文：开启群记忆隔离时，知识节点绑定到当前群，
-            # 避免跨群写入污染其他群的图谱（与 search_knowledge_graph 对齐）
+            # 解析群聊上下文：始终将知识节点绑定到来源群，
+            # 检索侧根据 enable_group_memory_isolation 决定是否跨群共享
             event = context.context.event
             from iris_memory.platform import get_adapter
 
             adapter = get_adapter(event)
             group_id = adapter.get_group_id(event)
-            from iris_memory.config import get_config
-
-            if not get_config().get("isolation_config.enable_group_memory_isolation"):
-                group_id = None
 
             # 构建 GraphNode 对象
             graph_nodes = []

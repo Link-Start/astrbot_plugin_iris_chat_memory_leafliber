@@ -207,11 +207,15 @@ def calculate_forgetting_score(
         + weights["w4"] * (1 - D)
     )
 
+    weight_sum = sum(weights.values())
+    if weight_sum > 0:
+        score /= weight_sum
+
     return max(0.0, min(1.0, score))
 
 
 def should_evict(
-    entry: "MemoryEntry", threshold: float = 0.3, retention_days: int = 30
+    entry: "MemoryEntry", threshold: Optional[float] = None, retention_days: int = 30
 ) -> bool:
     """判断记忆是否应该被淘汰
 
@@ -225,7 +229,7 @@ def should_evict(
 
     Args:
         entry: 记忆条目
-        threshold: 遗忘阈值
+        threshold: 遗忘阈值，None 时使用配置值 forgetting_threshold
         retention_days: 保留期天数
 
     Returns:
@@ -246,10 +250,10 @@ def should_evict(
         True
     """
     config = get_config()
-    # 形参 threshold 优先；未显式传入时回退到配置值。与 should_evict_kg_node
-    # 保持一致——此前形参被静默忽略，调用方传入的 threshold 被丢弃。
-    config_threshold = cast(float, config.get("forgetting_threshold", 0.3))
-    evict_threshold = threshold if threshold != 0.3 else config_threshold
+    evict_threshold = (
+        threshold if threshold is not None
+        else cast(float, config.get("forgetting_threshold", 0.3))
+    )
     immediate_threshold = cast(
         float, config.get("forgetting_immediate_eviction_threshold", 0.1)
     )
@@ -351,6 +355,10 @@ def calculate_kg_forgetting_score(
     score = (
         w_recency * R + w_structure * (1 - D) + w_confidence * C + w_verification * V
     )
+
+    weight_sum = w_recency + w_structure + w_confidence + w_verification
+    if weight_sum > 0:
+        score /= weight_sum
 
     return max(0.0, min(1.0, score))
 

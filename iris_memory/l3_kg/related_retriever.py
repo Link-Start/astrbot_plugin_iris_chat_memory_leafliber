@@ -8,7 +8,7 @@ Iris Chat Memory - 相关记忆检索器
 - 同用户记忆
 """
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING, cast
 
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
@@ -81,9 +81,16 @@ class RelatedMemoryRetriever:
 
         config = get_config()
 
-        semantic_weight = config.get("kg_extraction_semantic_weight")
-        same_group_weight = config.get("kg_extraction_same_group_weight")
-        same_user_weight = config.get("kg_extraction_same_user_weight")
+        semantic_weight = cast(float, config.get("kg_extraction_semantic_weight"))
+        same_group_weight = cast(float, config.get("kg_extraction_same_group_weight"))
+        same_user_weight = cast(float, config.get("kg_extraction_same_user_weight"))
+
+        # 归一化权重，防止用户改参数后权重和≠1.0 导致评分偏移
+        weight_sum = semantic_weight + same_group_weight + same_user_weight
+        if weight_sum > 0:
+            semantic_weight /= weight_sum
+            same_group_weight /= weight_sum
+            same_user_weight /= weight_sum
 
         related_by_score: dict[str, float] = {}
 

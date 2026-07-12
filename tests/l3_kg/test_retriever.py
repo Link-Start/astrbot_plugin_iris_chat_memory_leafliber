@@ -319,4 +319,7 @@ class TestGraphRetriever:
         await retriever.retrieve_by_keywords(["alice"], limit=7)
 
         # search_nodes 应以调用方传入的 limit=7 调用，而非硬编码 5
-        mock_adapter.search_nodes.assert_called_once_with("alice", limit=7)
+        # group_id 默认 None（未启用群隔离），也需透传给 search_nodes 做过滤
+        mock_adapter.search_nodes.assert_called_once_with(
+            "alice", limit=7, group_id=None
+        )

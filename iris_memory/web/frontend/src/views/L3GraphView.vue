@@ -28,6 +28,11 @@
                 <v-icon icon="mdi-eye" start size="x-small" />
                 {{ memoryStore.l3FilteredGraph.nodes.length }} / {{ memoryStore.l3Graph.nodes.length }}
               </v-chip>
+              <IsolationBadge
+                type="memory"
+                :enabled="isolationStatus.enable_group_memory_isolation"
+                class="ma-1"
+              />
             </div>
             <v-btn-toggle v-model="activeTab" mandatory color="primary" density="compact" class="flex-shrink-0">
               <v-btn value="graph" size="small">
@@ -65,12 +70,15 @@
             :search-results="memoryStore.l3SearchResults"
             :search-loading="memoryStore.l3SearchLoading"
             :search-keyword="memoryStore.l3SearchKeyword"
+            :group-id="memoryStore.l3Filters.groupId"
+            :groups="groups"
             @search="handleSearch"
             @clear-search="handleClearSearch"
             @update:depth="handleDepthChange"
             @update:max-nodes="handleMaxNodesChange"
             @update:layout="handleLayoutChange"
             @update:min-confidence="handleMinConfidenceChange"
+            @update:group-id="handleGroupChange"
             @toggle-node-type="memoryStore.toggleNodeTypeFilter"
             @toggle-relation-type="memoryStore.toggleRelationTypeFilter"
             @reset-filters="memoryStore.resetFilters"
@@ -161,22 +169,42 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useMemoryStore } from '@/stores'
 import { useComponentState } from '@/composables/useComponentState'
 import ComponentDisabled from '@/components/ComponentDisabled.vue'
+import IsolationBadge from '@/components/IsolationBadge.vue'
 import L3GraphCanvas from '@/components/l3/L3GraphCanvas.vue'
 import L3Sidebar from '@/components/l3/L3Sidebar.vue'
 import L3NodeDrawer from '@/components/l3/L3NodeDrawer.vue'
 import L3NodeListPanel from '@/components/l3/L3NodeListPanel.vue'
 import L3EdgeListPanel from '@/components/l3/L3EdgeListPanel.vue'
+import { getGroupList } from '@/api/profile'
+import { useIsolationStatus } from '@/composables/useIsolationStatus'
 import type { KGNode, KGEdge, L3LayoutType, L3EdgeDetail } from '@/types'
 
 const memoryStore = useMemoryStore()
 const { status, error, errorType, refreshState } = useComponentState('l3_kg')
+const { status: isolationStatus } = useIsolationStatus()
 
 const activeTab = ref('graph')
 const canvasRef = ref<InstanceType<typeof L3GraphCanvas> | null>(null)
+
+// 群聊列表：供侧边栏群聊过滤下拉使用
+const groups = ref<{ group_id: string; group_name?: string }[]>([])
+
+const fetchGroups = async () => {
+  try {
+    const list = await getGroupList()
+    groups.value = (list || []).map((g: any) => ({
+      group_id: g.group_id,
+      group_name: g.group_name,
+    }))
+  } catch (e) {
+    console.error('获取群聊列表失败:', e)
+    groups.value = []
+  }
+}
 
 // 节点抽屉
 const drawerOpen = ref(false)
@@ -228,6 +256,19 @@ const handleLayoutChange = (layout: L3LayoutType) => {
 }
 const handleMinConfidenceChange = (v: number) => {
   memoryStore.setMinConfidence(v)
+}
+
+// 群聊过滤变更：若当前主节点不属于目标群则后端随机选一个，否则保留主节点
+const handleGroupChange = (groupId: string | null) => {
+  memoryStore.setGroupFilter(groupId)
+  const currentNode = memoryStore.l3StartNode
+  const keepMain = !!currentNode && (!groupId || currentNode.group_id === groupId)
+  if (keepMain) {
+    memoryStore.refreshL3Graph()
+  } else {
+    memoryStore.fetchL3Graph()
+  }
+  memoryStore.fetchL3Stats()
 }
 
 // ---- 画布事件 ----
@@ -348,6 +389,7 @@ const handleRefresh = () => {
 onMounted(() => {
   loadGraph()
   memoryStore.fetchL3Stats()
+  fetchGroups()
   window.addEventListener('iris:refresh', handleRefresh)
 })
 

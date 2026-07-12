@@ -77,6 +77,7 @@ export async function getL3Graph(params?: {
   depth?: number
   max_nodes?: number
   max_edges?: number
+  group_id?: string
 }): Promise<any> {
   const response = await apiGet<any>('memory/l3/graph', params)
   checkSuccess(response, '获取L3图谱失败')
@@ -115,20 +116,26 @@ export async function searchL3Edges(keyword: string, limit: number = 20): Promis
   return response.edges || []
 }
 
-export async function getL3Nodes(limit: number = 100, keyword?: string): Promise<any[]> {
+export async function getL3Nodes(limit: number = 100, keyword?: string, groupId?: string): Promise<any[]> {
   const params: Record<string, any> = { limit }
   if (keyword) {
     params.keyword = keyword
+  }
+  if (groupId) {
+    params.group_id = groupId
   }
   const response = await apiGet<any>('memory/l3/nodes', params)
   checkSuccess(response, '获取L3节点列表失败')
   return response.nodes || []
 }
 
-export async function getL3Edges(limit: number = 100, keyword?: string): Promise<any[]> {
+export async function getL3Edges(limit: number = 100, keyword?: string, groupId?: string): Promise<any[]> {
   const params: Record<string, any> = { limit }
   if (keyword) {
     params.keyword = keyword
+  }
+  if (groupId) {
+    params.group_id = groupId
   }
   const response = await apiGet<any>('memory/l3/edges', params)
   checkSuccess(response, '获取L3关系列表失败')

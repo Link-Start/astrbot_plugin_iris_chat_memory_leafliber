@@ -589,19 +589,35 @@ class L3KGAdapter(Component):
                 "relation_types": {},
             }
 
-    async def get_all_nodes(self, limit: int = 100) -> list[dict]:
-        """获取节点（用于前端展示）"""
+    async def get_all_nodes(
+        self, limit: int = 100, group_id: Optional[str] = None
+    ) -> list[dict]:
+        """获取节点（用于前端展示）
+
+        Args:
+            limit: 最大返回数量
+            group_id: 群聊ID，传入时仅返回该群节点，None 则返回所有群节点
+        """
         if not self._is_available:
             return []
 
         try:
-            rows = self._db_fetchall(
-                """SELECT id, label, name, content, confidence,
-                          access_count, last_access_time, created_time,
-                          source_memory_id, group_id, properties
-                   FROM nodes LIMIT ?""",
-                (limit,),
-            )
+            if group_id:
+                rows = self._db_fetchall(
+                    """SELECT id, label, name, content, confidence,
+                              access_count, last_access_time, created_time,
+                              source_memory_id, group_id, properties
+                       FROM nodes WHERE group_id = ? LIMIT ?""",
+                    (group_id, limit),
+                )
+            else:
+                rows = self._db_fetchall(
+                    """SELECT id, label, name, content, confidence,
+                              access_count, last_access_time, created_time,
+                              source_memory_id, group_id, properties
+                       FROM nodes LIMIT ?""",
+                    (limit,),
+                )
 
             nodes = []
             for row in rows:
@@ -630,20 +646,37 @@ class L3KGAdapter(Component):
             logger.error(f"获取所有节点失败：{e}")
             return []
 
-    async def search_nodes(self, keyword: str, limit: int = 20) -> list[dict]:
-        """搜索节点（匹配 name 或 content）"""
+    async def search_nodes(
+        self, keyword: str, limit: int = 20, group_id: Optional[str] = None
+    ) -> list[dict]:
+        """搜索节点（匹配 name 或 content）
+
+        Args:
+            keyword: 搜索关键词
+            limit: 最大返回数量
+            group_id: 群聊ID，传入时仅返回该群的节点，None 则返回所有群的节点
+        """
         if not self._is_available:
             return []
 
         try:
             pattern = f"%{keyword}%"
-            rows = self._db_fetchall(
-                """SELECT id, label, name, content, confidence
-                   FROM nodes
-                   WHERE name LIKE ? OR content LIKE ?
-                   LIMIT ?""",
-                (pattern, pattern, limit),
-            )
+            if group_id:
+                rows = self._db_fetchall(
+                    """SELECT id, label, name, content, confidence
+                       FROM nodes
+                       WHERE (name LIKE ? OR content LIKE ?) AND group_id = ?
+                       LIMIT ?""",
+                    (pattern, pattern, group_id, limit),
+                )
+            else:
+                rows = self._db_fetchall(
+                    """SELECT id, label, name, content, confidence
+                       FROM nodes
+                       WHERE name LIKE ? OR content LIKE ?
+                       LIMIT ?""",
+                    (pattern, pattern, limit),
+                )
 
             nodes = [
                 {
@@ -876,23 +909,44 @@ class L3KGAdapter(Component):
             logger.error(f"搜索边失败：{e}")
             return []
 
-    async def get_all_edges(self, limit: int = 100) -> list[dict]:
-        """获取所有边（用于前端展示）"""
+    async def get_all_edges(
+        self, limit: int = 100, group_id: Optional[str] = None
+    ) -> list[dict]:
+        """获取所有边（用于前端展示）
+
+        Args:
+            limit: 最大返回数量
+            group_id: 群聊ID，传入时仅返回该群内的边（两端节点都属于该群）
+        """
         if not self._is_available:
             return []
 
         try:
-            rows = self._db_fetchall(
-                """SELECT e.source_id, e.relation_type, e.confidence,
-                          e.weight, e.access_count, e.created_time,
-                          src.label as src_label, src.name as src_name,
-                          tgt.id as tgt_id, tgt.label as tgt_label, tgt.name as tgt_name
-                   FROM edges e
-                   JOIN nodes src ON e.source_id = src.id
-                   JOIN nodes tgt ON e.target_id = tgt.id
-                   LIMIT ?""",
-                (limit,),
-            )
+            if group_id:
+                rows = self._db_fetchall(
+                    """SELECT e.source_id, e.relation_type, e.confidence,
+                              e.weight, e.access_count, e.created_time,
+                              src.label as src_label, src.name as src_name,
+                              tgt.id as tgt_id, tgt.label as tgt_label, tgt.name as tgt_name
+                       FROM edges e
+                       JOIN nodes src ON e.source_id = src.id
+                       JOIN nodes tgt ON e.target_id = tgt.id
+                       WHERE src.group_id = ? AND tgt.group_id = ?
+                       LIMIT ?""",
+                    (group_id, group_id, limit),
+                )
+            else:
+                rows = self._db_fetchall(
+                    """SELECT e.source_id, e.relation_type, e.confidence,
+                              e.weight, e.access_count, e.created_time,
+                              src.label as src_label, src.name as src_name,
+                              tgt.id as tgt_id, tgt.label as tgt_label, tgt.name as tgt_name
+                       FROM edges e
+                       JOIN nodes src ON e.source_id = src.id
+                       JOIN nodes tgt ON e.target_id = tgt.id
+                       LIMIT ?""",
+                    (limit,),
+                )
 
             return [
                 {
@@ -966,9 +1020,22 @@ class L3KGAdapter(Component):
             return None
 
     async def expand_from_node(
-        self, node_id: str, depth: int = 2, max_nodes: int = 50, max_edges: int = 100
+        self,
+        node_id: str,
+        depth: int = 2,
+        max_nodes: int = 50,
+        max_edges: int = 100,
+        group_id: Optional[str] = None,
     ) -> tuple[list[dict], list[dict]]:
-        """从单个节点出发 BFS 扩展"""
+        """从单个节点出发 BFS 扩展
+
+        Args:
+            node_id: 起始节点 ID
+            depth: BFS 扩展深度（1-3）
+            max_nodes: 最大返回节点数
+            max_edges: 最大返回边数
+            group_id: 群聊ID，传入时仅扩展该群内的节点，None 则跨群扩展
+        """
         if not self._is_available:
             return [], []
 
@@ -979,7 +1046,13 @@ class L3KGAdapter(Component):
             node_ids_to_query = [node_id]
             all_visited = {node_id}
 
-            seed_row = self._db_fetchone("SELECT * FROM nodes WHERE id = ?", (node_id,))
+            if group_id:
+                seed_row = self._db_fetchone(
+                    "SELECT * FROM nodes WHERE id = ? AND group_id = ?",
+                    (node_id, group_id),
+                )
+            else:
+                seed_row = self._db_fetchone("SELECT * FROM nodes WHERE id = ?", (node_id,))
             if seed_row:
                 nodes_map[node_id] = dict(seed_row)
 
@@ -990,17 +1063,31 @@ class L3KGAdapter(Component):
                 remaining = max_nodes - len(nodes_map)
                 placeholders = ",".join("?" * len(node_ids_to_query))
 
-                rows = self._db_fetchall(
-                    f"""SELECT DISTINCT n.id, n.label, n.name, n.content, n.confidence
-                    FROM edges e
-                    JOIN nodes n ON (
-                        (e.source_id IN ({placeholders}) AND n.id = e.target_id)
-                        OR (e.target_id IN ({placeholders}) AND n.id = e.source_id)
+                if group_id:
+                    rows = self._db_fetchall(
+                        f"""SELECT DISTINCT n.id, n.label, n.name, n.content, n.confidence
+                        FROM edges e
+                        JOIN nodes n ON (
+                            (e.source_id IN ({placeholders}) AND n.id = e.target_id)
+                            OR (e.target_id IN ({placeholders}) AND n.id = e.source_id)
+                        )
+                        WHERE n.id NOT IN ({",".join("?" * len(all_visited))})
+                        AND n.group_id = ?
+                        LIMIT ?""",
+                        (*node_ids_to_query, *node_ids_to_query, *all_visited, group_id, remaining),
                     )
-                    WHERE n.id NOT IN ({",".join("?" * len(all_visited))})
-                    LIMIT ?""",
-                    (*node_ids_to_query, *node_ids_to_query, *all_visited, remaining),
-                )
+                else:
+                    rows = self._db_fetchall(
+                        f"""SELECT DISTINCT n.id, n.label, n.name, n.content, n.confidence
+                        FROM edges e
+                        JOIN nodes n ON (
+                            (e.source_id IN ({placeholders}) AND n.id = e.target_id)
+                            OR (e.target_id IN ({placeholders}) AND n.id = e.source_id)
+                        )
+                        WHERE n.id NOT IN ({",".join("?" * len(all_visited))})
+                        LIMIT ?""",
+                        (*node_ids_to_query, *node_ids_to_query, *all_visited, remaining),
+                    )
 
                 node_ids_to_query = []
                 for row in rows:

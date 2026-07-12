@@ -85,13 +85,8 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
             group_id = adapter.get_group_id(event)
             user_name = adapter.get_user_name(event) or "未知用户"
 
-            # 处理隔离策略
-            from iris_memory.config import get_config
-
-            config = get_config()
-            if not config.get("isolation_config.enable_group_memory_isolation"):
-                group_id = None
-
+            # 始终保留真实 group_id：检索侧根据 enable_group_memory_isolation
+            # 决定是否过滤，写入侧无需剥离，以便用户后续开启隔离时历史记忆可按群过滤
             # 获取L2记忆适配器
             manager = get_component_manager()
             l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)

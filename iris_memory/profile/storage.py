@@ -45,6 +45,7 @@ USER_PROFILE_WRITABLE_FIELDS: Set[str] = {
     "language_style",
     "communication_style",
     "emotional_baseline",
+    "favorability",
     "bot_relationship",
     "important_dates",
     "taboo_topics",
@@ -266,24 +267,6 @@ class ProfileStorage(Component):
         except RuntimeError:
             return "default"
         return persona_id
-
-    def _get_effective_group_id(self) -> str:
-        """获取用于用户索引查询的 effective group_id
-
-        当 enable_group_isolation=False 时，用户画像统一存储在 group_id="default" 下，
-        因此查询 user_index 也需要用 "default"。
-
-        Returns:
-            "default" 如果未启用群聊隔离，否则返回空字符串（由调用方使用原始 group_id）
-        """
-        try:
-            config = get_config()
-            if not config.get("isolation_config.enable_group_isolation"):
-                return "default"
-        except RuntimeError:
-            pass
-
-        return ""
 
     async def _get_lock(self, key: str) -> asyncio.Lock:
         """获取（或创建）指定命名空间的 RMW 锁。"""

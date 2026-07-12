@@ -9,6 +9,8 @@ from iris_memory.profile.models import (
     merge_custom_fields,
     merge_list_field,
     _find_similar_key,
+    favorability_level,
+    FAVORABILITY_LEVELS,
 )
 
 
@@ -263,3 +265,42 @@ class TestMergeListField:
         """
         result = merge_list_field(["old1", "old2", "old3"], ["new1"])
         assert result == ["new1"]
+
+
+class TestFavorabilityLevel:
+    """favorability_level 等级分段测试"""
+
+    def test_level_boundaries(self):
+        """验证 5 级分段边界"""
+        assert favorability_level(0) == "陌生"
+        assert favorability_level(19.9) == "陌生"
+        assert favorability_level(20) == "认识"
+        assert favorability_level(39.9) == "认识"
+        assert favorability_level(40) == "熟悉"
+        assert favorability_level(59.9) == "熟悉"
+        assert favorability_level(60) == "友好"
+        assert favorability_level(79.9) == "友好"
+        assert favorability_level(80) == "亲密"
+        assert favorability_level(100) == "亲密"
+
+    def test_clamps_out_of_range(self):
+        """超出范围的值被夹紧到 [0, 100]"""
+        assert favorability_level(-10) == "陌生"
+        assert favorability_level(150) == "亲密"
+
+    def test_user_profile_has_favorability_field(self):
+        """UserProfile 默认 favorability=0.0"""
+        profile = UserProfile(user_id="u1")
+        assert profile.favorability == 0.0
+
+    def test_favorability_in_field_tiers_is_mid(self):
+        """favorability 字段层级为 MID"""
+        from iris_memory.profile.models import USER_FIELD_TIERS, UpdateTier
+
+        assert USER_FIELD_TIERS.get("favorability") == UpdateTier.MID
+
+    def test_favorability_levels_constant(self):
+        """FAVORABILITY_LEVELS 常量有 5 个分段"""
+        assert len(FAVORABILITY_LEVELS) == 5
+        labels = [label for _, label in FAVORABILITY_LEVELS]
+        assert labels == ["陌生", "认识", "熟悉", "友好", "亲密"]

@@ -101,6 +101,7 @@ class UserProfileManager:
         language_style: Optional[str] = None,
         communication_style: Optional[str] = None,
         emotional_baseline: Optional[str] = None,
+        favorability_delta: Optional[float] = None,
         custom_fields: Optional[dict] = None,
         tier: UpdateTier = UpdateTier.MID,
         confidence: float = 0.7,
@@ -111,6 +112,7 @@ class UserProfileManager:
         根据更新层级和置信度智能合并字段：
         - 列表字段：合并新旧值，新值优先
         - 字符串字段：置信度更高时覆盖
+        - 好感度：按 delta 增量更新，夹紧到 [0, 100]
 
         Args:
             user_id: 用户ID
@@ -121,6 +123,7 @@ class UserProfileManager:
             language_style: 语言风格
             communication_style: 期望的沟通偏好（简洁/详细/随意/正式）
             emotional_baseline: 情感基线（稳定/敏感/乐观/低落）
+            favorability_delta: 好感度变化量（-20~+20，由配置夹紧）
             custom_fields: 自定义字段字典
             tier: 更新层级
             confidence: 本次分析的整体置信度
@@ -188,6 +191,22 @@ class UserProfileManager:
                 meta.record_update(confidence, source="llm")
                 profile.set_field_meta("emotional_baseline", meta)
                 updated = True
+
+        if favorability_delta is not None:
+            config = get_config()
+            if config.get("profile.favorability_enable"):
+                max_delta = float(config.get("profile_favorability_max_delta", 20.0))  # type: ignore[arg-type]
+                clamped_delta = max(
+                    -max_delta, min(max_delta, float(favorability_delta))
+                )
+                old_val = profile.favorability
+                new_val = max(0.0, min(100.0, old_val + clamped_delta))
+                if new_val != old_val:
+                    profile.favorability = new_val
+                    meta = profile.get_field_meta("favorability")
+                    meta.record_update(confidence, source="llm")
+                    profile.set_field_meta("favorability", meta)
+                    updated = True
 
         if occupation is not None:
             meta = profile.get_field_meta("occupation")

@@ -205,6 +205,7 @@ export interface UserProfile {
   language_style?: string
   communication_style?: string
   emotional_baseline?: string
+  favorability?: number
   bot_relationship?: string
   important_dates?: Array<{ date: string; description: string }>
   taboo_topics?: string[]

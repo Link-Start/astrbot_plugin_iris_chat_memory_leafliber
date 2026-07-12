@@ -153,6 +153,7 @@ export const useMemoryStore = defineStore('memory', () => {
         node_id: nodeId,
         depth: l3Depth.value,
         max_nodes: l3MaxNodes.value,
+        group_id: l3Filters.value.groupId || undefined,
       })
       l3Graph.value = {
         nodes: response.nodes || [],
@@ -244,6 +245,9 @@ export const useMemoryStore = defineStore('memory', () => {
 
   const setGroupFilter = (groupId: string | null) => {
     l3Filters.value.groupId = groupId
+    // 清空已加载的节点/边列表，下次切换到对应 tab 时会带新 group_id 重新拉取
+    l3Nodes.value = []
+    l3Edges.value = []
   }
 
   const resetFilters = () => {
@@ -365,7 +369,7 @@ export const useMemoryStore = defineStore('memory', () => {
     l3NodesLoading.value = true
     l3NodesKeyword.value = keyword || ''
     try {
-      l3Nodes.value = await memoryApi.getL3Nodes(100, keyword)
+      l3Nodes.value = await memoryApi.getL3Nodes(100, keyword, l3Filters.value.groupId || undefined)
     } catch (error) {
       console.error('获取L3节点列表失败:', error)
       l3Nodes.value = []
@@ -378,7 +382,7 @@ export const useMemoryStore = defineStore('memory', () => {
     l3EdgesLoading.value = true
     l3EdgesKeyword.value = keyword || ''
     try {
-      l3Edges.value = await memoryApi.getL3Edges(100, keyword)
+      l3Edges.value = await memoryApi.getL3Edges(100, keyword, l3Filters.value.groupId || undefined)
     } catch (error) {
       console.error('获取L3关系列表失败:', error)
       l3Edges.value = []

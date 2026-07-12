@@ -1,5 +1,7 @@
 """图谱检索器"""
 
+from typing import Optional
+
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
 from .adapter import L3KGAdapter
@@ -62,7 +64,7 @@ class GraphRetriever:
         self.config = get_config()
 
     async def retrieve_with_expansion(
-        self, memory_node_ids: list[str], group_id: str = None
+        self, memory_node_ids: list[str], group_id: Optional[str] = None
     ) -> tuple[list[dict], list[dict]]:
         if not self.adapter.is_available:
             return [], []
@@ -92,7 +94,7 @@ class GraphRetriever:
             return [], []
 
     async def retrieve_by_keywords(
-        self, keywords: list[str], group_id: str = None, limit: int = 10
+        self, keywords: list[str], group_id: Optional[str] = None, limit: int = 10
     ) -> tuple[list[dict], list[dict]]:
         """基于关键词搜索图谱节点并扩展
 
@@ -111,7 +113,9 @@ class GraphRetriever:
 
         for keyword in keywords:
             try:
-                found = await self.adapter.search_nodes(keyword, limit=limit)
+                found = await self.adapter.search_nodes(
+                    keyword, limit=limit, group_id=group_id
+                )
                 for node in found:
                     node_id = node.get("id")
                     if node_id:

@@ -286,12 +286,41 @@ USER_FIELD_TIERS: Dict[str, UpdateTier] = {
     "language_style": UpdateTier.MID,
     "communication_style": UpdateTier.MID,
     "emotional_baseline": UpdateTier.MID,
+    "favorability": UpdateTier.MID,
     "occupation": UpdateTier.LONG,
     "bot_relationship": UpdateTier.LONG,
     "important_dates": UpdateTier.LONG,
     "taboo_topics": UpdateTier.LONG,
     "important_events": UpdateTier.LONG,
 }
+
+
+# 好感度等级分段（与前端 getFavorabilityColor 保持一致）
+FAVORABILITY_LEVELS: List[Tuple[float, str]] = [
+    (20.0, "陌生"),
+    (40.0, "认识"),
+    (60.0, "熟悉"),
+    (80.0, "友好"),
+    (101.0, "亲密"),
+]
+
+
+def favorability_level(score: float) -> str:
+    """根据好感度数值返回等级标签
+
+    分段：[0,20) 陌生 / [20,40) 认识 / [40,60) 熟悉 / [60,80) 友好 / [80,100] 亲密
+
+    Args:
+        score: 好感度数值 0-100
+
+    Returns:
+        等级标签字符串
+    """
+    clamped = max(0.0, min(100.0, score))
+    for threshold, label in FAVORABILITY_LEVELS:
+        if clamped < threshold:
+            return label
+    return "亲密"
 
 
 @dataclass
@@ -314,6 +343,7 @@ class UserProfile(ProfileMetadataMixin):
         language_style: 常用语言风格（中期）
         communication_style: 期望的沟通偏好（中期，如简洁/详细/随意/正式）
         emotional_baseline: 情感基线（中期，如稳定/敏感/乐观/低落）
+        favorability: 好感度 0-100（中期，随近期互动演化）
 
         bot_relationship: 对bot的称呼/关系设定（长期）
         important_dates: 重要纪念日（长期）
@@ -338,6 +368,7 @@ class UserProfile(ProfileMetadataMixin):
     language_style: str = ""
     communication_style: str = ""
     emotional_baseline: str = ""
+    favorability: float = 0.0
 
     bot_relationship: str = ""
     important_dates: List[Dict[str, str]] = field(default_factory=list)

@@ -231,6 +231,7 @@ async def get_l3_graph():
     depth = request.args.get("depth", default=1, type=int)
     max_nodes = request.args.get("max_nodes", default=20, type=int)
     max_edges = request.args.get("max_edges", default=100, type=int)
+    group_id = request.args.get("group_id")
 
     depth = max(1, min(depth, 5))
     max_nodes = max(1, min(max_nodes, 500))
@@ -258,7 +259,11 @@ async def get_l3_graph():
             )
 
     nodes, edges = await l3_adapter.expand_from_node(
-        node_id=node_id, depth=depth, max_nodes=max_nodes, max_edges=max_edges
+        node_id=node_id,
+        depth=depth,
+        max_nodes=max_nodes,
+        max_edges=max_edges,
+        group_id=group_id,
     )
 
     start_node = None
@@ -436,6 +441,7 @@ async def list_l3_nodes():
     # 钳制 limit 到合理范围，防止恶意大值导致内存/DB 过载
     limit = max(1, min(limit, 500))
     keyword = request.args.get("keyword", "")
+    group_id = request.args.get("group_id")
 
     manager = get_component_manager()
     l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
@@ -444,11 +450,11 @@ async def list_l3_nodes():
         return jsonify({"success": False, "error": "L3 知识图谱不可用"}), 503
 
     if keyword:
-        nodes = await l3_adapter.search_nodes(keyword, limit)
+        nodes = await l3_adapter.search_nodes(keyword, limit, group_id=group_id)
     else:
-        nodes = await l3_adapter.get_all_nodes(limit)
+        nodes = await l3_adapter.get_all_nodes(limit, group_id=group_id)
 
-    logger.info(f"获取L3节点列表成功：关键词='{keyword}', 结果数={len(nodes)}")
+    logger.info(f"获取L3节点列表成功：关键词='{keyword}', group_id={group_id}, 结果数={len(nodes)}")
 
     return jsonify({"success": True, "nodes": nodes})
 
@@ -458,6 +464,7 @@ async def list_l3_edges():
     # 钳制 limit 到合理范围，防止恶意大值导致内存/DB 过载
     limit = max(1, min(limit, 500))
     keyword = request.args.get("keyword", "")
+    group_id = request.args.get("group_id")
 
     manager = get_component_manager()
     l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
@@ -468,7 +475,7 @@ async def list_l3_edges():
     if keyword:
         edges = await l3_adapter.search_edges(keyword, limit)
     else:
-        edges = await l3_adapter.get_all_edges(limit)
+        edges = await l3_adapter.get_all_edges(limit, group_id=group_id)
 
     logger.info(f"获取L3关系列表成功：关键词='{keyword}', 结果数={len(edges)}")
 

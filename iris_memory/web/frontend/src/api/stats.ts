@@ -45,3 +45,21 @@ export async function getSystemStats(): Promise<any> {
   checkSuccess(response, '获取系统统计失败')
   return response.stats || { components: { l1_buffer: false, l2_memory: false, l3_kg: false, profile: false, llm_manager: false }, uptime: 0 }
 }
+
+export interface IsolationStatus {
+  enable_group_memory_isolation: boolean
+  enable_group_isolation: boolean
+  enable_persona_isolation: boolean
+}
+
+export async function getIsolationStatus(): Promise<IsolationStatus> {
+  const response = await apiGet<any>('stats/isolation')
+  checkSuccess(response, '获取隔离状态失败')
+  return (
+    response.status || {
+      enable_group_memory_isolation: false,
+      enable_group_isolation: false,
+      enable_persona_isolation: false,
+    }
+  )
+}

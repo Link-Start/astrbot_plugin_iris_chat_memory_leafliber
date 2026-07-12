@@ -10,6 +10,18 @@
       <v-row>
         <v-col cols="12">
           <v-card color="surface" variant="flat" class="iris-card">
+            <v-card-text class="d-flex align-center flex-wrap ga-2 py-2">
+              <div class="d-flex align-center">
+                <v-icon icon="mdi-database" color="primary" class="mr-2" />
+                <span class="text-h6">L2 记忆库</span>
+              </div>
+              <v-spacer />
+              <IsolationBadge
+                type="memory"
+                :enabled="isolationStatus.enable_group_memory_isolation"
+              />
+            </v-card-text>
+            <v-divider />
             <v-tabs v-model="activeTab" color="primary" grow>
               <v-tab value="latest">
                 <v-icon icon="mdi-clock-outline" class="mr-2" />
@@ -33,6 +45,20 @@
                   <v-icon icon="mdi-clock-outline" color="secondary" class="mr-2" />
                   最新记忆
                   <v-spacer />
+                  <v-select
+                    v-model="latestGroupIdFilter"
+                    :items="groupOptions"
+                    item-title="title"
+                    item-value="value"
+                    placeholder="全部群聊"
+                    prepend-inner-icon="mdi-account-group"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    clearable
+                    style="max-width: 160px"
+                    @update:model-value="handleLatestGroupChange"
+                  />
                   <v-select
                     v-model="selectedSortBy"
                     :items="sortByOptions"
@@ -219,9 +245,12 @@
                       />
                     </v-col>
                     <v-col cols="12" md="3">
-                      <v-text-field
+                      <v-select
                         v-model="groupIdFilter"
-                        placeholder="群聊 ID（可选）"
+                        :items="groupOptions"
+                        item-title="title"
+                        item-value="value"
+                        placeholder="群聊（可选）"
                         prepend-inner-icon="mdi-account-group"
                         variant="outlined"
                         density="comfortable"
@@ -449,16 +478,43 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useMemoryStore } from '@/stores'
 import { useComponentState } from '@/composables/useComponentState'
 import ComponentDisabled from '@/components/ComponentDisabled.vue'
+import IsolationBadge from '@/components/IsolationBadge.vue'
+import { getGroupList } from '@/api/profile'
+import { useIsolationStatus } from '@/composables/useIsolationStatus'
 import type { L2Memory, L2SortField, L2SortOrder } from '@/types'
 
 const memoryStore = useMemoryStore()
 const { status, error, errorType, refreshState } = useComponentState('l2_memory')
+const { status: isolationStatus } = useIsolationStatus()
 
 const activeTab = ref('latest')
 const searchQuery = ref('')
-const groupIdFilter = ref('')
+const groupIdFilter = ref<string | null>(null)
+const latestGroupIdFilter = ref<string | null>(null)
 const selectedLimit = ref(20)
 const selectedSortBy = ref<L2SortField>('timestamp')
+
+// 群聊下拉选项
+const groups = ref<{ group_id: string; group_name?: string }[]>([])
+const groupOptions = computed(() =>
+  groups.value.map((g) => ({
+    title: g.group_name || g.group_id,
+    value: g.group_id,
+  }))
+)
+
+const fetchGroups = async () => {
+  try {
+    const list = await getGroupList()
+    groups.value = (list || []).map((g: any) => ({
+      group_id: g.group_id,
+      group_name: g.group_name,
+    }))
+  } catch (e) {
+    console.error('获取群聊列表失败:', e)
+    groups.value = []
+  }
+}
 
 const selectedLatestIds = ref<string[]>([])
 const selectedSearchIds = ref<string[]>([])
@@ -491,28 +547,37 @@ const sortByOptions = [
 const l2LatestCurrentPage = computed(() => memoryStore.getL2LatestCurrentPage())
 const l2LatestTotalPages = computed(() => memoryStore.getL2LatestTotalPages())
 
+// 统一拉取最新记忆：附加当前群聊过滤
+const reloadLatest = (limit?: number) =>
+  memoryStore.fetchLatestL2Memories(limit, latestGroupIdFilter.value || undefined)
+
+const handleLatestGroupChange = () => {
+  memoryStore.setL2LatestPage(1)
+  reloadLatest()
+}
+
 const handlePageChange = (page: number) => {
   memoryStore.setL2LatestPage(page)
-  memoryStore.fetchLatestL2Memories()
+  reloadLatest()
 }
 
 const handleLimitChange = (value: number) => {
   memoryStore.setL2LatestLimit(value)
   memoryStore.setL2LatestPage(1)
-  memoryStore.fetchLatestL2Memories(value)
+  reloadLatest(value)
 }
 
 const handleSortChange = (value: L2SortField) => {
   memoryStore.setL2LatestSort(value, memoryStore.l2LatestSortOrder)
   memoryStore.setL2LatestPage(1)
-  memoryStore.fetchLatestL2Memories()
+  reloadLatest()
 }
 
 const toggleSortOrder = () => {
   const newOrder: L2SortOrder = memoryStore.l2LatestSortOrder === 'desc' ? 'asc' : 'desc'
   memoryStore.setL2LatestSort(memoryStore.l2LatestSortBy, newOrder)
   memoryStore.setL2LatestPage(1)
-  memoryStore.fetchLatestL2Memories()
+  reloadLatest()
 }
 
 const handleSearch = () => {
@@ -561,7 +626,7 @@ const formatTime = (timestamp?: string): string => {
 
 const handleRefresh = () => {
   if (activeTab.value === 'latest') {
-    memoryStore.fetchLatestL2Memories()
+    reloadLatest()
   } else if (searchQuery.value.trim()) {
     handleSearch()
   }
@@ -625,7 +690,7 @@ const confirmDelete = async () => {
     deleteDialog.value = false
     deleteTargetIds.value = []
     // 刷新以更新总数和分页
-    await memoryStore.fetchLatestL2Memories()
+    await reloadLatest()
   } catch (error) {
     console.error('删除记忆失败:', error)
   } finally {
@@ -654,7 +719,7 @@ const handleUpdateEntry = async () => {
 
 watch(activeTab, (newTab) => {
   if (newTab === 'latest' && memoryStore.l2LatestResults.length === 0) {
-    memoryStore.fetchLatestL2Memories()
+    reloadLatest()
   }
 })
 
@@ -665,8 +730,9 @@ watch(() => memoryStore.l2LatestSortBy, (val) => {
 onMounted(() => {
   window.addEventListener('iris:refresh', handleRefresh)
   selectedSortBy.value = memoryStore.l2LatestSortBy
+  fetchGroups()
   if (activeTab.value === 'latest') {
-    memoryStore.fetchLatestL2Memories()
+    reloadLatest()
   }
 })
 
