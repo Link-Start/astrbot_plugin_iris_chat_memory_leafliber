@@ -151,6 +151,12 @@
         "default": true,
         "description": "启用画像自动注入",
         "hint": "在每次LLM请求前自动注入画像到system_prompt"
+      },
+      "favorability_enable": {
+        "type": "bool",
+        "default": true,
+        "description": "启用好感度功能",
+        "hint": "记录用户与bot的好感度（0-100），随互动演化并影响回复语气"
       }
     }
   },

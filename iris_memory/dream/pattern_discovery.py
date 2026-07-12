@@ -62,7 +62,14 @@ class PatternDiscoveryPhase:
     ) -> dict:
         config = get_config()
         self._sample_size = cast(int, config.get("dream_pattern_sample_size"))
-        self._min_confidence = cast(str, config.get("dream_pattern_min_confidence"))
+        raw_confidence = cast(str, config.get("dream_pattern_min_confidence", "medium"))
+        self._min_confidence = raw_confidence.lower() if raw_confidence else "medium"
+        if self._min_confidence not in _CONFIDENCE_LEVEL:
+            logger.warning(
+                f"dream_pattern_min_confidence 值 '{raw_confidence}' 无效，"
+                f"回退为 'medium'（可选: low/medium/high）"
+            )
+            self._min_confidence = "medium"
 
         if not llm:
             logger.warning("LLMManager 不可用，跳过模式挖掘")

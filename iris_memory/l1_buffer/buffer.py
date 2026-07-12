@@ -51,6 +51,20 @@ def _as_str_dict(value: object) -> dict[str, str] | None:
     return None
 
 
+def _as_float(value: object) -> float | None:
+    """将 LLM 返回的数值字段转为 float（拒绝 bool）。"""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
 class L1Buffer(Component):
     """L1 消息缓冲组件
 
@@ -462,12 +476,18 @@ class L1Buffer(Component):
                 )
 
             group_profile_obj = await group_manager.get_or_create(group_id, persona_id)
-            if group_manager.should_update_mid(group_profile_obj):
+            group_should_mid = group_manager.should_update_mid(group_profile_obj)
+            group_should_long = group_manager.should_update_long(group_profile_obj)
+
+            if group_should_mid and group_should_long:
+                await self._update_group_combined(
+                    group_id, messages, group_manager, profile_storage, persona_id
+                )
+            elif group_should_mid:
                 await self._update_group_mid_term(
                     group_id, messages, group_manager, profile_storage, persona_id
                 )
-
-            if group_manager.should_update_long(group_profile_obj):
+            elif group_should_long:
                 await self._update_group_long_term(
                     group_id, messages, group_manager, profile_storage, persona_id
                 )
@@ -477,7 +497,20 @@ class L1Buffer(Component):
                     user_id, effective_group_id, persona_id
                 )
 
-                if user_manager.should_update_mid(user_profile_obj):
+                user_should_mid = user_manager.should_update_mid(user_profile_obj)
+                user_should_long = user_manager.should_update_long(user_profile_obj)
+
+                if user_should_mid and user_should_long:
+                    await self._update_user_combined(
+                        user_id,
+                        effective_group_id,
+                        user_msgs,
+                        user_manager,
+                        user_profile_obj,
+                        profile_storage,
+                        persona_id,
+                    )
+                elif user_should_mid:
                     await self._update_user_mid_term(
                         user_id,
                         effective_group_id,
@@ -487,8 +520,7 @@ class L1Buffer(Component):
                         profile_storage,
                         persona_id,
                     )
-
-                if user_manager.should_update_long(user_profile_obj):
+                elif user_should_long:
                     await self._update_user_long_term(
                         user_id,
                         effective_group_id,
@@ -633,6 +665,7 @@ class L1Buffer(Component):
                     language_style=_as_str(result.get("language_style")),
                     communication_style=_as_str(result.get("communication_style")),
                     emotional_baseline=_as_str(result.get("emotional_baseline")),
+                    favorability_delta=_as_float(result.get("favorability_delta")),
                     custom_fields=_as_str_dict(result.get("custom_fields")),
                     tier=UpdateTier.MID,
                     confidence=0.7,
@@ -693,6 +726,128 @@ class L1Buffer(Component):
 
         except Exception as e:
             logger.error(f"用户画像长期更新失败: {e}", exc_info=True)
+
+    async def _update_user_combined(
+        self,
+        user_id: str,
+        group_id: str,
+        user_messages: list[str],
+        user_manager: UserProfileManager,
+        user_profile_obj: UserProfile,
+        profile_storage: ProfileStorage,
+        persona_id: str = "default",
+    ) -> None:
+        """合并 MID+LONG 为单次 LLM 调用，分别派发到 MID/LONG 更新路径。"""
+        assert self._component_manager is not None
+        llm_manager = self._component_manager.get_component("llm_manager")
+        if not llm_manager or not llm_manager.is_available:
+            return
+
+        try:
+            from iris_memory.llm import LLMManager
+            from iris_memory.profile import ProfileAnalyzer
+            from iris_memory.profile.models import UpdateTier, profile_to_dict
+
+            assert isinstance(llm_manager, LLMManager)
+            analyzer = ProfileAnalyzer(llm_manager)
+            current_profile_dict = profile_to_dict(user_profile_obj)
+
+            result = await analyzer.analyze_user_profile(
+                user_messages,
+                current_profile_dict,
+                tier=UpdateTier.MID,
+                combined=True,
+            )
+
+            if not result:
+                return
+
+            await user_manager.update_from_analysis(
+                user_id=user_id,
+                group_id=group_id,
+                personality_tags=_as_str_list(result.get("personality_tags")),
+                interests=_as_str_list(result.get("interests")),
+                occupation=_as_str(result.get("occupation")),
+                language_style=_as_str(result.get("language_style")),
+                communication_style=_as_str(result.get("communication_style")),
+                emotional_baseline=_as_str(result.get("emotional_baseline")),
+                favorability_delta=_as_float(result.get("favorability_delta")),
+                custom_fields=_as_str_dict(result.get("custom_fields")),
+                tier=UpdateTier.MID,
+                confidence=0.7,
+                persona_id=persona_id,
+            )
+            await user_manager.update_long_term_from_analysis(
+                user_id=user_id,
+                group_id=group_id,
+                occupation=_as_str(result.get("occupation")),
+                bot_relationship=_as_str(result.get("bot_relationship")),
+                important_events=_as_str_list(result.get("important_events")),
+                taboo_topics=_as_str_list(result.get("taboo_topics")),
+                important_dates=result.get("important_dates"),  # type: ignore[arg-type]
+                confidence=0.8,
+                persona_id=persona_id,
+            )
+            logger.info(f"用户画像合并更新完成: {user_id}")
+
+        except Exception as e:
+            logger.error(f"用户画像合并更新失败: {e}", exc_info=True)
+
+    async def _update_group_combined(
+        self,
+        group_id: str,
+        messages: list[ContextMessage],
+        group_manager: GroupProfileManager,
+        profile_storage: ProfileStorage,
+        persona_id: str = "default",
+    ) -> None:
+        """合并群聊 MID+LONG 为单次 LLM 调用，分别派发到 MID/LONG 更新路径。"""
+        assert self._component_manager is not None
+        llm_manager = self._component_manager.get_component("llm_manager")
+        if not llm_manager or not llm_manager.is_available:
+            return
+
+        try:
+            from iris_memory.llm import LLMManager
+            from iris_memory.profile import ProfileAnalyzer
+            from iris_memory.profile.models import UpdateTier, profile_to_dict
+
+            assert isinstance(llm_manager, LLMManager)
+            analyzer = ProfileAnalyzer(llm_manager)
+            group_profile_obj = await group_manager.get_or_create(group_id, persona_id)
+            current_profile_dict = profile_to_dict(group_profile_obj)
+
+            msg_texts = [msg.content for msg in messages if msg.content]
+            result = await analyzer.analyze_group_profile(
+                msg_texts,
+                current_profile_dict,
+                tier=UpdateTier.MID,
+                combined=True,
+            )
+
+            if not result:
+                return
+
+            await group_manager.update_from_analysis(
+                group_id=group_id,
+                interests=_as_str_list(result.get("interests")),
+                atmosphere_tags=_as_str_list(result.get("atmosphere_tags")),
+                custom_fields=_as_str_dict(result.get("custom_fields")),
+                tier=UpdateTier.MID,
+                confidence=0.7,
+                persona_id=persona_id,
+            )
+            await group_manager.update_long_term_from_analysis(
+                group_id=group_id,
+                long_term_tags=_as_str_list(result.get("long_term_tags")),
+                blacklist_topics=_as_str_list(result.get("blacklist_topics")),
+                confidence=0.8,
+                persona_id=persona_id,
+            )
+            logger.info(f"群聊画像合并更新完成: {group_id}")
+
+        except Exception as e:
+            logger.error(f"群聊画像合并更新失败: {e}", exc_info=True)
 
     async def _write_summary_to_l2(
         self, group_id: str, messages: list[ContextMessage], summary: str
@@ -793,14 +948,10 @@ class L1Buffer(Component):
 
                 # 内容质量校验：拦截第一人称片段、即时性内容、拼接痕迹等
                 # 低质量提取，避免无效记忆污染 L2。
-                is_low_quality, reason = self._is_low_quality_memory(
-                    content, user_id
-                )
+                is_low_quality, reason = self._is_low_quality_memory(content, user_id)
                 if is_low_quality:
                     quality_filtered += 1
-                    logger.info(
-                        f"过滤低质量记忆：{content[:50]}（原因：{reason}）"
-                    )
+                    logger.info(f"过滤低质量记忆：{content[:50]}（原因：{reason}）")
                     continue
 
                 metadata = {
@@ -840,7 +991,9 @@ class L1Buffer(Component):
                     for item in filtered_items[: len(memory_ids)]
                     if item.get("confidence") == "medium"
                 )
-                quality_msg = f"，质量过滤 {quality_filtered} 条" if quality_filtered else ""
+                quality_msg = (
+                    f"，质量过滤 {quality_filtered} 条" if quality_filtered else ""
+                )
                 logger.info(
                     f"已将 {len(memory_ids)} 条记忆写入 L2 记忆库 "
                     f"(high={high_count}, medium={medium_count}{quality_msg})"
@@ -885,7 +1038,9 @@ class L1Buffer(Component):
     # 第一人称代词开头模式——这些是原始对话片段而非提取后的记忆。
     # 记忆应以第三人称表述（如"张三喜欢Python"），不应以"我想"/"我是"开头。
     _FIRST_PERSON_PATTERNS: list[re.Pattern[str]] = [
-        re.compile(r"^(我想|我要|我喜欢|我爱|我讨厌|我是|我在|我有|我去|我正|我的|我觉|我认为|我觉得|我打算|我准备|我希望|我需要|我正在|我最近|我今天|我昨天|我明天|我这|我那|我会|我能|我可以|我想要)"),
+        re.compile(
+            r"^(我想|我要|我喜欢|我爱|我讨厌|我是|我在|我有|我去|我正|我的|我觉|我认为|我觉得|我打算|我准备|我希望|我需要|我正在|我最近|我今天|我昨天|我明天|我这|我那|我会|我能|我可以|我想要)"
+        ),
     ]
 
     # 即时性内容模式——这些是临时性内容，不具备长期价值。
@@ -894,7 +1049,9 @@ class L1Buffer(Component):
     ]
 
     @classmethod
-    def _is_low_quality_memory(cls, content: str, user_id: Optional[str]) -> tuple[bool, str]:
+    def _is_low_quality_memory(
+        cls, content: str, user_id: Optional[str]
+    ) -> tuple[bool, str]:
         """检查记忆内容是否为低质量提取
 
         检测 LLM 常见的不当提取模式：

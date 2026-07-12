@@ -705,6 +705,10 @@ async def _collect_l3_knowledge_graph(
     adapter = get_adapter(event)
     group_id = adapter.get_group_id(event)
 
+    # 与 L2 retriever 对齐：群记忆隔离关闭时不按 group_id 过滤，跨群共享图谱
+    if not config.get("isolation_config.enable_group_memory_isolation"):
+        group_id = None
+
     try:
         from iris_memory.l3_kg import GraphRetriever
 
@@ -840,6 +844,12 @@ def _format_profiles_for_injection(
     Returns:
         格式化的画像文本，任一部分为空则不注入该部分
     """
+    from iris_memory.config import get_config
+    from iris_memory.profile.models import favorability_level
+
+    config = get_config()
+    favorability_enabled = config.get("profile.favorability_enable", True)
+
     sections = []
 
     user_parts = [f"【发送者】ID: {user_profile.user_id}"]
@@ -859,6 +869,9 @@ def _format_profiles_for_injection(
         user_parts.append(f"沟通偏好: {user_profile.communication_style}")
     if user_profile.emotional_baseline:
         user_parts.append(f"情感: {user_profile.emotional_baseline}")
+    if favorability_enabled and user_profile.favorability > 0:
+        level = favorability_level(user_profile.favorability)
+        user_parts.append(f"好感度: {int(user_profile.favorability)}({level})")
     if user_profile.bot_relationship:
         user_parts.append(f"称呼: {user_profile.bot_relationship}")
     if user_profile.important_dates:

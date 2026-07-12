@@ -59,6 +59,7 @@ class ProfileConfig:
     enable: bool = True
     analysis_provider: str = ""
     enable_auto_injection: bool = True
+    favorability_enable: bool = True
 
 
 @dataclass
@@ -129,7 +130,10 @@ class HiddenConfig:
     )
     l1_max_single_message_tokens: int = field(
         default=500,
-        metadata={"description": "单条消息最大 Token 数，超限丢弃", "group": "L1 缓冲"},
+        metadata={
+            "description": "单条消息最大 Token 数，普通消息超限丢弃，合并转发消息超限截断",
+            "group": "L1 缓冲",
+        },
     )
     l1_inject_max_content_chars: int = field(
         default=300,
@@ -172,7 +176,10 @@ class HiddenConfig:
     )
     forgetting_l2_weight_isolation: float = field(
         default=0.0,
-        metadata={"description": "L2 遗忘评分: 孤立度权重", "group": "遗忘算法"},
+        metadata={
+            "description": "L2 遗忘评分: 孤立度权重（设为 0 则禁用孤立度因子）",
+            "group": "遗忘算法",
+        },
     )
     l2_retention_days: int = field(
         default=30,
@@ -381,6 +388,14 @@ class HiddenConfig:
     profile_long_update_interval_hours: float = field(
         default=168.0,
         metadata={"description": "长期更新: 最短间隔(小时)", "group": "画像系统"},
+    )
+    profile_favorability_max_delta: float = field(
+        default=20.0,
+        metadata={"description": "好感度单次更新最大变化量（夹紧用）", "group": "画像系统"},
+    )
+    profile_message_max_chars: int = field(
+        default=150,
+        metadata={"description": "画像分析时单条消息最大字符数（0 不截断）", "group": "画像系统"},
     )
 
     # 图片解析（从 _conf_schema.json 迁移）
