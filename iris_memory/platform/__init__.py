@@ -38,6 +38,7 @@ Iris Chat Memory - 平台接口统一管理模块
 
 支持的平台：
 - aiocqhttp: QQ 个人号（OneBot11 协议）
+- cron: AstrBot 内置定时任务（CronMessageEvent）
 - qqofficial: QQ 官方机器人（待实现）
 - gewechat: 个微（待实现）
 """
@@ -49,6 +50,7 @@ from iris_memory.platform.base import (
     ReplyInfo,
     UnsupportedPlatformError,
 )
+from iris_memory.platform.cron import CronAdapter
 from iris_memory.platform.factory import (
     get_adapter,
     get_supported_platforms,
@@ -67,6 +69,7 @@ __all__ = [
     "UnsupportedPlatformError",
     # 平台适配器
     "OneBot11Adapter",
+    "CronAdapter",
     "GenericAdapter",
     # 扩展接口
     "register_adapter",

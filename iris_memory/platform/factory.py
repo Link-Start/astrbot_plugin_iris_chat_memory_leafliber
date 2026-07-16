@@ -5,6 +5,7 @@ Iris Chat Memory - 平台适配器工厂
 
 支持的平台：
 - qq/aiocqhttp: QQ 个人号（OneBot11 协议）
+- cron: AstrBot 内置定时任务（CronMessageEvent）
 - qqofficial: QQ 官方机器人（待实现）
 - gewechat: 个微（待实现）
 
@@ -19,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from iris_memory.core import get_logger
 from iris_memory.platform.base import PlatformAdapter
+from iris_memory.platform.cron import CronAdapter
 from iris_memory.platform.generic import GenericAdapter
 from iris_memory.platform.qq import OneBot11Adapter
 
@@ -37,6 +39,7 @@ logger = get_logger("platform.factory")
 _ADAPTER_REGISTRY: dict[str, type[PlatformAdapter] | None] = {
     "aiocqhttp": OneBot11Adapter,  # QQ 个人号（OneBot11）
     "qq": OneBot11Adapter,  # QQ（AstrBot v4.x 统一命名）
+    "cron": CronAdapter,  # AstrBot 内置定时任务（CronMessageEvent）
     "qqofficial": None,  # QQ 官方机器人（待实现）
     "gewechat": None,  # 个微（待实现）
 }
