@@ -20,6 +20,7 @@ import re
 
 from iris_memory.core import Component, get_logger
 from iris_memory.config import get_config
+from iris_memory.platform.base import PRIVATE_SESSION_PREFIX
 from iris_memory.utils import count_tokens
 from .models import ContextMessage, SegmentedMessageQueue
 from .summarizer import Summarizer
@@ -159,7 +160,24 @@ class L1Buffer(Component):
         return self._summarizer
 
     def _get_queue_key(self, group_id: str) -> str:
+        """返回队列键
+
+        调用方应传入会话 ID（见 PlatformAdapter.get_session_id）：
+        群聊为群号，私聊为 f"private:{user_id}"，保证不同私聊用户
+        不会共用同一个队列。此处不再做额外映射。
+        """
         return group_id
+
+    def _get_storage_group_id(self, queue_key: str) -> str:
+        """从队列键推导 L2 记忆/画像归属使用的群 ID
+
+        私聊会话键（private:{user_id}）还原为空字符串——L2 检索与画像
+        注入对私聊均使用空群 ID（不按群过滤、归入空群桶），保持既有归属
+        行为不变；群聊队列键即群号，原样返回。
+        """
+        if queue_key.startswith(PRIVATE_SESSION_PREFIX):
+            return ""
+        return queue_key
 
     def _get_or_create_queue(self, group_id: str) -> SegmentedMessageQueue:
         queue_key = self._get_queue_key(group_id)
@@ -374,10 +392,16 @@ class L1Buffer(Component):
                 if summary:
                     logger.info(f"总结完成：{queue_key}, 长度：{len(summary)}")
 
-                    await self._write_summary_to_l2(group_id, target_messages, summary)
+                    # L2/画像归属使用原始群 ID：私聊会话键还原为空字符串，
+                    # 避免私聊总结写入读不到的 private: 命名空间
+                    storage_group_id = self._get_storage_group_id(queue_key)
+
+                    await self._write_summary_to_l2(
+                        storage_group_id, target_messages, summary
+                    )
 
                     await self._update_profile_after_summary(
-                        group_id, target_messages, summary
+                        storage_group_id, target_messages, summary
                     )
 
                     self._summary_fail_counts[queue_key] = 0

@@ -97,6 +97,9 @@ class L1CommandHandler(CommandHandler):
 
         adapter = get_adapter(event)
         group_id = adapter.get_group_id(event)
+        # L1 队列键使用会话 ID：私聊为 private:{user_id}，
+        # 使私聊的 /l1 clear 只清空当前私聊会话的队列
+        session_id = adapter.get_session_id(event)
         current_user_id = adapter.get_user_id(event)
 
         scope = args.scope
@@ -107,8 +110,8 @@ class L1CommandHandler(CommandHandler):
             message = f"✅ 已清空所有 L1 消息缓冲，共删除 {removed_count} 条消息"
 
         elif scope == DeleteScope.GROUP:
-            removed_count = l1_buffer.clear_by_group(group_id)
-            message = f"✅ 已清空当前群聊的 L1 消息缓冲，共删除 {removed_count} 条消息"
+            removed_count = l1_buffer.clear_by_group(session_id)
+            message = f"✅ 已清空当前会话的 L1 消息缓冲，共删除 {removed_count} 条消息"
 
         elif scope == DeleteScope.SPECIFIED_USER:
             target_user_id = args.target_user_id

@@ -11,7 +11,7 @@
         <v-col cols="12" md="4">
           <v-card color="surface" variant="flat" class="iris-list-card">
             <v-card-title class="d-flex align-center iris-section-title">
-              <span>群聊列表</span>
+              <span>会话列表</span>
               <v-spacer />
               <v-btn
                 icon="mdi-refresh"
@@ -37,14 +37,14 @@
                 >
                   <template #prepend>
                     <v-avatar color="primary" variant="tonal">
-                      <v-icon icon="mdi-account-group" />
+                      <v-icon :icon="queue.is_private ? 'mdi-account' : 'mdi-account-group'" />
                     </v-avatar>
                   </template>
 
-                  <v-list-item-title>{{ queue.group_name || queue.group_id }}</v-list-item-title>
+                  <v-list-item-title>{{ queue.group_name || (queue.is_private ? queue.user_id : queue.group_id) }}</v-list-item-title>
                   <v-list-item-subtitle>
                     <template v-if="queue.group_name">
-                      <code class="text-caption">{{ queue.group_id }}</code> ·
+                      <code class="text-caption">{{ queue.is_private ? queue.user_id : queue.group_id }}</code> ·
                     </template>
                     {{ queue.message_count }} 条消息 · {{ queue.total_tokens }} tokens
                   </v-list-item-subtitle>
@@ -53,7 +53,7 @@
 
               <div v-else class="iris-empty-state">
                 <v-icon icon="mdi-inbox-outline" size="48" />
-                <div class="iris-empty-state__title">暂无群聊数据</div>
+                <div class="iris-empty-state__title">暂无会话数据</div>
               </div>
             </v-card-text>
           </v-card>
@@ -151,7 +151,7 @@
 
               <div v-else class="iris-empty-state">
                 <v-icon icon="mdi-hand-pointing-up" size="56" />
-                <div class="iris-empty-state__title">请从左侧选择一个群聊</div>
+                <div class="iris-empty-state__title">请从左侧选择一个会话</div>
               </div>
             </v-card-text>
           </v-card>
@@ -185,7 +185,7 @@
           确认清空
         </v-card-title>
         <v-card-text>
-          确定要清空{{ clearTarget === 'group' ? '当前群聊' : '所有群聊' }}的 L1 缓冲吗？此操作不可撤销。
+          确定要清空{{ clearTarget === 'group' ? '当前会话' : '所有会话' }}的 L1 缓冲吗？此操作不可撤销。
         </v-card-text>
         <v-card-actions>
           <v-spacer />

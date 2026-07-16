@@ -71,6 +71,9 @@ class AllCommandHandler(CommandHandler):
 
         adapter = get_adapter(event)
         group_id = adapter.get_group_id(event)
+        # L1 队列键使用会话 ID（私聊为 private:{user_id}）；
+        # L2/L3/画像仍使用原始群 ID，保持既有归属行为
+        session_id = adapter.get_session_id(event)
         current_user_id = adapter.get_user_id(event)
 
         scope = args.scope
@@ -118,7 +121,7 @@ class AllCommandHandler(CommandHandler):
 
         elif scope == DeleteScope.GROUP:
             results["l1"] = (
-                l1_buffer.clear_by_group(group_id)
+                l1_buffer.clear_by_group(session_id)
                 if l1_buffer and l1_buffer.is_available
                 else 0
             )

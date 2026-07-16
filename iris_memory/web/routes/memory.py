@@ -12,11 +12,36 @@ from iris_memory.core import get_component_manager, get_logger
 from iris_memory.l1_buffer.buffer import L1Buffer
 from iris_memory.l2_memory.adapter import L2MemoryAdapter
 from iris_memory.l3_kg.adapter import L3KGAdapter
+from iris_memory.platform.base import PRIVATE_SESSION_PREFIX
 from iris_memory.profile.storage import ProfileStorage
 
 logger = get_logger("web.memory")
 
 PLUGIN_NAME = "astrbot_plugin_iris_chat_memory"
+
+
+def get_private_queue_display(l1_buffer: L1Buffer, queue_key: str) -> dict:
+    """提取私聊队列的展示信息（用户 ID 与昵称）
+
+    昵称取自队列中最近一条携带 user_name 元数据的用户消息，
+    无需访问数据库；无昵称记录时返回空字符串，由前端回退显示用户 ID。
+
+    Args:
+        l1_buffer: L1 Buffer 实例
+        queue_key: 私聊队列键（private:{user_id}）
+
+    Returns:
+        {"is_private": True, "user_id": str, "group_name": str}
+    """
+    user_id = queue_key[len(PRIVATE_SESSION_PREFIX) :]
+    user_name = ""
+    for msg in reversed(l1_buffer.get_context(queue_key)):
+        if msg.role == "user" and msg.metadata:
+            name = msg.metadata.get("user_name")
+            if name:
+                user_name = name
+                break
+    return {"is_private": True, "user_id": user_id, "group_name": user_name}
 
 
 async def search_l2_memory():
@@ -199,6 +224,12 @@ async def list_l1_queues():
 
     queues = l1_buffer.get_all_queues_stats()
 
+    # 私聊队列（private:{user_id}）单独补充展示信息：用户 ID 与昵称
+    for q in queues:
+        gid = q.get("group_id", "")
+        if gid.startswith(PRIVATE_SESSION_PREFIX):
+            q.update(get_private_queue_display(l1_buffer, gid))
+
     group_names: dict[str, str] = {}
     profile_storage = manager.get_component("profile", ProfileStorage)
     if profile_storage and profile_storage.is_available:
@@ -208,7 +239,11 @@ async def list_l1_queues():
             group_manager = GroupProfileManager(profile_storage)
             for q in queues:
                 gid = q.get("group_id", "")
-                if gid and gid not in group_names:
+                if (
+                    gid
+                    and not gid.startswith(PRIVATE_SESSION_PREFIX)
+                    and gid not in group_names
+                ):
                     try:
                         profile = await group_manager._storage.get_group_profile(gid)
                         group_names[gid] = (
@@ -221,7 +256,8 @@ async def list_l1_queues():
 
     for q in queues:
         gid = q.get("group_id", "")
-        q["group_name"] = group_names.get(gid, "")
+        if not gid.startswith(PRIVATE_SESSION_PREFIX):
+            q["group_name"] = group_names.get(gid, "")
 
     return jsonify({"success": True, "queues": queues})
 

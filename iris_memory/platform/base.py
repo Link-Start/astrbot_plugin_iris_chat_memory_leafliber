@@ -75,6 +75,12 @@ class ForwardMessage:
     message_id: str = ""
 
 
+# 私聊会话键前缀：私聊事件没有群 ID，按会话隔离的组件（如 L1 缓冲）
+# 使用 f"{PRIVATE_SESSION_PREFIX}{user_id}" 作为会话键，
+# 避免所有私聊用户混入同一个空字符串队列。
+PRIVATE_SESSION_PREFIX = "private:"
+
+
 class UnsupportedPlatformError(Exception):
     """不支持的平台类型异常
 
@@ -323,6 +329,34 @@ class PlatformAdapter(ABC):
             - go-cqhttp 等实现可能包含 content 字段（被回复消息的完整内容）
         """
         pass
+
+    def get_session_id(self, event: "AstrMessageEvent") -> str:
+        """获取会话 ID（用于按会话隔离的组件，如 L1 缓冲）
+
+        群聊返回群号；私聊返回 f"private:{user_id}"，确保每个私聊用户
+        拥有独立的会话键，不会与其他私聊用户混入同一个队列。
+
+        Args:
+            event: AstrBot 消息事件对象 (AstrMessageEvent)
+
+        Returns:
+            会话 ID 字符串；群 ID 与用户 ID 均不可获取时返回空字符串 ""
+
+        Examples:
+            >>> session_id = adapter.get_session_id(event)
+            >>> print(session_id)  # "987654321" 或 "private:123456789"
+        """
+        try:
+            group_id = self.get_group_id(event)
+        except AttributeError:
+            group_id = ""
+        if group_id:
+            return group_id
+        try:
+            user_id = self.get_user_id(event)
+        except AttributeError:
+            return ""
+        return f"{PRIVATE_SESSION_PREFIX}{user_id}" if user_id else ""
 
     def get_mentioned_users(self, event: "AstrMessageEvent") -> list[tuple[str, str]]:
         """获取消息中 @提及的用户列表

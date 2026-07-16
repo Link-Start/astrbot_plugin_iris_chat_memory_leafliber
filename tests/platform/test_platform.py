@@ -615,3 +615,47 @@ class TestGetMentionedUsers:
 
         result = adapter.get_mentioned_users(event)
         assert result == []
+
+
+class TestGetSessionId:
+    """get_session_id 会话键测试（私聊 L1 队列隔离修复）
+
+    私聊事件 group_id 为空字符串，L1 缓冲等按会话隔离的组件
+    使用 private:{user_id} 作为会话键，避免不同私聊用户共用队列。
+    """
+
+    def _make_event(self, group_id: str, user_id: str):
+        event = Mock()
+        event.message_obj = Mock()
+        event.message_obj.group_id = group_id
+        event.message_obj.sender = Mock()
+        event.message_obj.sender.user_id = user_id
+        return event
+
+    def test_group_message_returns_group_id(self):
+        """群聊会话键即群号"""
+        adapter = OneBot11Adapter()
+        event = self._make_event("987654321", "12345")
+
+        assert adapter.get_session_id(event) == "987654321"
+
+    def test_private_message_returns_private_key(self):
+        """私聊会话键为 private:{user_id}，不同用户键不同"""
+        adapter = OneBot11Adapter()
+
+        assert adapter.get_session_id(self._make_event("", "111")) == "private:111"
+        assert adapter.get_session_id(self._make_event("", "222")) == "private:222"
+
+    def test_private_message_generic_adapter(self):
+        """通用适配器私聊同样返回 private:{user_id}"""
+        adapter = GenericAdapter()
+        event = self._make_event("", "12345")
+
+        assert adapter.get_session_id(event) == "private:12345"
+
+    def test_event_structure_broken_returns_empty(self):
+        """事件结构异常（无 message_obj）时返回空字符串而非抛异常"""
+        adapter = OneBot11Adapter()
+        event = Mock(spec=[])
+
+        assert adapter.get_session_id(event) == ""

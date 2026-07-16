@@ -331,10 +331,13 @@ async def _collect_l1_context(
 
     adapter = get_adapter(event)
     group_id = adapter.get_group_id(event)
+    # L1 队列键使用会话 ID（私聊为 private:{user_id}），
+    # 与写入侧 message_hook 保持一致，避免不同私聊用户共享空字符串队列
+    session_id = adapter.get_session_id(event)
 
     max_length = cast(int, config.get("l1_buffer.inject_queue_length", 50))
 
-    messages = l1_buffer.get_context(group_id, max_length)
+    messages = l1_buffer.get_context(session_id, max_length)
     if not messages:
         logger.debug(f"群聊 {group_id} 的 L1 上下文为空，跳过注入")
         return ""
@@ -984,7 +987,7 @@ async def _parse_images_if_related_mode(
         return
 
     adapter = get_adapter(event)
-    group_id = adapter.get_group_id(event)
+    session_id = adapter.get_session_id(event)
 
     buffer = component_manager.get_available_component("l1_buffer")
     if not buffer:
@@ -1003,7 +1006,7 @@ async def _parse_images_if_related_mode(
     max_parse = config.get("image_max_parse_per_request")
     max_concurrent = config.get("image_max_concurrent_parse")
 
-    pending_images = l1_buffer.get_images(group_id, limit=max_parse, only_pending=True)
+    pending_images = l1_buffer.get_images(session_id, limit=max_parse, only_pending=True)
 
     if not pending_images:
         return
@@ -1016,11 +1019,11 @@ async def _parse_images_if_related_mode(
             cached = await cache_manager.get_cache(img_item.image_hash)
             if cached:
                 l1_buffer.mark_image_parsed(
-                    group_id, img_item.image_hash, ImageParseStatus.SUCCESS
+                    session_id, img_item.image_hash, ImageParseStatus.SUCCESS
                 )
                 placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
                 l1_buffer.replace_image_placeholder(
-                    group_id, placeholder, f"[图:{cached.content}]"
+                    session_id, placeholder, f"[图:{cached.content}]"
                 )
                 cached_results.append((img_item, cached))
                 continue
@@ -1082,10 +1085,10 @@ async def _parse_images_if_related_mode(
             t.cancel()
             img_item = task_to_img[t]
             l1_buffer.mark_image_parsed(
-                group_id, img_item.image_hash, ImageParseStatus.FAILED
+                session_id, img_item.image_hash, ImageParseStatus.FAILED
             )
             placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
-            l1_buffer.replace_image_placeholder(group_id, placeholder, "")
+            l1_buffer.replace_image_placeholder(session_id, placeholder, "")
         logger.warning(
             f"图片解析整体超时（{parse_timeout_ms}ms），"
             f"{len(pending)}/{len(images_to_parse)} 张未完成，已标记失败"
@@ -1100,28 +1103,28 @@ async def _parse_images_if_related_mode(
     for img_item, result in parse_results:
         if result is None:
             l1_buffer.mark_image_parsed(
-                group_id, img_item.image_hash, ImageParseStatus.FAILED
+                session_id, img_item.image_hash, ImageParseStatus.FAILED
             )
             placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
-            l1_buffer.replace_image_placeholder(group_id, placeholder, "")
+            l1_buffer.replace_image_placeholder(session_id, placeholder, "")
             continue
 
         if not result.success:
             logger.warning(f"图片解析失败：{result.error_message}")
             l1_buffer.mark_image_parsed(
-                group_id, img_item.image_hash, ImageParseStatus.FAILED
+                session_id, img_item.image_hash, ImageParseStatus.FAILED
             )
             placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
-            l1_buffer.replace_image_placeholder(group_id, placeholder, "")
+            l1_buffer.replace_image_placeholder(session_id, placeholder, "")
             continue
 
         if not result.content:
             logger.debug("图片解析结果为空")
             l1_buffer.mark_image_parsed(
-                group_id, img_item.image_hash, ImageParseStatus.FAILED
+                session_id, img_item.image_hash, ImageParseStatus.FAILED
             )
             placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
-            l1_buffer.replace_image_placeholder(group_id, placeholder, "")
+            l1_buffer.replace_image_placeholder(session_id, placeholder, "")
             continue
 
         if cache_manager and cache_manager.is_available:
@@ -1134,12 +1137,12 @@ async def _parse_images_if_related_mode(
             await cache_manager.set_cache(cache)
 
         l1_buffer.mark_image_parsed(
-            group_id, img_item.image_hash, ImageParseStatus.SUCCESS
+            session_id, img_item.image_hash, ImageParseStatus.SUCCESS
         )
 
         placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
         l1_buffer.replace_image_placeholder(
-            group_id, placeholder, f"[图:{result.content}]"
+            session_id, placeholder, f"[图:{result.content}]"
         )
 
         success_count += 1

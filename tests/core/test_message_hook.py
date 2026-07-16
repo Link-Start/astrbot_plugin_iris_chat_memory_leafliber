@@ -58,6 +58,7 @@ class TestHandleUserMessage:
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
+        adapter.get_session_id.return_value = "group123"
         adapter.get_user_id.return_value = "user456"
         adapter.get_user_name.return_value = "测试用户"
         adapter.get_group_name.return_value = ""
@@ -236,6 +237,7 @@ class TestUpdateL1Buffer:
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
+        adapter.get_session_id.return_value = "group123"
         adapter.get_user_id.return_value = "user456"
 
         with patch("iris_memory.platform.get_adapter", return_value=adapter):
@@ -264,6 +266,7 @@ class TestUpdateL1Buffer:
 
         adapter = MagicMock()
         adapter.get_group_id.return_value = "group123"
+        adapter.get_session_id.return_value = "group123"
         adapter.get_user_id.return_value = "user456"
 
         with patch("iris_memory.platform.get_adapter", return_value=adapter):

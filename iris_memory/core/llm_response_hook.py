@@ -50,7 +50,8 @@ async def handle_llm_response(
     l1_buffer = cast("L1Buffer", buffer)
 
     adapter = get_adapter(event)
-    group_id = adapter.get_group_id(event)
+    # L1 队列键使用会话 ID（私聊为 private:{user_id}），与写入侧保持一致
+    session_id = adapter.get_session_id(event)
 
     # 解析 persona_id：助手响应必须携带正确人格归属，
     # 否则 buffer.py 用 messages[-1].persona_id 决定画像与 L2 摘要归属时，
@@ -58,11 +59,11 @@ async def handle_llm_response(
     persona_id = await resolve_persona(component_manager, event)
 
     await l1_buffer.add_message(
-        group_id=group_id,
+        group_id=session_id,
         role="assistant",
         content=assistant_msg,
         source="assistant",
         persona_id=persona_id,
     )
 
-    logger.debug(f"已添加助手响应到群聊 {group_id} 的 L1 Buffer")
+    logger.debug(f"已添加助手响应到会话 {session_id} 的 L1 Buffer")

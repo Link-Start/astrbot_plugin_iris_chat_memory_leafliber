@@ -62,7 +62,7 @@ async def handle_user_message(
 
 def _backfill_reply_from_buffer(
     l1_buffer: "L1Buffer",
-    group_id: str,
+    session_id: str,
     reply_message_id: str,
     metadata: dict,
 ) -> None:
@@ -73,12 +73,12 @@ def _backfill_reply_from_buffer(
 
     Args:
         l1_buffer: L1 Buffer 实例
-        group_id: 群聊ID
+        session_id: 会话 ID（L1 队列键，私聊为 private:{user_id}）
         reply_message_id: 被回复消息的ID
         metadata: 待回填的 metadata 字典
     """
     try:
-        messages = l1_buffer.get_context(group_id)
+        messages = l1_buffer.get_context(session_id)
         for msg in reversed(messages):
             msg_mid = msg.metadata.get("message_id") if msg.metadata else None
             if msg_mid and str(msg_mid) == str(reply_message_id):
@@ -189,6 +189,9 @@ async def _add_to_l1_buffer(
 
     adapter = get_adapter(event)
     group_id = adapter.get_group_id(event)
+    # L1 队列键使用会话 ID：私聊为 private:{user_id}，避免不同私聊用户
+    # 共用空字符串队列导致上下文互相污染；画像等仍使用原始群 ID
+    session_id = adapter.get_session_id(event)
     user_id = adapter.get_user_id(event)
     user_name = adapter.get_user_name(event)
     group_name = adapter.get_group_name(event)
@@ -218,7 +221,7 @@ async def _add_to_l1_buffer(
             metadata["reply_content"] = reply_info.content
         elif reply_info.message_id:
             _backfill_reply_from_buffer(
-                l1_buffer, group_id, reply_info.message_id, metadata
+                l1_buffer, session_id, reply_info.message_id, metadata
             )
             if "reply_content" not in metadata:
                 api_reply = await adapter.get_msg_by_id(event, reply_info.message_id)
@@ -234,7 +237,7 @@ async def _add_to_l1_buffer(
                     )
 
     await l1_buffer.add_message(
-        group_id=group_id,
+        group_id=session_id,
         role="user",
         content=content,
         source=user_id,
@@ -242,7 +245,7 @@ async def _add_to_l1_buffer(
         persona_id=persona_id,
     )
 
-    logger.debug(f"已添加用户消息到群聊 {group_id} 的 L1 Buffer")
+    logger.debug(f"已添加用户消息到会话 {session_id} 的 L1 Buffer")
 
     # 展开合并转发消息：拼接为一条消息入队，超长按 token 限制截断
     try:
@@ -301,7 +304,7 @@ async def _add_to_l1_buffer(
                 "forward_truncated": truncated,
             }
             await l1_buffer.add_message(
-                group_id=group_id,
+                group_id=session_id,
                 role="user",
                 content=combined_content,
                 source=user_id,
@@ -309,7 +312,7 @@ async def _add_to_l1_buffer(
                 persona_id=persona_id,
             )
             logger.debug(
-                f"合并转发消息已入队：群聊 {group_id}，"
+                f"合并转发消息已入队：会话 {session_id}，"
                 f"包含 {included_count}/{len(forward_messages)} 条子消息，"
                 f"truncated={truncated}"
             )
@@ -346,7 +349,7 @@ async def update_l1_buffer(
     l1_buffer = cast("L1Buffer", buffer)
 
     adapter = get_adapter(event)
-    group_id = adapter.get_group_id(event)
+    session_id = adapter.get_session_id(event)
     user_id = adapter.get_user_id(event)
 
     from iris_memory.core.persona import resolve_persona
@@ -354,14 +357,14 @@ async def update_l1_buffer(
     persona_id = await resolve_persona(component_manager, event)
 
     await l1_buffer.add_message(
-        group_id=group_id,
+        group_id=session_id,
         role=role,
         content=content,
         source=user_id if role == "user" else "assistant",
         persona_id=persona_id,
     )
 
-    logger.debug(f"已添加 {role} 消息到群聊 {group_id} 的 L1 Buffer")
+    logger.debug(f"已添加 {role} 消息到会话 {session_id} 的 L1 Buffer")
 
 
 async def _queue_images_to_l1_buffer(
@@ -403,7 +406,7 @@ async def _queue_images_to_l1_buffer(
         return
 
     l1_buffer = cast("L1Buffer", buffer)
-    group_id = adapter.get_group_id(event)
+    session_id = adapter.get_session_id(event)
     user_id = adapter.get_user_id(event)
 
     # 解析 persona_id：占位消息（prepend 失败时新建）必须携带正确人格归属，
@@ -506,7 +509,7 @@ async def _queue_images_to_l1_buffer(
                 image_url=image_info.url or "",
                 image_info=image_info,
                 message_id=message_id,
-                group_id=group_id,
+                group_id=session_id,
                 user_id=user_id,
                 status=ImageParseStatus.SUCCESS,
             )
@@ -518,18 +521,18 @@ async def _queue_images_to_l1_buffer(
                 image_url=image_info.url or "",
                 image_info=image_info,
                 message_id=message_id,
-                group_id=group_id,
+                group_id=session_id,
                 user_id=user_id,
                 status=ImageParseStatus.PENDING,
             )
 
-        l1_buffer.add_image(group_id, queue_item)
+        l1_buffer.add_image(session_id, queue_item)
         queued_count += 1
 
     if image_suffixes:
         prefix = "".join(image_suffixes)
         prepended = l1_buffer.prepend_to_last_message(
-            group_id, prefix, same_source=user_id
+            session_id, prefix, same_source=user_id
         )
         if not prepended:
             user_name = adapter.get_user_name(event)
@@ -540,7 +543,7 @@ async def _queue_images_to_l1_buffer(
                 metadata["message_id"] = message_id
 
             await l1_buffer.add_message(
-                group_id=group_id,
+                group_id=session_id,
                 role="user",
                 content=prefix,
                 source=user_id,
@@ -582,7 +585,7 @@ async def _parse_images_if_enabled(
         return
 
     adapter = get_adapter(event)
-    group_id = adapter.get_group_id(event)
+    session_id = adapter.get_session_id(event)
 
     buffer = component_manager.get_available_component("l1_buffer")
     if not buffer:
@@ -599,7 +602,7 @@ async def _parse_images_if_enabled(
         return
 
     max_parse = config.get("image_max_parse_per_request")
-    pending_images = l1_buffer.get_images(group_id, limit=max_parse, only_pending=True)
+    pending_images = l1_buffer.get_images(session_id, limit=max_parse, only_pending=True)
 
     if not pending_images:
         return
@@ -610,11 +613,11 @@ async def _parse_images_if_enabled(
             cached = await cache_manager.get_cache(img_item.image_hash)
             if cached:
                 l1_buffer.mark_image_parsed(
-                    group_id, img_item.image_hash, ImageParseStatus.SUCCESS
+                    session_id, img_item.image_hash, ImageParseStatus.SUCCESS
                 )
                 placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
                 l1_buffer.replace_image_placeholder(
-                    group_id, placeholder, f"[图:{cached.content}]"
+                    session_id, placeholder, f"[图:{cached.content}]"
                 )
                 continue
 
@@ -662,10 +665,10 @@ async def _parse_images_if_enabled(
     for img_item in no_url_items:
         logger.debug(f"图片无 URL，跳过解析：{img_item.image_hash[:8]}")
         l1_buffer.mark_image_parsed(
-            group_id, img_item.image_hash, ImageParseStatus.FAILED
+            session_id, img_item.image_hash, ImageParseStatus.FAILED
         )
         placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
-        l1_buffer.replace_image_placeholder(group_id, placeholder, "")
+        l1_buffer.replace_image_placeholder(session_id, placeholder, "")
 
     if not parse_pairs:
         # 全部无 url，退还预扣配额
@@ -683,10 +686,10 @@ async def _parse_images_if_enabled(
         # 标记所有可解析图片为 FAILED 并清占位符
         for img_item, _info in parse_pairs:
             l1_buffer.mark_image_parsed(
-                group_id, img_item.image_hash, ImageParseStatus.FAILED
+                session_id, img_item.image_hash, ImageParseStatus.FAILED
             )
             placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
-            l1_buffer.replace_image_placeholder(group_id, placeholder, "")
+            l1_buffer.replace_image_placeholder(session_id, placeholder, "")
         return
 
     success_count = 0
@@ -694,19 +697,19 @@ async def _parse_images_if_enabled(
         if not result.success:
             logger.warning(f"图片解析失败：{result.error_message}")
             l1_buffer.mark_image_parsed(
-                group_id, img_item.image_hash, ImageParseStatus.FAILED
+                session_id, img_item.image_hash, ImageParseStatus.FAILED
             )
             placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
-            l1_buffer.replace_image_placeholder(group_id, placeholder, "")
+            l1_buffer.replace_image_placeholder(session_id, placeholder, "")
             continue
 
         if not result.content:
             logger.debug("图片解析结果为空")
             l1_buffer.mark_image_parsed(
-                group_id, img_item.image_hash, ImageParseStatus.FAILED
+                session_id, img_item.image_hash, ImageParseStatus.FAILED
             )
             placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
-            l1_buffer.replace_image_placeholder(group_id, placeholder, "")
+            l1_buffer.replace_image_placeholder(session_id, placeholder, "")
             continue
 
         if cache_manager and cache_manager.is_available:
@@ -719,12 +722,12 @@ async def _parse_images_if_enabled(
             await cache_manager.set_cache(cache)
 
         l1_buffer.mark_image_parsed(
-            group_id, img_item.image_hash, ImageParseStatus.SUCCESS
+            session_id, img_item.image_hash, ImageParseStatus.SUCCESS
         )
 
         placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
         l1_buffer.replace_image_placeholder(
-            group_id, placeholder, f"[图:{result.content}]"
+            session_id, placeholder, f"[图:{result.content}]"
         )
 
         success_count += 1

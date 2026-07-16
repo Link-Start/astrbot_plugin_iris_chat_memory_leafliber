@@ -789,3 +789,73 @@ class TestLowQualityMemoryFilter:
             is_lq, reason = L1Buffer._is_low_quality_memory(content, "user_001")
             assert is_lq is True, f"应过滤: {content}"
             assert "即时性" in reason
+
+
+class TestPrivateSessionQueues:
+    """私聊会话键隔离与存储归属（私聊 L1 队列修复）
+
+    私聊事件 group_id 为空字符串，调用方以 private:{user_id} 作为
+    队列键；总结写入 L2/画像时会话键需还原为空群 ID，保持既有归属行为。
+    """
+
+    @pytest.mark.asyncio
+    async def test_private_session_keys_are_isolated(self, mock_config):
+        """不同私聊用户的会话键进入各自独立的队列"""
+        buffer = L1Buffer()
+        await buffer.initialize()
+
+        await buffer.add_message("private:111", "user", "用户A的消息", "111")
+        await buffer.add_message("private:222", "user", "用户B的消息", "222")
+
+        ctx_a = buffer.get_context("private:111")
+        ctx_b = buffer.get_context("private:222")
+
+        assert [m.content for m in ctx_a] == ["用户A的消息"]
+        assert [m.content for m in ctx_b] == ["用户B的消息"]
+        stats_a = buffer.get_queue_stats("private:111")
+        stats_b = buffer.get_queue_stats("private:222")
+        assert stats_a is not None and stats_a["message_count"] == 1
+        assert stats_b is not None and stats_b["message_count"] == 1
+
+    def test_get_storage_group_id(self):
+        """私聊会话键还原为空群 ID；群聊键原样返回"""
+        buffer = L1Buffer()
+
+        assert buffer._get_storage_group_id("private:12345") == ""
+        assert buffer._get_storage_group_id("87654321") == "87654321"
+        assert buffer._get_storage_group_id("") == ""
+
+    @pytest.mark.asyncio
+    async def test_private_summary_uses_empty_group_id_for_storage(self, mock_config):
+        """私聊队列总结写入 L2/画像时使用空群 ID（保持既有归属行为）"""
+        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+            mock_get_config.return_value.get = Mock(
+                side_effect=lambda key, default=None: {
+                    "l1_buffer.enable": True,
+                }.get(key, default)
+            )
+            buffer = L1Buffer()
+            buffer._is_available = True
+            buffer._component_manager = None  # 避免 _get_or_create_summarizer 触达
+
+            queue = SegmentedMessageQueue(group_id="private:12345")
+            queue.segment_2.append(_make_msg(token_count=10))
+            queue.total_tokens = 10
+            buffer._queues["private:12345"] = queue
+
+            fake_summarizer = Mock()
+            fake_summarizer.should_summarize = Mock(return_value=True)
+            fake_summarizer.summarize = AsyncMock(return_value="私聊总结")
+            buffer._summarizer = fake_summarizer
+
+            # 副作用桩，捕获归属参数
+            buffer._write_summary_to_l2 = AsyncMock(return_value=None)
+            buffer._update_profile_after_summary = AsyncMock(return_value=None)
+            buffer._clear_images_for_summarized_messages = Mock()
+
+            await buffer._check_and_summarize("private:12345")
+
+            buffer._write_summary_to_l2.assert_awaited_once()
+            assert buffer._write_summary_to_l2.await_args.args[0] == ""
+            buffer._update_profile_after_summary.assert_awaited_once()
+            assert buffer._update_profile_after_summary.await_args.args[0] == ""

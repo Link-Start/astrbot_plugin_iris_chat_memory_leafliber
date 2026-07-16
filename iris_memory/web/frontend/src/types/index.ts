@@ -46,6 +46,8 @@ export interface L1Message {
 export interface L1QueueItem {
   group_id: string
   group_name?: string
+  is_private?: boolean
+  user_id?: string
   message_count: number
   total_tokens: number
 }
