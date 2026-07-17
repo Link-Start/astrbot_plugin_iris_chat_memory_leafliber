@@ -4,7 +4,7 @@ Iris Chat Memory - 梦境阶段3：矛盾消解
 检测记忆间的逻辑冲突，保留更新、更可靠的那一条。
 
 Features:
-    - 基于向量检索的近邻矛盾检测
+    - 基于已存向量的近邻矛盾检测（零 embedding 调用）
     - LLM 矛盾判断
     - 多维度冲突解决策略（时间 > 置信度 > 访问频率）
     - 采样扫描预算（大数据量优化）
@@ -131,7 +131,7 @@ class ContradictionPhase:
             config.get("isolation_config.enable_group_memory_isolation")
         )
 
-        # 扫描预算：记忆量超过上限时随机采样，避免逐条 embedding 开销失控
+        # 扫描预算：记忆量超过上限时随机采样，控制单轮检索规模
         if len(entries) > self._scan_budget:
             scan_entries = random.sample(entries, self._scan_budget)
             logger.info(
@@ -157,11 +157,12 @@ class ContradictionPhase:
         for gid, group_entries in groups_by_gid.items():
             for i in range(0, len(group_entries), self._query_batch_size):
                 batch = group_entries[i : i + self._query_batch_size]
-                queries = [e.content for e in batch]
 
                 try:
-                    results_batch = await l2.batch_retrieve(
-                        queries=queries,
+                    # 查询对象本身已在 L2 库中，直接复用索引中已存的向量，
+                    # 无需对文本重新计算 embedding
+                    results_batch = await l2.batch_retrieve_by_ids(
+                        memory_ids=[e.id for e in batch],
                         group_id=gid,
                         top_k=self._query_top_k,
                         persona_id=persona_id,

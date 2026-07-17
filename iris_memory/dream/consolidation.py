@@ -4,7 +4,7 @@ Iris Chat Memory - 梦境阶段1：合并重复项
 归拢同一话题的碎片记忆，生成完整的话题摘要。
 
 Features:
-    - 批量向量检索（ChromaDB batch query）
+    - 基于已存向量的批量检索（零 embedding 调用）
     - 并查集连通分量（传递性合并）
     - 采样扫描预算（大数据量优化）
     - LLM 智能合并（话题级归拢）
@@ -193,12 +193,13 @@ class ConsolidationPhase:
         for gid, group_entries in groups_by_gid.items():
             for i in range(0, len(group_entries), self._query_batch_size):
                 batch = group_entries[i : i + self._query_batch_size]
-                queries = [e.content for e in batch]
                 query_ids = [e.id for e in batch]
 
                 try:
-                    results_batch = await adapter.batch_retrieve(
-                        queries=queries,
+                    # 查询对象本身已在 L2 库中，直接复用索引中已存的向量，
+                    # 无需对文本重新计算 embedding
+                    results_batch = await adapter.batch_retrieve_by_ids(
+                        memory_ids=query_ids,
                         group_id=gid,
                         top_k=self._query_top_k,
                         persona_id=persona_id,

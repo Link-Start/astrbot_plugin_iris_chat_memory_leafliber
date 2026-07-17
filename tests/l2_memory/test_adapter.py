@@ -453,3 +453,63 @@ class TestL2MemoryAdapter:
         await adapter.add_memory("记忆3", metadata={"group_id": "g1"})
         assert 0 not in adapter._free_list
         assert adapter._count_db() == 2
+
+
+    @pytest.mark.asyncio
+    async def test_batch_retrieve_by_ids(self, mock_faiss_adapter, mock_config):
+        """测试按 ID 批量检索：复用已存向量，全程零 embedding 调用"""
+        adapter = mock_faiss_adapter
+        adapter._find_similar_unlocked = Mock(return_value=None)
+        embed_mock = AsyncMock(side_effect=lambda texts: [[0.1] * 8 for _ in texts])
+        adapter._embed = embed_mock
+
+        mid1 = await adapter.add_memory("记忆一", metadata={})
+        mid2 = await adapter.add_memory("记忆二", metadata={})
+
+        # 模拟已存向量重建与检索
+        adapter._index.reconstruct = Mock(
+            side_effect=lambda i: np.full(8, 0.1, dtype=np.float32)
+        )
+        adapter._index.search = Mock(
+            return_value=(
+                np.array([[1.0, 0.9], [1.0, 0.9]]),
+                np.array([[0, 1], [0, 1]]),
+            )
+        )
+
+        embed_mock.reset_mock()
+        with patch(
+            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+        ):
+            results = await adapter.batch_retrieve_by_ids(
+                [mid1, mid2, "mem_not_exist"]
+            )
+
+        assert len(results) == 3
+        # 不存在的 ID 对应空列表
+        assert results[2] == []
+        # 已存 ID 检索到库中两条记忆
+        assert {r.entry.id for r in results[0]} == {mid1, mid2}
+        assert {r.entry.id for r in results[1]} == {mid1, mid2}
+        # 全程未调用 embedding
+        embed_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_batch_retrieve_by_ids_unavailable(self):
+        """测试适配器不可用时按 ID 批量检索返回空"""
+        adapter = L2MemoryAdapter()
+        results = await adapter.batch_retrieve_by_ids(["mem_a", "mem_b"])
+        assert results == [[], []]
+
+    @pytest.mark.asyncio
+    async def test_batch_retrieve_by_ids_empty_index(
+        self, mock_faiss_adapter, mock_config
+    ):
+        """测试索引为空时按 ID 批量检索返回空"""
+        adapter = mock_faiss_adapter
+        adapter._index.ntotal = 0
+        with patch(
+            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+        ):
+            results = await adapter.batch_retrieve_by_ids(["mem_a"])
+        assert results == [[]]

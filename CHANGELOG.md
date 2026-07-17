@@ -6,6 +6,10 @@
 
 ## [未发布]
 
+### 优化
+
+- **梦境任务零 embedding 消耗**：梦境阶段1（合并重复项）与阶段3（矛盾消解）的相似度检索改为复用 FAISS 索引中已存的向量（新增 `L2MemoryAdapter.batch_retrieve_by_ids`，经 `faiss_idx` reconstruct 取向量），不再对记忆文本重新计算 embedding，彻底消除梦境任务对 embedding 模型的周期性批量调用（此前每轮每人格可达数百次，embedding 来源为 AstrBot Provider 时表现为外部 API 风暴）。阶段3 同时补上此前缺失的扫描预算（`dream_contradiction_scan_budget`，默认 200）与批量检索（`dream_contradiction_query_batch_size`，默认 50）；阶段1 扫描预算默认值 500 下调至 200。
+
 ### 修复
 
 - **私聊 L1 工作记忆跨用户污染**：QQ 私聊事件的 `group_id` 为空字符串，L1 缓冲直接以 `group_id` 作为队列键，导致所有私聊用户共用同一个空字符串队列、上下文互相污染，WebUI 中显示为无法点击加载的空白项。平台适配层新增 `get_session_id()`——群聊返回群号、私聊返回 `private:{user_id}`——L1 消息写入、上下文注入、图片队列、指令清空等所有路径统一改用会话键，每个私聊用户拥有独立队列。总结写入 L2 与画像归属保持既有行为（私聊仍归入空群 ID 桶，避免写入读不到的命名空间）。

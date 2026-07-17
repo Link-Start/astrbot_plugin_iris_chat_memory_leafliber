@@ -16,7 +16,7 @@ import json
 import sqlite3
 import threading
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, cast
 from pathlib import Path
 import uuid
 
@@ -1020,6 +1020,117 @@ class L2MemoryAdapter(Component):
         except Exception as e:
             logger.error(f"批量检索失败：{e}", exc_info=True)
             return [[] for _ in queries]
+
+    async def batch_retrieve_by_ids(
+        self,
+        memory_ids: List[str],
+        group_id: Optional[str] = None,
+        top_k: int = 10,
+        persona_id: str = "default",
+    ) -> List[List[MemorySearchResult]]:
+        """按已存记忆 ID 批量检索近邻（零 embedding 调用）
+
+        查询对象本身已在库中时（如梦境离线加工），直接通过
+        ``faiss_idx`` 从 FAISS 索引 ``reconstruct`` 出已存向量进行检索，
+        不再对文本重新计算 embedding。
+
+        注意：依赖底层索引支持 reconstruct（当前 IndexFlatIP 支持，
+        若未来更换为 IVF 等压缩索引需重新评估）。
+
+        Args:
+            memory_ids: 已在库中的记忆 ID 列表
+            group_id: 群 ID 过滤（None 表示不过滤）
+            top_k: 每条返回的近邻数
+            persona_id: 人格 ID
+
+        Returns:
+            与 memory_ids 等长的结果列表；ID 不存在或向量缺失时对应位置为空列表
+        """
+        if not self._is_available or not memory_ids:
+            return [[] for _ in memory_ids]
+
+        config = get_config()
+        base_timeout_ms = cast(float, config.get("l2_timeout_ms"))
+        timeout_sec = base_timeout_ms / 1000.0 * max(1, len(memory_ids) // 10 + 1)
+
+        try:
+            loop = asyncio.get_event_loop()
+            results = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: self._batch_search_by_ids(
+                        memory_ids, group_id, top_k, persona_id
+                    ),
+                ),
+                timeout=timeout_sec,
+            )
+            return results
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"按 ID 批量检索超时（{timeout_sec:.1f}s），跳过 {len(memory_ids)} 条查询"
+            )
+            return [[] for _ in memory_ids]
+        except Exception as e:
+            logger.error(f"按 ID 批量检索失败：{e}", exc_info=True)
+            return [[] for _ in memory_ids]
+
+    def _batch_search_by_ids(
+        self,
+        memory_ids: List[str],
+        group_id: Optional[str],
+        top_k: int,
+        persona_id: str,
+    ) -> List[List[MemorySearchResult]]:
+        """按 memory_id 取已存向量并检索（在 executor 中运行）
+
+        ``_lock`` 为 RLock，此处持锁后调用 ``_batch_search_with_vectors``
+        再次取锁是安全的。
+        """
+        results: List[List[MemorySearchResult]] = [[] for _ in memory_ids]
+
+        with self._lock:
+            if self._index is None or self._db is None:
+                return results
+            if self._index.ntotal == 0:
+                return results
+
+            placeholders = ",".join("?" for _ in memory_ids)
+            rows = self._db.execute(
+                f"SELECT memory_id, faiss_idx FROM memories "
+                f"WHERE memory_id IN ({placeholders})",
+                memory_ids,
+            ).fetchall()
+            faiss_by_id = {r[0]: r[1] for r in rows}
+
+            vectors = []
+            positions = []
+            for pos, mid in enumerate(memory_ids):
+                faiss_idx = faiss_by_id.get(mid)
+                if faiss_idx is None:
+                    continue
+                try:
+                    # faiss stub 中 reconstruct 声明了输出参数 recons，
+                    # Python 绑定实际支持单参数调用并直接返回向量
+                    vec = self._index.reconstruct(  # pyright: ignore[reportCallIssue]
+                        int(faiss_idx)
+                    )
+                except RuntimeError:
+                    # 槽位已被删除/索引未实现 reconstruct
+                    continue
+                vectors.append(vec)
+                positions.append(pos)
+
+            if not vectors:
+                return results
+
+            vector_matrix = np.array(vectors, dtype=np.float32)
+            found = self._batch_search_with_vectors(
+                vector_matrix, group_id, top_k, persona_id
+            )
+            for pos, res in zip(positions, found):
+                results[pos] = res
+
+        return results
 
     # ========================================================================
     # 访问更新
