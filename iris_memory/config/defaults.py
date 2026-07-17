@@ -295,7 +295,7 @@ class HiddenConfig:
         metadata={"description": "合并批处理大小", "group": "梦境任务"},
     )
     dream_consolidation_scan_budget: int = field(
-        default=500,
+        default=200,
         metadata={"description": "每轮扫描记忆条数上限", "group": "梦境任务"},
     )
     dream_consolidation_query_batch_size: int = field(
@@ -328,6 +328,14 @@ class HiddenConfig:
     dream_contradiction_max_groups: int = field(
         default=20,
         metadata={"description": "矛盾检测最大分组数", "group": "梦境任务"},
+    )
+    dream_contradiction_scan_budget: int = field(
+        default=200,
+        metadata={"description": "矛盾检测每轮扫描记忆条数上限", "group": "梦境任务"},
+    )
+    dream_contradiction_query_batch_size: int = field(
+        default=50,
+        metadata={"description": "矛盾检测向量检索批量查询大小", "group": "梦境任务"},
     )
     dream_pattern_sample_size: int = field(
         default=30,

@@ -859,3 +859,15 @@ class TestPrivateSessionQueues:
             assert buffer._write_summary_to_l2.await_args.args[0] == ""
             buffer._update_profile_after_summary.assert_awaited_once()
             assert buffer._update_profile_after_summary.await_args.args[0] == ""
+
+    @pytest.mark.asyncio
+    async def test_empty_queue_key_rejected(self, mock_config):
+        """空队列键拒绝写入，不再创建共享 "" 队列（防污染兜底）"""
+        buffer = L1Buffer()
+        await buffer.initialize()
+
+        success = await buffer.add_message("", "user", "无会话键的消息", "user_1")
+
+        assert not success
+        assert "" not in buffer._queues
+        assert buffer.get_context("") == []

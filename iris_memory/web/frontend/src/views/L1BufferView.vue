@@ -41,7 +41,7 @@
                     </v-avatar>
                   </template>
 
-                  <v-list-item-title>{{ queue.group_name || (queue.is_private ? queue.user_id : queue.group_id) }}</v-list-item-title>
+                  <v-list-item-title>{{ queue.group_name || (queue.is_private ? queue.user_id : queue.group_id) || '未知会话' }}</v-list-item-title>
                   <v-list-item-subtitle>
                     <template v-if="queue.group_name">
                       <code class="text-caption">{{ queue.is_private ? queue.user_id : queue.group_id }}</code> ·
@@ -63,12 +63,12 @@
           <v-card color="surface" variant="flat" class="iris-list-card">
             <v-card-title class="d-flex align-center iris-section-title">
               <span>消息缓冲</span>
-              <v-chip v-if="selectedGroupId" size="small" color="primary" variant="tonal" class="ml-2">
-                {{ selectedGroupName || selectedGroupId }}
+              <v-chip v-if="selectedGroupId !== null" size="small" color="primary" variant="tonal" class="ml-2">
+                {{ selectedGroupName || selectedGroupId || '未知会话' }}
               </v-chip>
               <v-spacer />
               <v-btn
-                v-if="selectedGroupId"
+                v-if="selectedGroupId !== null"
                 icon="mdi-delete-sweep"
                 variant="text"
                 size="small"
@@ -77,7 +77,7 @@
                 @click="handleClearBuffer"
               />
               <v-btn
-                v-if="selectedGroupId"
+                v-if="selectedGroupId !== null"
                 icon="mdi-refresh"
                 variant="text"
                 size="small"
@@ -86,7 +86,7 @@
               />
             </v-card-title>
             <v-card-text>
-              <template v-if="selectedGroupId">
+              <template v-if="selectedGroupId !== null">
                 <v-progress-linear
                   v-if="memoryStore.l1Loading"
                   indeterminate
@@ -215,9 +215,9 @@ const showClearDialog = ref(false)
 const clearTarget = ref<'group' | 'all'>('group')
 
 const selectedGroupName = computed(() => {
-  if (!selectedGroupId.value) return ''
+  if (selectedGroupId.value === null) return ''
   const queue = memoryStore.l1Queues.find(q => q.group_id === selectedGroupId.value)
-  return queue?.group_name || ''
+  return queue?.group_name || (queue?.is_private ? queue?.user_id : '') || ''
 })
 
 const loadL1Queues = () => {
@@ -230,7 +230,7 @@ const selectGroup = (groupId: string) => {
 }
 
 const loadL1Messages = () => {
-  if (selectedGroupId.value) {
+  if (selectedGroupId.value !== null) {
     memoryStore.fetchL1Messages(selectedGroupId.value)
   }
 }
@@ -243,11 +243,11 @@ const handleClearBuffer = () => {
 const confirmClearBuffer = async () => {
   clearingBuffer.value = true
   try {
-    const groupId = clearTarget.value === 'group' ? selectedGroupId.value || undefined : undefined
+    const groupId = clearTarget.value === 'group' ? selectedGroupId.value ?? undefined : undefined
     await clearL1Buffer(groupId)
     showClearDialog.value = false
     loadL1Queues()
-    if (selectedGroupId.value) {
+    if (selectedGroupId.value !== null) {
       memoryStore.fetchL1Messages(selectedGroupId.value)
     }
   } catch (error) {

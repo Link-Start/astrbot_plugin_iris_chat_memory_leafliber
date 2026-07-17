@@ -209,7 +209,7 @@
         "type": "bool",
         "default": true,
         "description": "阶段1：合并重复项",
-        "hint": "归拢同一话题的碎片记忆"
+        "hint": "归拢同一话题的碎片记忆。注意：本阶段会对扫描的记忆逐条计算向量（embedding），若 embedding 来源为 AstrBot Provider 将产生外部 API 调用，记忆量大时消耗明显"
       },
       "dream_enable_temporal_anchor": {
         "type": "bool",
@@ -221,7 +221,7 @@
         "type": "bool",
         "default": true,
         "description": "阶段3：矛盾消解",
-        "hint": "检测并解决记忆间的逻辑冲突"
+        "hint": "检测并解决记忆间的逻辑冲突。注意：本阶段会对扫描的记忆逐条计算向量（embedding），若 embedding 来源为 AstrBot Provider 将产生外部 API 调用，记忆量大时消耗明显"
       },
       "dream_enable_pattern_discovery": {
         "type": "bool",

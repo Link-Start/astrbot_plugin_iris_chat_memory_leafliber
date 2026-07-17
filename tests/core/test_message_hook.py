@@ -1021,3 +1021,45 @@ class TestQueueImagesPersonaId:
             await _queue_images_to_l1_buffer(MagicMock(), component_manager)
 
         l1_buffer.add_message.assert_not_awaited()
+
+
+class TestPrivateChatSessionKey:
+    """私聊会话键端到端（私聊 L1 队列隔离）
+
+    私聊事件 group_id 为空字符串，L1 写入必须使用
+    private:{user_id} 会话键，而非空字符串。
+    """
+
+    @pytest.mark.asyncio
+    async def test_private_message_uses_private_session_key(self):
+        """私聊消息经 handle_user_message 写入 private:{user_id} 队列"""
+        event = MagicMock()
+        event.message_str = "你好"
+
+        buffer = MagicMock()
+        buffer.is_available = True
+        buffer.add_message = AsyncMock()
+
+        component_manager = MagicMock()
+        component_manager.get_component.return_value = buffer
+        component_manager.get_available_component.return_value = buffer
+
+        adapter = MagicMock()
+        adapter.get_group_id.return_value = ""  # 私聊：群 ID 为空字符串
+        adapter.get_session_id.return_value = "private:user456"
+        adapter.get_user_id.return_value = "user456"
+        adapter.get_user_name.return_value = "私聊用户"
+        adapter.get_group_name.return_value = ""
+        adapter.get_raw_message.return_value = {"message_id": "888"}
+        adapter.get_reply_info.return_value = ReplyInfo()
+
+        with ExitStack() as stack:
+            for p in _patch_handle_deps(adapter=adapter):
+                stack.enter_context(p)
+            await handle_user_message(event, component_manager)
+
+        buffer.add_message.assert_called_once()
+        call_kwargs = buffer.add_message.call_args[1]
+        assert call_kwargs["group_id"] == "private:user456"
+        assert call_kwargs["role"] == "user"
+        assert call_kwargs["source"] == "user456"

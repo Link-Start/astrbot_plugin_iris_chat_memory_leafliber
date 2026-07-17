@@ -7,10 +7,12 @@ Features:
     - 基于向量检索的近邻矛盾检测
     - LLM 矛盾判断
     - 多维度冲突解决策略（时间 > 置信度 > 访问频率）
-    - 批量处理优化
+    - 采样扫描预算（大数据量优化）
+    - 批量向量检索（batch query）
 """
 
-from typing import List, Optional, cast
+import random
+from typing import Dict, List, Optional, cast
 
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
@@ -32,6 +34,9 @@ class ContradictionPhase:
         self._similarity_floor = 0.55
         self._similarity_ceiling = 0.85
         self._max_groups = 20
+        self._scan_budget = 200
+        self._query_batch_size = 50
+        self._query_top_k = 5
 
     async def execute(
         self,
@@ -49,6 +54,12 @@ class ContradictionPhase:
             float, config.get("dream_contradiction_similarity_ceiling")
         )
         self._max_groups = cast(int, config.get("dream_contradiction_max_groups"))
+        self._scan_budget = cast(
+            int, config.get("dream_contradiction_scan_budget")
+        )
+        self._query_batch_size = cast(
+            int, config.get("dream_contradiction_query_batch_size")
+        )
 
         if not llm:
             logger.warning("LLMManager 不可用，跳过矛盾消解")
@@ -120,39 +131,76 @@ class ContradictionPhase:
             config.get("isolation_config.enable_group_memory_isolation")
         )
 
+        # 扫描预算：记忆量超过上限时随机采样，避免逐条 embedding 开销失控
+        if len(entries) > self._scan_budget:
+            scan_entries = random.sample(entries, self._scan_budget)
+            logger.info(
+                f"记忆数量 {len(entries)} 超过扫描预算 {self._scan_budget}，"
+                f"随机采样 {self._scan_budget} 条"
+            )
+        else:
+            scan_entries = entries
+
+        entry_index: Dict[str, "MemoryEntry"] = {e.id: e for e in entries}
+
+        if enable_group_isolation:
+            groups_by_gid: Dict[Optional[str], List["MemoryEntry"]] = {}
+            for e in scan_entries:
+                groups_by_gid.setdefault(e.group_id, []).append(e)
+        else:
+            groups_by_gid = {None: scan_entries}
+
         candidates: List[List["MemoryEntry"]] = []
         seen_pairs: set = set()
+        total_queries = 0
 
-        for entry in entries:
-            group_id = entry.group_id if enable_group_isolation else None
+        for gid, group_entries in groups_by_gid.items():
+            for i in range(0, len(group_entries), self._query_batch_size):
+                batch = group_entries[i : i + self._query_batch_size]
+                queries = [e.content for e in batch]
 
-            try:
-                results = await l2.retrieve(
-                    entry.content, group_id=group_id, top_k=5, persona_id=persona_id
-                )
-            except Exception as e:
-                logger.debug(f"检索矛盾候选失败：{e}")
-                continue
-
-            related = []
-            for result in results:
-                if result.entry.id == entry.id:
-                    continue
-                if result.score < self._similarity_floor:
-                    continue
-                if result.score >= self._similarity_ceiling:
+                try:
+                    results_batch = await l2.batch_retrieve(
+                        queries=queries,
+                        group_id=gid,
+                        top_k=self._query_top_k,
+                        persona_id=persona_id,
+                    )
+                except Exception as e:
+                    logger.warning(f"批量检索矛盾候选失败：{e}")
                     continue
 
-                pair_key = tuple(sorted([entry.id, result.entry.id]))
-                if pair_key in seen_pairs:
-                    continue
-                seen_pairs.add(pair_key)
+                for query_entry, results in zip(batch, results_batch):
+                    related = []
+                    for result in results:
+                        if result.entry.id == query_entry.id:
+                            continue
+                        if result.score < self._similarity_floor:
+                            continue
+                        if result.score >= self._similarity_ceiling:
+                            continue
+                        if enable_group_isolation:
+                            if result.entry.group_id != query_entry.group_id:
+                                continue
 
-                related.append(result.entry)
+                        pair_key = tuple(sorted([query_entry.id, result.entry.id]))
+                        if pair_key in seen_pairs:
+                            continue
+                        seen_pairs.add(pair_key)
 
-            if related:
-                candidates.append([entry] + related)
+                        # 检索命中的条目可能不在本次采样范围内，从全量索引补齐
+                        hit_entry = entry_index.get(result.entry.id, result.entry)
+                        related.append(hit_entry)
 
+                    if related:
+                        candidates.append([query_entry] + related)
+
+                total_queries += len(batch)
+
+        logger.info(
+            f"矛盾检测扫描 {total_queries} 条记忆，"
+            f"发现 {len(candidates)} 组矛盾候选"
+        )
         return candidates
 
     async def _check_and_resolve(

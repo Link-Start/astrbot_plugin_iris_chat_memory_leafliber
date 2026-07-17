@@ -12,8 +12,10 @@ function checkSuccess(response: ApiBaseResponse, errorMsg: string): void {
 }
 
 export async function clearL1Buffer(groupId?: string): Promise<{ cleared_count: number }> {
+  // groupId 为 undefined 时清空全部；为字符串（含空字符串——遗留的空键队列）
+  // 时清空对应队列，后端按 group_id 是否为 null 区分
   const response = await apiPost<any>('manage/l1/clear', {
-    group_id: groupId || undefined
+    group_id: groupId ?? null
   })
   checkSuccess(response, '清空 L1 缓冲失败')
   return { cleared_count: response.cleared_count }

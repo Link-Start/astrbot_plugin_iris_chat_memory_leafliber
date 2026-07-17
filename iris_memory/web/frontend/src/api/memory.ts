@@ -13,7 +13,9 @@ function checkSuccess(response: ApiBaseResponse, errorMsg: string): void {
 }
 
 export async function getL1Messages(groupId?: string): Promise<any> {
-  const params = groupId ? { group_id: groupId } : {}
+  // 显式传入空字符串（遗留的空键队列）时也要携带参数，
+  // 后端以此区分"未选择会话"与"查询空键队列"
+  const params = groupId !== undefined ? { group_id: groupId } : {}
   const response = await apiGet<any>('memory/l1/list', params)
   checkSuccess(response, '获取L1缓冲失败')
   return {

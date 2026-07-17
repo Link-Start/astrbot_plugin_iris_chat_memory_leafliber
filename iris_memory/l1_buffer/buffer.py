@@ -207,6 +207,15 @@ class L1Buffer(Component):
             logger.warning("L1 缓冲不可用，跳过消息添加")
             return False
 
+        if not group_id:
+            # 空队列键会导致所有无群会话（私聊）混入同一个队列，
+            # 造成跨用户上下文污染；调用方应传入会话 ID
+            # （见 PlatformAdapter.get_session_id，私聊为 private:{user_id}）
+            logger.warning(
+                "L1 队列键为空，拒绝写入（调用方应使用 get_session_id 生成会话键）"
+            )
+            return False
+
         valid_roles = ("user", "assistant", "system")
         if role not in valid_roles:
             raise ValueError(f"无效的消息角色：{role!r}，合法值为 {valid_roles}")

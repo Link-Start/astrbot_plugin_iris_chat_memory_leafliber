@@ -33,9 +33,11 @@ async def clear_l1_buffer():
         data = await request.get_json(silent=True) or {}
         group_id = data.get("group_id")
 
-        if group_id:
+        # 区分"未传 group_id"（清空全部）与"显式传空字符串"
+        # （清空遗留的空键队列——修复前私聊消息混入的 "" 队列）
+        if group_id is not None:
             count = l1_buffer.clear_by_group(group_id)
-            logger.info(f"已清空 L1 缓冲：群聊={group_id}，{count} 条消息")
+            logger.info(f"已清空 L1 缓冲：会话={group_id!r}，{count} 条消息")
         else:
             count = l1_buffer.clear_all()
             logger.info(f"已清空所有 L1 缓冲：{count} 条消息")
