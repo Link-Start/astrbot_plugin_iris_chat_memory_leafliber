@@ -351,3 +351,140 @@ class TestEntityExtractor:
         trait_node = next(n for n in filtered.nodes if n.name == "性格开朗")
         assert trait_node.confidence == 0.9
         assert "orphaned_subject" not in trait_node.properties
+
+
+class TestPersonCanonicalization:
+    """Person 节点标识归一化测试
+
+    验证修复：同一用户在 L3 知识图谱中按昵称/QQ号分裂为两个独立实体节点。
+    归一化后 Person 节点 name 统一为稳定 user_id，昵称降级为 aliases 属性。
+    """
+
+    @pytest.fixture
+    def temp_dir(self):
+        temp = Path(tempfile.mkdtemp())
+        yield temp
+        shutil.rmtree(temp, ignore_errors=True)
+
+    @pytest.fixture
+    def extractor(self, temp_dir):
+        from unittest.mock import Mock
+
+        manager = MagicMock()
+        manager.generate_direct = AsyncMock()
+        manager.is_available = True
+
+        astrbot_config = Mock()
+        astrbot_config.__getitem__ = Mock(
+            return_value={"enable": True, "enable_type_whitelist": True}
+        )
+        astrbot_config.__contains__ = Mock(return_value=True)
+        init_config(astrbot_config, temp_dir)
+
+        return EntityExtractor(manager)
+
+    def test_nickname_canonicalized_to_user_id(self, extractor):
+        """LLM 用昵称建 Person 节点时，归一化为 user_id 并记录别名"""
+        llm_response = """{
+          "nodes": [
+            {"label": "Person", "name": "庭", "content": "用户", "confidence": 0.9}
+          ],
+          "edges": [],
+          "extraction_confidence": 0.9
+        }"""
+        context = {
+            "group_id": "g1",
+            "user_aliases": {"234916823": ["庭"]},
+            "active_users": ["234916823"],
+        }
+
+        result = extractor._parse_extraction_result(llm_response, context)
+
+        assert len(result.nodes) == 1
+        node = result.nodes[0]
+        assert node.name == "234916823"
+        assert node.properties.get("user_id") == "234916823"
+        assert "庭" in node.properties.get("aliases", "")
+        # id 基于 user_id 生成，稳定可去重
+        assert node.id == node.generate_id()
+
+    def test_edge_resolves_via_alias_after_canonicalization(self, extractor):
+        """边引用旧昵称时，归一化后仍能解析到正确 Person 节点"""
+        llm_response = """{
+          "nodes": [
+            {"label": "Person", "name": "庭", "content": "用户", "confidence": 0.9},
+            {"label": "Preference", "name": "苹果", "content": "喜欢苹果", "confidence": 0.8}
+          ],
+          "edges": [
+            {"source_label": "Person", "source_name": "庭",
+             "target_label": "Preference", "target_name": "苹果",
+             "relation_type": "HAS_PREFERENCE", "confidence": 0.8}
+          ],
+          "extraction_confidence": 0.85
+        }"""
+        context = {
+            "group_id": "g1",
+            "user_aliases": {"234916823": ["庭"]},
+            "active_users": ["234916823"],
+        }
+
+        result = extractor._parse_extraction_result(llm_response, context)
+
+        person = next(n for n in result.nodes if n.label == "Person")
+        assert person.name == "234916823"
+
+        # 边应成功解析并指向归一化后的 Person
+        assert len(result.edges) == 1
+        edge = result.edges[0]
+        assert edge.source_id == person.id
+        assert edge.relation_type == "HAS_PREFERENCE"
+
+    def test_duplicate_person_nodes_deduped_by_user_id(self, extractor):
+        """同一 user_id 的两个 Person 节点（昵称+QQ号）归一为单一节点"""
+        llm_response = """{
+          "nodes": [
+            {"label": "Person", "name": "庭", "content": "喜欢吃苹果", "confidence": 0.9},
+            {"label": "Person", "name": "234916823", "content": "是程序员", "confidence": 0.85}
+          ],
+          "edges": [],
+          "extraction_confidence": 0.85
+        }"""
+        context = {
+            "group_id": "g1",
+            "user_aliases": {"234916823": ["庭"]},
+            "active_users": ["234916823"],
+        }
+
+        result = extractor._parse_extraction_result(llm_response, context)
+
+        # 两个节点归一为同一 id，去重后只剩一个
+        assert len(result.nodes) == 1
+        node = result.nodes[0]
+        assert node.name == "234916823"
+        assert node.properties.get("user_id") == "234916823"
+        # 两个 content 合并
+        assert "苹果" in node.content
+        assert "程序员" in node.content
+        # 昵称记录为别名
+        assert "庭" in node.properties.get("aliases", "")
+
+    def test_no_user_aliases_leaves_person_unchanged(self, extractor):
+        """无 user_aliases 时，非已知用户的 Person 节点保持原样"""
+        llm_response = """{
+          "nodes": [
+            {"label": "Person", "name": "张三", "content": "路人", "confidence": 0.9}
+          ],
+          "edges": [],
+          "extraction_confidence": 0.9
+        }"""
+        result = extractor._parse_extraction_result(llm_response, {"group_id": "g1"})
+
+        assert len(result.nodes) == 1
+        assert result.nodes[0].name == "张三"
+        assert "user_id" not in result.nodes[0].properties
+
+    def test_prompt_includes_canonicalization_rule(self, extractor):
+        """提取 prompt 应包含人物标识归一化硬规则"""
+        prompt = extractor._build_extraction_prompt("测试文本")
+        assert "[用户:ID]" in prompt
+        assert "必须" in prompt

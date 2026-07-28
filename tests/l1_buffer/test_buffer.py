@@ -523,6 +523,24 @@ class TestUserIdentification:
 
         assert user_id is None
 
+    def test_extract_user_and_name_from_item(self):
+        """测试提取用户ID及匹配昵称（供 L2 落盘昵称、L3 构建别名映射）"""
+        buffer = L1Buffer()
+
+        name_to_id = {"张三": "user_001", "李四": "user_002"}
+
+        user_id, user_name = buffer._extract_user_and_name_from_item(
+            "张三提到喜欢吃苹果", name_to_id
+        )
+        assert user_id == "user_001"
+        assert user_name == "张三"
+
+        user_id, user_name = buffer._extract_user_and_name_from_item(
+            "王五提到今天天气很好", name_to_id
+        )
+        assert user_id is None
+        assert user_name is None
+
 
 class TestParseSummaryItems:
     """测试分条总结解析"""

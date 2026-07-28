@@ -38,6 +38,7 @@ class L3CommandHandler(CommandHandler):
         return {
             "clear": "清空知识图谱",
             "stats": "查看统计信息",
+            "merge": "合并分裂的 Person 节点（按用户ID归一化）",
         }
 
     async def handle(
@@ -52,6 +53,8 @@ class L3CommandHandler(CommandHandler):
             return await self._handle_stats(event, args)
         elif sub_command == "clear":
             return await self._handle_clear(event, args)
+        elif sub_command == "merge":
+            return await self._handle_merge(event, args)
         elif sub_command == "help":
             return CommandResult(success=True, message=self.get_help_text())
         else:
@@ -127,4 +130,42 @@ class L3CommandHandler(CommandHandler):
             success=True,
             message=message,
             details={"removed_count": removed_count, "scope": scope.value},
+        )
+
+    async def _handle_merge(
+        self, event: "AstrMessageEvent", args: ParsedArgs
+    ) -> CommandResult:
+        """处理 Person 节点合并（按 user_id 归一化，修复历史实体分裂）"""
+        manager = get_component_manager()
+        if not manager:
+            return CommandResult(success=False, message="组件管理器不可用")
+
+        l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
+        if not l3_adapter or not l3_adapter.is_available:
+            return CommandResult(success=False, message="L3 知识图谱组件不可用")
+
+        merged_dup, deleted_dup = await l3_adapter.merge_duplicate_nodes()
+        merged_uid, deleted_uid = await l3_adapter.merge_person_nodes_by_user_id()
+
+        total_merged = merged_dup + merged_uid
+        total_deleted = deleted_dup + deleted_uid
+
+        message = (
+            "✅ L3 节点合并完成\n"
+            f"重复节点合并：{merged_dup} 组，删除 {deleted_dup} 个\n"
+            f"分裂 Person 合并：{merged_uid} 组，删除 {deleted_uid} 个"
+        )
+
+        logger.info(
+            f"L3 merge 操作：重复 {merged_dup}/{deleted_dup}，"
+            f"分裂 {merged_uid}/{deleted_uid}"
+        )
+
+        return CommandResult(
+            success=True,
+            message=message,
+            details={
+                "merged_groups": total_merged,
+                "deleted_nodes": total_deleted,
+            },
         )

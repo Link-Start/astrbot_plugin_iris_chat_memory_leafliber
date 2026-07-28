@@ -10,13 +10,16 @@ Features:
 """
 
 from collections import defaultdict
-from typing import List, Optional, cast
+from typing import List, Optional, TYPE_CHECKING, cast
 
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
 from iris_memory.l2_memory.adapter import L2MemoryAdapter
 from iris_memory.l3_kg.adapter import L3KGAdapter
 from iris_memory.llm.manager import LLMManager
+
+if TYPE_CHECKING:
+    from iris_memory.core import ComponentManager
 
 logger = get_logger("dream.knowledge_extract")
 
@@ -33,6 +36,7 @@ class KnowledgeExtractPhase:
         l3: Optional["L3KGAdapter"],
         llm: Optional["LLMManager"],
         persona_id: str = "default",
+        component_manager: "Optional[ComponentManager]" = None,
     ) -> dict:
         config = get_config()
 
@@ -101,6 +105,12 @@ class KnowledgeExtractPhase:
             try:
                 context = {"group_id": memories[0].group_id}
 
+                # 构建昵称->user_id 别名映射，供 extractor 归一化 Person 节点标识，
+                # 避免同一用户按昵称/QQ号分裂成两个独立实体节点。
+                context["user_aliases"] = await self._build_user_aliases(
+                    memories, persona_id, component_manager
+                )
+
                 result = await extractor.extract_from_memories(memories, context)
 
                 if result.nodes or result.edges:
@@ -153,6 +163,80 @@ class KnowledgeExtractPhase:
             "nodes_extracted": total_nodes,
             "edges_extracted": total_edges,
         }
+
+    async def _build_user_aliases(
+        self,
+        memories: list,
+        persona_id: str,
+        component_manager: "Optional[ComponentManager]",
+    ) -> dict[str, list[str]]:
+        """构建 user_id -> [昵称...] 别名映射
+
+        数据来源（优先级递减）：
+        1. L2 记忆 metadata["user_name"]（总结阶段落盘的命中昵称，最可靠）
+        2. 用户画像 user_name + historical_names（含历史曾用昵称，需 profile 启用）
+
+        该映射交给 extractor，将 Person 节点 name 从昵称归一化为稳定 user_id，
+        避免"庭"与"234916823"分裂为两个实体节点。
+
+        Args:
+            memories: 待提取的记忆列表
+            persona_id: 人格ID
+            component_manager: 组件管理器（用于获取 profile 存储）
+
+        Returns:
+            {user_id: [昵称1, 昵称2, ...]}
+        """
+        uid_nicknames: dict[str, set[str]] = {}
+        user_ids: set[str] = set()
+
+        for mem in memories:
+            uid = mem.metadata.get("user_id")
+            if not uid:
+                continue
+            user_ids.add(uid)
+            nick = mem.metadata.get("user_name")
+            if nick:
+                uid_nicknames.setdefault(uid, set()).add(nick)
+
+        # 画像补充：当前昵称 + 历史曾用昵称
+        if component_manager:
+            try:
+                profile_storage = component_manager.get_available_component("profile")
+            except Exception:
+                profile_storage = None
+
+            if profile_storage and profile_storage.is_available:
+                from iris_memory.profile import UserProfileManager
+                from iris_memory.profile.storage import ProfileStorage
+
+                assert isinstance(profile_storage, ProfileStorage)
+
+                config = get_config()
+                enable_group_isolation = bool(
+                    config.get("isolation_config.enable_group_isolation")
+                )
+                group_id = memories[0].group_id if memories else ""
+                effective_group_id = group_id if enable_group_isolation else "default"
+
+                user_manager = UserProfileManager(profile_storage)
+                for uid in user_ids:
+                    try:
+                        profile = await user_manager.get_or_create(
+                            uid, effective_group_id, persona_id
+                        )
+                        if profile:
+                            if profile.user_name:
+                                uid_nicknames.setdefault(uid, set()).add(
+                                    profile.user_name
+                                )
+                            for hn in profile.historical_names:
+                                if hn:
+                                    uid_nicknames.setdefault(uid, set()).add(hn)
+                    except Exception as e:
+                        logger.debug(f"获取用户画像失败: {uid}: {e}")
+
+        return {uid: sorted(nicks) for uid, nicks in uid_nicknames.items() if nicks}
 
     def _group_memories(self, memories: list) -> dict[str, list]:
         groups: dict[str, list] = defaultdict(list)

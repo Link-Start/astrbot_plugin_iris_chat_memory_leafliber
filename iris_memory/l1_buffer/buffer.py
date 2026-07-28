@@ -977,7 +977,9 @@ class L1Buffer(Component):
                 confidence_str = item.get("confidence", "medium")
                 confidence_value = confidence_to_float(confidence_str)
 
-                user_id = self._extract_user_from_item(content, name_to_id)
+                user_id, user_name = self._extract_user_and_name_from_item(
+                    content, name_to_id
+                )
 
                 # 内容质量校验：拦截第一人称片段、即时性内容、拼接痕迹等
                 # 低质量提取，避免无效记忆污染 L2。
@@ -998,6 +1000,10 @@ class L1Buffer(Component):
 
                 if user_id:
                     metadata["user_id"] = user_id
+                    # 落盘昵称，供 L3 提取阶段构建稳定的昵称->user_id 别名映射，
+                    # 避免同一用户在知识图谱中按昵称/QQ号分裂成两个实体节点。
+                    if user_name:
+                        metadata["user_name"] = user_name
                 else:
                     # 标记为无主体记忆：总结未能关联到具体用户。
                     # 遗忘清洗阶段会对无主体记忆加速淘汰，避免无主信息
@@ -1057,16 +1063,35 @@ class L1Buffer(Component):
     def _extract_user_from_item(
         self, item: str, name_to_id: dict[str, str]
     ) -> Optional[str]:
+        user_id, _ = self._extract_user_and_name_from_item(item, name_to_id)
+        return user_id
+
+    def _extract_user_and_name_from_item(
+        self, item: str, name_to_id: dict[str, str]
+    ) -> tuple[Optional[str], Optional[str]]:
+        """从总结条目中提取用户ID及匹配到的昵称
+
+        返回 (user_id, user_name)。user_name 为命中 content 的昵称，
+        供下游 L2 metadata 落盘昵称、L3 提取阶段构建昵称->user_id 别名映射，
+        避免同一用户在知识图谱中按昵称与 QQ号分裂成两个实体节点。
+
+        Args:
+            item: 记忆内容文本
+            name_to_id: 昵称 -> 用户ID 映射
+
+        Returns:
+            (用户ID, 匹配昵称)，均未命中时返回 (None, None)
+        """
         if not name_to_id:
-            return None
+            return None, None
 
         for user_name, user_id in sorted(
             name_to_id.items(), key=lambda x: len(x[0]), reverse=True
         ):
             if user_name in item:
-                return user_id
+                return user_id, user_name
 
-        return None
+        return None, None
 
     # 第一人称代词开头模式——这些是原始对话片段而非提取后的记忆。
     # 记忆应以第三人称表述（如"张三喜欢Python"），不应以"我想"/"我是"开头。

@@ -49,6 +49,44 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // 2)
 
 
+def _person_display_name(node: dict, fallback_name: str) -> str:
+    """构造 Person 节点的可读展示名
+
+    归一化后 Person 节点 name 为 user_id（QQ号），展示时优先用别名（昵称），
+    并附 user_id 便于检索定位，如 "庭(234916823)"。
+    """
+    import json as _json
+
+    props = node.get("properties")
+    if isinstance(props, str):
+        try:
+            props = _json.loads(props)
+        except (ValueError, TypeError):
+            props = {}
+    if not isinstance(props, dict):
+        props = {}
+
+    uid = props.get("user_id") or fallback_name
+    aliases_raw = props.get("aliases", "")
+    aliases = [a.strip() for a in aliases_raw.split(",") if a.strip()]
+    nickname = aliases[0] if aliases else ""
+
+    if nickname and uid and nickname != uid:
+        return f"{nickname}({uid})"
+    if nickname:
+        return nickname
+    return uid
+
+
+def _edge_endpoint_name(node: dict, node_id: str) -> str:
+    """边端点的可读展示名：Person 用昵称(user_id)，其他类型用 name"""
+    if not node:
+        return node_id
+    if node.get("label") == "Person":
+        return _person_display_name(node, node.get("name", node_id))
+    return node.get("name", node_id)
+
+
 class GraphRetriever:
     """图谱检索器
 
@@ -215,6 +253,10 @@ class GraphRetriever:
                 name = node.get("name", "")
                 content = node.get("content", "")
                 node_id = node.get("id", "")
+                # Person 节点的 name 归一化为 user_id（QQ号）后可读性差，
+                # 展示时优先用别名（昵称），并附 user_id 以便定位。
+                if node_type == "Person":
+                    name = _person_display_name(node, name)
                 if name and content:
                     if len(content) > max_content_length:
                         logger.debug(
@@ -253,9 +295,7 @@ class GraphRetriever:
             if section_tokens <= token_budget:
                 lines.append(section)
                 token_budget -= section_tokens
-                included_node_ids.update(
-                    nid for nid in included_in_group if nid
-                )
+                included_node_ids.update(nid for nid in included_in_group if nid)
 
         if edges and token_budget > 20:
             edge_lines: list[str] = []
@@ -271,8 +311,8 @@ class GraphRetriever:
                 source_node = node_map.get(source_id, {})
                 target_node = node_map.get(target_id, {})
 
-                source_name = source_node.get("name", source_id)
-                target_name = target_node.get("name", target_id)
+                source_name = _edge_endpoint_name(source_node, source_id)
+                target_name = _edge_endpoint_name(target_node, target_id)
 
                 if source_name and target_name and relation:
                     rel_label = _RELATION_TYPE_LABELS.get(relation, relation)

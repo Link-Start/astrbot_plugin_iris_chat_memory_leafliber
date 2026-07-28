@@ -449,8 +449,7 @@ class L3KGAdapter(Component):
                 next_frontier = []
                 frontier_set = set(frontier)
                 seen_edge_keys: set[tuple[str, str, str]] = {
-                    (e["source"], e["target"], e["relation_type"])
-                    for e in edges_list
+                    (e["source"], e["target"], e["relation_type"]) for e in edges_list
                 }
 
                 for row in rows:
@@ -665,17 +664,18 @@ class L3KGAdapter(Component):
                 rows = self._db_fetchall(
                     """SELECT id, label, name, content, confidence
                        FROM nodes
-                       WHERE (name LIKE ? OR content LIKE ?) AND group_id = ?
+                       WHERE (name LIKE ? OR content LIKE ? OR properties LIKE ?)
+                             AND group_id = ?
                        LIMIT ?""",
-                    (pattern, pattern, group_id, limit),
+                    (pattern, pattern, pattern, group_id, limit),
                 )
             else:
                 rows = self._db_fetchall(
                     """SELECT id, label, name, content, confidence
                        FROM nodes
-                       WHERE name LIKE ? OR content LIKE ?
+                       WHERE name LIKE ? OR content LIKE ? OR properties LIKE ?
                        LIMIT ?""",
-                    (pattern, pattern, limit),
+                    (pattern, pattern, pattern, limit),
                 )
 
             nodes = [
@@ -711,8 +711,8 @@ class L3KGAdapter(Component):
 
         try:
             pattern = f"%{query}%"
-            conditions = ["(name LIKE ? OR content LIKE ?)"]
-            params: list = [pattern, pattern]
+            conditions = ["(name LIKE ? OR content LIKE ? OR properties LIKE ?)"]
+            params: list = [pattern, pattern, pattern]
 
             if label:
                 conditions.append("label = ?")
@@ -774,9 +774,11 @@ class L3KGAdapter(Component):
                 )
                 for r in rows:
                     try:
-                        props = json.loads(r["properties"]) if isinstance(
-                            r["properties"], str
-                        ) else r["properties"]
+                        props = (
+                            json.loads(r["properties"])
+                            if isinstance(r["properties"], str)
+                            else r["properties"]
+                        )
                         if not isinstance(props, dict):
                             continue
                         ids_str = props.get("source_memory_ids", "")
@@ -1052,7 +1054,9 @@ class L3KGAdapter(Component):
                     (node_id, group_id),
                 )
             else:
-                seed_row = self._db_fetchone("SELECT * FROM nodes WHERE id = ?", (node_id,))
+                seed_row = self._db_fetchone(
+                    "SELECT * FROM nodes WHERE id = ?", (node_id,)
+                )
             if seed_row:
                 nodes_map[node_id] = dict(seed_row)
 
@@ -1074,7 +1078,13 @@ class L3KGAdapter(Component):
                         WHERE n.id NOT IN ({",".join("?" * len(all_visited))})
                         AND n.group_id = ?
                         LIMIT ?""",
-                        (*node_ids_to_query, *node_ids_to_query, *all_visited, group_id, remaining),
+                        (
+                            *node_ids_to_query,
+                            *node_ids_to_query,
+                            *all_visited,
+                            group_id,
+                            remaining,
+                        ),
                     )
                 else:
                     rows = self._db_fetchall(
@@ -1086,7 +1096,12 @@ class L3KGAdapter(Component):
                         )
                         WHERE n.id NOT IN ({",".join("?" * len(all_visited))})
                         LIMIT ?""",
-                        (*node_ids_to_query, *node_ids_to_query, *all_visited, remaining),
+                        (
+                            *node_ids_to_query,
+                            *node_ids_to_query,
+                            *all_visited,
+                            remaining,
+                        ),
                     )
 
                 node_ids_to_query = []
@@ -1182,15 +1197,14 @@ class L3KGAdapter(Component):
             return []
 
         if subject_labels is None:
-            subject_labels = {
-                "Preference", "Trait", "Belief", "Goal", "Skill"
-            }
+            subject_labels = {"Preference", "Trait", "Belief", "Goal", "Skill"}
 
         try:
             label_placeholders = ",".join("?" * len(subject_labels))
             labels_list = list(subject_labels)
 
-            rows = self._db_fetchall(f"""
+            rows = self._db_fetchall(
+                f"""
                 SELECT n.id, n.label, n.name, n.content, n.confidence
                 FROM nodes n
                 WHERE n.label IN ({label_placeholders})
@@ -1206,7 +1220,9 @@ class L3KGAdapter(Component):
                     WHERE e.source_id IN (SELECT id FROM nodes WHERE label = 'Person')
                        OR e.target_id IN (SELECT id FROM nodes WHERE label = 'Person')
                   )
-            """, labels_list + [max_confidence])
+            """,
+                labels_list + [max_confidence],
+            )
 
             return [dict(row) for row in rows]
         except Exception as e:
@@ -1595,6 +1611,292 @@ class L3KGAdapter(Component):
                 # _db_write 的 commit 一并刷盘，造成节点/边不一致的半提交损坏。
                 self._db.rollback()
                 logger.error(f"合并重复节点失败：{e}", exc_info=True)
+                return 0, 0
+
+    async def merge_person_nodes_by_user_id(self) -> tuple[int, int]:
+        """合并同一 user_id 的 Person 重复节点
+
+        修复历史实体分裂问题：同一用户曾被拆成"昵称节点"和"QQ号节点"两个
+        独立 Person。归一化后新提取的 Person 节点会带 properties["user_id"]
+        标记，本方法将具有相同 user_id 的多个 Person 节点合并为一个：
+        - 保留者优先选择 name == user_id 的节点（即已归一化的）
+        - 合并 content / confidence / access_count / aliases / source_memory_ids
+        - 将重复节点的边重指向保留节点（去自环、去重边）
+        - 删除重复节点
+
+        Returns:
+            (合并的节点组数, 删除的重复节点数)
+        """
+        if not self._is_available:
+            return 0, 0
+
+        with self._db_lock:
+            try:
+                rows = self._db.execute(
+                    """SELECT id, name, content, confidence, access_count,
+                              created_time, group_id, properties
+                       FROM nodes WHERE label = 'Person'"""
+                ).fetchall()
+
+                groups: dict[str, list[dict]] = {}
+                for row in rows:
+                    props = row["properties"]
+                    if isinstance(props, str):
+                        try:
+                            props = json.loads(props)
+                        except (json.JSONDecodeError, TypeError):
+                            props = {}
+                    if not isinstance(props, dict):
+                        props = {}
+                    uid = props.get("user_id")
+                    if not uid:
+                        continue
+                    groups.setdefault(str(uid), []).append(
+                        {
+                            "id": row["id"],
+                            "name": row["name"],
+                            "content": row["content"],
+                            "confidence": row["confidence"],
+                            "access_count": row["access_count"],
+                            "created_time": row["created_time"],
+                            "group_id": row["group_id"],
+                            "properties": props,
+                        }
+                    )
+
+                merged_count = 0
+                deleted_count = 0
+
+                for _uid, nodes in groups.items():
+                    if len(nodes) <= 1:
+                        continue
+
+                    # 保留者：优先 name == user_id，其次按创建时间最早
+                    nodes.sort(
+                        key=lambda n: (
+                            0 if n["name"] == _uid else 1,
+                            n.get("created_time", "") or "",
+                        )
+                    )
+                    keep = nodes[0]
+                    dups = nodes[1:]
+                    keep_id = keep["id"]
+                    dup_ids = [d["id"] for d in dups]
+                    dup_ids_set = set(dup_ids)
+
+                    # 合并字段
+                    merged_content = keep["content"] or ""
+                    merged_confidence = keep["confidence"] or 0.5
+                    merged_access_count = keep["access_count"] or 0
+                    merged_properties = dict(keep["properties"])
+
+                    aliases = [
+                        a.strip()
+                        for a in (merged_properties.get("aliases", "")).split(",")
+                        if a.strip()
+                    ]
+                    source_ids = [
+                        s.strip()
+                        for s in (merged_properties.get("source_memory_ids", "")).split(
+                            ","
+                        )
+                        if s.strip()
+                    ]
+                    group_ids = [
+                        g.strip()
+                        for g in (merged_properties.get("group_ids", "")).split(",")
+                        if g.strip()
+                    ]
+                    if keep.get("group_id") and keep["group_id"] not in group_ids:
+                        group_ids.insert(0, keep["group_id"])
+
+                    for dup in dups:
+                        merged_content = self._merge_node_content(
+                            merged_content, dup["content"]
+                        )
+                        merged_confidence = max(
+                            merged_confidence, dup.get("confidence", 0.5)
+                        )
+                        merged_access_count += dup.get("access_count", 0)
+
+                        dup_props = dup.get("properties", {})
+                        if isinstance(dup_props, dict):
+                            for a in dup_props.get("aliases", "").split(","):
+                                a = a.strip()
+                                if a and a not in aliases:
+                                    aliases.append(a)
+                            for s in dup_props.get("source_memory_ids", "").split(","):
+                                s = s.strip()
+                                if s and s not in source_ids:
+                                    source_ids.append(s)
+                            for g in dup_props.get("group_ids", "").split(","):
+                                g = g.strip()
+                                if g and g not in group_ids:
+                                    group_ids.append(g)
+                            for k, v in dup_props.items():
+                                if k not in (
+                                    "aliases",
+                                    "user_id",
+                                    "source_memory_ids",
+                                    "group_ids",
+                                ):
+                                    merged_properties.setdefault(k, v)
+
+                        if dup.get("group_id") and dup["group_id"] not in group_ids:
+                            group_ids.append(dup["group_id"])
+
+                    # 保留节点的 name 归一为 user_id（若保留者本身用的是昵称）
+                    if keep["name"] != _uid:
+                        if keep["name"] and keep["name"] not in aliases:
+                            aliases.insert(0, keep["name"])
+                        merged_properties["user_id"] = _uid
+
+                    if aliases:
+                        merged_properties["aliases"] = ",".join(aliases)
+                    if source_ids:
+                        merged_properties["source_memory_ids"] = ",".join(source_ids)
+                    if group_ids:
+                        merged_properties["group_ids"] = ",".join(group_ids)
+
+                    merged_group_id = keep.get("group_id", "") or (
+                        group_ids[0] if group_ids else ""
+                    )
+
+                    # 重指向重复节点的边到保留节点
+                    if dup_ids:
+                        dup_ph = ",".join("?" * len(dup_ids))
+                        dup_edges = self._db.execute(
+                            f"""SELECT source_id, target_id, relation_type, weight,
+                                       confidence, access_count, last_access_time,
+                                       created_time, source_memory_id, properties
+                                FROM edges
+                                WHERE source_id IN ({dup_ph})
+                                   OR target_id IN ({dup_ph})""",
+                            (*dup_ids, *dup_ids),
+                        ).fetchall()
+
+                        self._db.execute(
+                            f"""DELETE FROM edges
+                                WHERE source_id IN ({dup_ph})
+                                   OR target_id IN ({dup_ph})""",
+                            (*dup_ids, *dup_ids),
+                        )
+
+                        for edge_row in dup_edges:
+                            new_source = (
+                                keep_id
+                                if edge_row["source_id"] in dup_ids_set
+                                else edge_row["source_id"]
+                            )
+                            new_target = (
+                                keep_id
+                                if edge_row["target_id"] in dup_ids_set
+                                else edge_row["target_id"]
+                            )
+                            if new_source == new_target:
+                                continue
+
+                            edge_props = edge_row["properties"]
+                            if isinstance(edge_props, str):
+                                try:
+                                    edge_props = json.loads(edge_props)
+                                except (json.JSONDecodeError, TypeError):
+                                    edge_props = {}
+                            if not isinstance(edge_props, dict):
+                                edge_props = {}
+
+                            existing = self._db.execute(
+                                """SELECT weight, confidence, access_count, properties
+                                   FROM edges
+                                   WHERE source_id = ? AND target_id = ?
+                                         AND relation_type = ?""",
+                                (new_source, new_target, edge_row["relation_type"]),
+                            ).fetchone()
+
+                            if existing:
+                                existing_props = existing["properties"]
+                                if isinstance(existing_props, str):
+                                    try:
+                                        existing_props = json.loads(existing_props)
+                                    except (json.JSONDecodeError, TypeError):
+                                        existing_props = {}
+                                if not isinstance(existing_props, dict):
+                                    existing_props = {}
+                                existing_props.update(edge_props)
+                                self._db.execute(
+                                    """UPDATE edges SET
+                                        weight = MAX(weight, ?),
+                                        confidence = MAX(confidence, ?),
+                                        access_count = access_count + ?,
+                                        properties = ?
+                                    WHERE source_id = ? AND target_id = ?
+                                          AND relation_type = ?""",
+                                    (
+                                        edge_row["weight"],
+                                        edge_row["confidence"],
+                                        edge_row["access_count"],
+                                        json.dumps(existing_props, ensure_ascii=False),
+                                        new_source,
+                                        new_target,
+                                        edge_row["relation_type"],
+                                    ),
+                                )
+                            else:
+                                self._db.execute(
+                                    """INSERT INTO edges
+                                        (source_id, target_id, relation_type, weight,
+                                         confidence, access_count, last_access_time,
+                                         created_time, source_memory_id, properties)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                    (
+                                        new_source,
+                                        new_target,
+                                        edge_row["relation_type"],
+                                        edge_row["weight"],
+                                        edge_row["confidence"],
+                                        edge_row["access_count"],
+                                        edge_row["last_access_time"],
+                                        edge_row["created_time"],
+                                        edge_row["source_memory_id"],
+                                        json.dumps(edge_props, ensure_ascii=False),
+                                    ),
+                                )
+
+                        self._db.execute(
+                            f"DELETE FROM nodes WHERE id IN ({dup_ph})",
+                            dup_ids,
+                        )
+                        deleted_count += len(dup_ids)
+
+                    # 保留节点的 name 归一为 user_id
+                    self._db.execute(
+                        """UPDATE nodes SET name = ?, content = ?, confidence = ?,
+                           access_count = ?, group_id = ?, properties = ?
+                        WHERE id = ?""",
+                        (
+                            _uid,
+                            merged_content,
+                            merged_confidence,
+                            merged_access_count,
+                            merged_group_id,
+                            json.dumps(merged_properties, ensure_ascii=False),
+                            keep_id,
+                        ),
+                    )
+                    merged_count += 1
+
+                self._db.commit()
+
+                if merged_count > 0:
+                    logger.info(
+                        f"Person 节点按 user_id 合并完成：合并 {merged_count} 组，"
+                        f"删除 {deleted_count} 个分裂节点"
+                    )
+
+                return merged_count, deleted_count
+            except Exception as e:
+                self._db.rollback()
+                logger.error(f"按 user_id 合并 Person 节点失败：{e}", exc_info=True)
                 return 0, 0
 
     async def export_all(self) -> dict:

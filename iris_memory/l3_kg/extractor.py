@@ -173,13 +173,14 @@ class EntityExtractor:
 - ❌ 临时性内容、寒暄、即时指令、纯情绪、一次性问答
 
 ## 提取规则
-1. **抽象优先**："张三说喜欢Python"→ Person(张三) -HAS_PREFERENCE→ Preference(Python编程)
+1. **抽象优先**："张三说喜欢Python"-> Person(张三) -HAS_PREFERENCE-> Preference(Python编程)
 2. **关联优先**：重点提取实体间深层关系（因果、支持、矛盾），而非浅层提及
 3. **内容浓缩**：content 为一句话概括（≤{_MAX_CONTENT_LENGTH}字），不复制原文
 4. **关系精准**：优先使用具体关系类型，RELATED_TO 仅作最后手段
 5. **置信度诚实**：不确定 0.3-0.6，确定 0.7-1.0
 6. **宁缺毋滥**：无值得保留的抽象知识则返回空结果
 7. **主体完整**：Preference/Trait/Belief/Goal/Skill 必须同时提取对应 Person 节点并用边连接，缺少主体的属性节点无价值
+8. **人物标识归一**：记忆若带有 [用户:ID] 标记，该人物对应 Person 节点的 name **必须**使用方括号内的 ID（如 234916823），**禁止**使用昵称（如"庭"）。昵称不要写入 name。这样同一用户始终对应唯一节点，不会因昵称/QQ号不一致而分裂。未被 [用户:ID] 标记的其他人物（如对话中提及的第三方）照常用其名字作为 name。
 {whitelist_hint}
 ## 输出格式（JSON）
 {{
@@ -274,6 +275,12 @@ class EntityExtractor:
                 nodes.append(node)
                 node_key_to_id[f"{node.label}:{node.name}"] = node.id
 
+            # 人物实体标识归一化：将 Person 节点的 name 统一为稳定 user_id（QQ号），
+            # 昵称降级为 aliases 属性。不依赖 LLM 自觉--即便 LLM 用了昵称，
+            # 这里也能依据 context["user_aliases"] 反向纠正，避免同一用户
+            # 按昵称/QQ号分裂成两个独立实体节点。
+            self._canonicalize_person_nodes(nodes, node_key_to_id, context)
+
             edges = []
             for edge_data in data.get("edges", []):
                 source_label = edge_data.get("source_label")
@@ -314,6 +321,123 @@ class EntityExtractor:
         except Exception as e:
             logger.error(f"解析提取结果失败：{e}")
             return ExtractionResult()
+
+    @staticmethod
+    def _split_aliases(raw: str | None) -> list[str]:
+        """将 aliases 属性字符串拆分为列表（逗号分隔，去空去重保序）"""
+        if not raw:
+            return []
+        seen: list[str] = []
+        for part in raw.split(","):
+            part = part.strip()
+            if part and part not in seen:
+                seen.append(part)
+        return seen
+
+    def _canonicalize_person_nodes(
+        self,
+        nodes: list[GraphNode],
+        node_key_to_id: dict[str, str],
+        context: dict,
+    ) -> None:
+        """归一化 Person 节点标识，避免同一用户按昵称/QQ号分裂
+
+        依据 context["user_aliases"]（{user_id: [昵称...]}）将 Person 节点的
+        name 从昵称改写为稳定 user_id，昵称降级为 properties["aliases"]，
+        并在 properties["user_id"] 上打标。归一化后按 id 去重合并，
+        并重建 node_key_to_id（同时注册原昵称键，保证边引用仍可解析）。
+
+        无 user_aliases 时，仅对 name 恰为已知 active_users 的 Person 节点
+        打 user_id 标记，不做改写（退化为依赖 prompt 约束）。
+
+        Args:
+            nodes: 节点列表（原地修改）
+            node_key_to_id: 节点键到 ID 映射（原地重建）
+            context: 提取上下文，含 user_aliases / active_users
+        """
+        user_aliases: dict[str, list[str]] = context.get("user_aliases") or {}
+        active_users: set[str] = set(context.get("active_users") or [])
+        active_users |= set(user_aliases.keys())
+
+        # 昵称 -> user_id（首个命中优先；昵称冲突时以更长昵称优先，减少误匹配）
+        alias_to_uid: dict[str, str] = {}
+        for nick, uid in sorted(
+            ((n, uid) for uid, nicks in user_aliases.items() for n in nicks if n),
+            key=lambda x: len(x[0]),
+            reverse=True,
+        ):
+            alias_to_uid.setdefault(nick, uid)
+
+        renamed = False
+        for node in nodes:
+            if node.label != "Person":
+                continue
+            original = node.name
+            canonical = alias_to_uid.get(original)
+            if canonical is None and original in active_users:
+                canonical = original
+            if not canonical:
+                continue
+
+            if original != canonical:
+                aliases = self._split_aliases(node.properties.get("aliases", ""))
+                if original not in aliases:
+                    aliases.insert(0, original)
+                node.properties["aliases"] = ",".join(aliases)
+                node.name = canonical
+                renamed = True
+
+            node.properties["user_id"] = canonical
+            node.id = node.generate_id()
+
+        if not renamed and not user_aliases:
+            # 未发生改写也无需重建索引（仅打了 user_id 标记，id 不变）
+            return
+
+        # 按 id 原地去重合并（同一 user_id 的多个 Person 节点归一为同一 id）
+        if renamed:
+            deduped: list[GraphNode] = []
+            by_id: dict[str, GraphNode] = {}
+            for node in nodes:
+                existing = by_id.get(node.id)
+                if existing is None:
+                    by_id[node.id] = node
+                    deduped.append(node)
+                else:
+                    self._merge_person_node_in_place(existing, node)
+            nodes[:] = deduped
+
+        # 重建 node_key_to_id，同时注册原昵称键以便边引用解析
+        node_key_to_id.clear()
+        for node in nodes:
+            node_key_to_id[f"{node.label}:{node.name}"] = node.id
+        for node in nodes:
+            if node.label == "Person":
+                for alias in self._split_aliases(node.properties.get("aliases", "")):
+                    node_key_to_id.setdefault(f"Person:{alias}", node.id)
+
+        if renamed:
+            logger.debug(
+                f"Person 节点标识归一化：{len(nodes)} 个 Person 节点已按 user_id 归一"
+            )
+
+    def _merge_person_node_in_place(self, keeper: GraphNode, other: GraphNode) -> None:
+        """将 other 节点合并到 keeper（同 id 的 Person 重复节点）"""
+        if other.content and other.content not in (keeper.content or ""):
+            keeper.content = (
+                f"{keeper.content}；{other.content}".strip("；")
+                if keeper.content
+                else other.content
+            )
+        keeper.confidence = max(keeper.confidence, other.confidence)
+        aliases = self._split_aliases(keeper.properties.get("aliases", ""))
+        aliases.extend(self._split_aliases(other.properties.get("aliases", "")))
+        if aliases:
+            keeper.properties["aliases"] = ",".join(aliases)
+        for k, v in other.properties.items():
+            if k in ("aliases", "user_id"):
+                continue
+            keeper.properties.setdefault(k, v)
 
     def _resolve_node_id(
         self,
@@ -390,9 +514,7 @@ class EntityExtractor:
         # 主体关联检查：对缺少 Person 边的主体绑定类型节点降级置信度
         # 不做硬删除——这些节点可能仍有价值，只是主体关联未被 LLM 提取到。
         # 降级后由梦境遗忘清洗按综合评分处理。
-        person_node_ids = {
-            n.id for n in valid_nodes if n.label == "Person"
-        }
+        person_node_ids = {n.id for n in valid_nodes if n.label == "Person"}
         nodes_with_person_edge: set[str] = set()
         for e in valid_edges:
             if e.source_id in person_node_ids and e.target_id not in person_node_ids:
@@ -402,10 +524,7 @@ class EntityExtractor:
 
         downgraded_count = 0
         for n in valid_nodes:
-            if (
-                n.label in _SUBJECT_BOUND_LABELS
-                and n.id not in nodes_with_person_edge
-            ):
+            if n.label in _SUBJECT_BOUND_LABELS and n.id not in nodes_with_person_edge:
                 # 降级置信度，使遗忘评分更容易触发淘汰
                 original = n.confidence
                 n.confidence = min(n.confidence, 0.4)
