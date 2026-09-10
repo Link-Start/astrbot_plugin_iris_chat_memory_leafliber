@@ -23,6 +23,52 @@ logger = get_logger("web.data")
 
 PLUGIN_NAME = "astrbot_plugin_iris_chat_memory"
 
+# 导入请求大小上限：multipart 文件与 JSON 请求体超过即拒绝（413），
+# 防止超大载荷整体读入内存造成资源耗尽（导入的每条记录还会构建对象逐条写库）
+_MAX_IMPORT_BYTES = 100 * 1024 * 1024  # 100MB
+# L2 条目数上限：单条记录很小的 JSON 也能携带海量条目，一次性构建全部
+# MemoryEntry 会造成内存放大，此处限制可构建的对象总量
+_MAX_IMPORT_ENTRIES = 200_000
+
+
+def _reject_oversized_json_body():
+    """JSON 请求体超过大小上限时返回 413 响应，否则返回 None。
+
+    基于 Content-Length 头提前拒绝；无长度头的 chunked 请求由宿主
+    服务器的请求体上限兜底。
+    """
+    if (request.content_length or 0) > _MAX_IMPORT_BYTES:
+        limit_mb = _MAX_IMPORT_BYTES // (1024 * 1024)
+        return (
+            jsonify({"success": False, "error": f"请求体超过大小上限（{limit_mb}MB）"}),
+            413,
+        )
+    return None
+
+
+def _read_upload_capped(file) -> str | None:
+    """分块读取上传文件并解码为文本，超过大小上限返回 None。"""
+    chunks: list[bytes] = []
+    received = 0
+    while True:
+        chunk = file.read(1024 * 1024)
+        if not chunk:
+            break
+        received += len(chunk)
+        if received > _MAX_IMPORT_BYTES:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks).decode("utf-8")
+
+
+def _reject_oversized_upload():
+    """上传文件超过大小上限时返回 413 响应，否则返回 None。"""
+    limit_mb = _MAX_IMPORT_BYTES // (1024 * 1024)
+    return (
+        jsonify({"success": False, "error": f"文件超过大小上限（{limit_mb}MB）"}),
+        413,
+    )
+
 
 async def export_l2_memory():
     try:
@@ -86,9 +132,14 @@ async def import_l2_memory():
                 return jsonify({"success": False, "error": "未找到上传文件"}), 400
 
             file = files["file"]
-            file_content = file.read().decode("utf-8")
+            file_content = _read_upload_capped(file)
+            if file_content is None:
+                return _reject_oversized_upload()
             import_data = json.loads(file_content)
         else:
+            oversize = _reject_oversized_json_body()
+            if oversize:
+                return oversize
             body = await request.get_json()
             if not body or "data" not in body:
                 return jsonify({"success": False, "error": "请求体缺少 data 字段"}), 400
@@ -103,6 +154,20 @@ async def import_l2_memory():
             entries_data = import_data
         else:
             return jsonify({"success": False, "error": "无法识别的导入数据格式"}), 400
+
+        if (
+            not isinstance(entries_data, list)
+            or len(entries_data) > _MAX_IMPORT_ENTRIES
+        ):
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"条目格式错误或超过数量上限（{_MAX_IMPORT_ENTRIES}）",
+                    }
+                ),
+                413,
+            )
 
         from iris_memory.l2_memory.models import MemoryEntry
 
@@ -176,10 +241,15 @@ async def import_l3_kg():
                 return jsonify({"success": False, "error": "未找到上传文件"}), 400
 
             file = files["file"]
-            file_content = file.read().decode("utf-8")
+            file_content = _read_upload_capped(file)
+            if file_content is None:
+                return _reject_oversized_upload()
             import_data = json.loads(file_content)
             skip_duplicates = True
         else:
+            oversize = _reject_oversized_json_body()
+            if oversize:
+                return oversize
             body = await request.get_json()
             if not body or "data" not in body:
                 return jsonify({"success": False, "error": "请求体缺少 data 字段"}), 400
@@ -246,10 +316,15 @@ async def import_profiles():
                 return jsonify({"success": False, "error": "未找到上传文件"}), 400
 
             file = files["file"]
-            file_content = file.read().decode("utf-8")
+            file_content = _read_upload_capped(file)
+            if file_content is None:
+                return _reject_oversized_upload()
             import_data = json.loads(file_content)
             skip_duplicates = True
         else:
+            oversize = _reject_oversized_json_body()
+            if oversize:
+                return oversize
             body = await request.get_json()
             if not body or "data" not in body:
                 return jsonify({"success": False, "error": "请求体缺少 data 字段"}), 400
@@ -331,6 +406,9 @@ async def export_all():
 async def import_all():
     try:
         manager = get_component_manager()
+        oversize = _reject_oversized_json_body()
+        if oversize:
+            return oversize
         body = await request.get_json()
 
         if not body or "data" not in body:
@@ -358,6 +436,8 @@ async def import_all():
                     )
                     from iris_memory.l2_memory.models import MemoryEntry
 
+                    if len(entries_data) > _MAX_IMPORT_ENTRIES:
+                        raise ValueError(f"L2 条目数超过上限（{_MAX_IMPORT_ENTRIES}）")
                     entries = [MemoryEntry.from_dict(e) for e in entries_data]
                     stats = await importer.import_entries(
                         entries, skip_duplicates=skip_duplicates

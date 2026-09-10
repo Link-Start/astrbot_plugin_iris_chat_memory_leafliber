@@ -15,6 +15,7 @@ from typing import Any, Dict
 from quart import jsonify, request
 from iris_memory.config import get_config
 from iris_memory.core import get_logger
+from iris_memory.utils.persistence import atomic_write_json
 
 logger = get_logger("web.ui_preferences")
 
@@ -50,11 +51,12 @@ def _load_prefs() -> Dict[str, Any]:
 
 
 def _save_prefs(prefs: Dict[str, Any]) -> None:
-    """保存 UI 偏好到文件"""
-    path = _get_prefs_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(prefs, f, ensure_ascii=False, indent=2)
+    """保存 UI 偏好到文件
+
+    使用原子写（临时文件 + os.replace）：写入中途崩溃不会留下截断文件，
+    也不会跟随目标路径上的符号链接。
+    """
+    atomic_write_json(_get_prefs_path(), prefs)
 
 
 async def get_ui_preferences():

@@ -20,6 +20,12 @@ logger = get_logger("web.memory")
 PLUGIN_NAME = "astrbot_plugin_iris_chat_memory"
 
 
+def _log_safe(text: str, limit: int = 20) -> str:
+    """清洗用户输入用于日志：控制字符替换为空格并截断，防日志注入。"""
+    cleaned = "".join(ch if ch.isprintable() else " " for ch in text)
+    return cleaned[:limit]
+
+
 def get_private_queue_display(l1_buffer: L1Buffer, queue_key: str) -> dict:
     """提取私聊队列的展示信息（用户 ID 与昵称）
 
@@ -84,7 +90,7 @@ async def search_l2_memory():
         for r in results
     ]
 
-    logger.info(f"搜索L2记忆成功：查询='{query[:20]}...', 结果数={len(results)}")
+    logger.info(f"搜索L2记忆成功：查询='{_log_safe(query)}...', 结果数={len(results)}")
 
     return jsonify({"success": True, "results": formatted_results})
 
@@ -395,7 +401,7 @@ async def search_l3_nodes():
 
     nodes = await l3_adapter.search_nodes(keyword, limit)
 
-    logger.info(f"搜索L3节点成功：关键词='{keyword}', 结果数={len(nodes)}")
+    logger.info(f"搜索L3节点成功：关键词='{_log_safe(keyword)}', 结果数={len(nodes)}")
 
     return jsonify({"success": True, "nodes": nodes})
 
@@ -417,7 +423,7 @@ async def search_l3_edges():
 
     edges = await l3_adapter.search_edges(keyword, limit)
 
-    logger.info(f"搜索L3边成功：关键词='{keyword}', 结果数={len(edges)}")
+    logger.info(f"搜索L3边成功：关键词='{_log_safe(keyword)}', 结果数={len(edges)}")
 
     return jsonify({"success": True, "edges": edges})
 
@@ -492,7 +498,9 @@ async def list_l3_nodes():
     else:
         nodes = await l3_adapter.get_all_nodes(limit, group_id=group_id)
 
-    logger.info(f"获取L3节点列表成功：关键词='{keyword}', group_id={group_id}, 结果数={len(nodes)}")
+    logger.info(
+        f"获取L3节点列表成功：关键词='{keyword}', group_id={group_id}, 结果数={len(nodes)}"
+    )
 
     return jsonify({"success": True, "nodes": nodes})
 

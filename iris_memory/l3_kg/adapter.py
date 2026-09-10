@@ -424,10 +424,7 @@ class L3KGAdapter(Component):
             frontier = list(nodes_map)
 
             for _ in range(max_depth):
-                if (
-                    not frontier
-                    or len(edges_list) >= max_edges
-                ):
+                if not frontier or len(edges_list) >= max_edges:
                     break
 
                 placeholders = ",".join("?" * len(frontier))
@@ -523,7 +520,9 @@ class L3KGAdapter(Component):
                     for node_row in neighbor_rows:
                         nodes_map[node_row["id"]] = dict(node_row)
 
-                frontier = [node_id for node_id in next_frontier if node_id in nodes_map]
+                frontier = [
+                    node_id for node_id in next_frontier if node_id in nodes_map
+                ]
 
             nodes = list(nodes_map.values())
 
@@ -682,12 +681,16 @@ class L3KGAdapter(Component):
             return []
 
         try:
-            pattern = f"%{keyword}%"
+            # 关键词经 escape_like 转义并配合 ESCAPE 子句，% / _ / \ 按字面匹配，
+            # 防止用户关键词中的通配符扩大匹配面（如 "%%%" 全表命中）
+            pattern = f"%{escape_like(keyword)}%"
             if group_id:
                 rows = self._db_fetchall(
                     """SELECT id, label, name, content, confidence
                        FROM nodes
-                       WHERE (name LIKE ? OR content LIKE ? OR properties LIKE ?)
+                       WHERE (name LIKE ? ESCAPE '\\'
+                              OR content LIKE ? ESCAPE '\\'
+                              OR properties LIKE ? ESCAPE '\\')
                              AND group_id = ?
                        LIMIT ?""",
                     (pattern, pattern, pattern, group_id, limit),
@@ -696,7 +699,9 @@ class L3KGAdapter(Component):
                 rows = self._db_fetchall(
                     """SELECT id, label, name, content, confidence
                        FROM nodes
-                       WHERE name LIKE ? OR content LIKE ? OR properties LIKE ?
+                       WHERE name LIKE ? ESCAPE '\\'
+                             OR content LIKE ? ESCAPE '\\'
+                             OR properties LIKE ? ESCAPE '\\'
                        LIMIT ?""",
                     (pattern, pattern, pattern, limit),
                 )
@@ -763,8 +768,9 @@ class L3KGAdapter(Component):
             # 多来源节点，source_memory_id 列仅存逗号连接的完整列表或首条 ID）
             if not row:
                 rows = self._db_fetchall(
-                    "SELECT id, properties FROM nodes WHERE properties LIKE ?",
-                    (f'%"{memory_id}"%',),
+                    "SELECT id, properties FROM nodes "
+                    "WHERE properties LIKE ? ESCAPE '\\'",
+                    (f'%"{escape_like(memory_id)}"%',),
                 )
                 for r in rows:
                     try:
@@ -840,9 +846,10 @@ class L3KGAdapter(Component):
             node_ids: set[str] = {row["id"] for row in rows}
 
             for mid in memory_ids:
-                pattern = f"%{mid}%"
+                pattern = f"%{escape_like(mid)}%"
                 extra_rows = self._db_fetchall(
-                    "SELECT id, properties FROM nodes WHERE properties LIKE ?",
+                    "SELECT id, properties FROM nodes "
+                    "WHERE properties LIKE ? ESCAPE '\\'",
                     (pattern,),
                 )
                 for row in extra_rows:
@@ -871,7 +878,7 @@ class L3KGAdapter(Component):
             return []
 
         try:
-            pattern = f"%{keyword}%"
+            pattern = f"%{escape_like(keyword)}%"
             rows = self._db_fetchall(
                 """SELECT e.source_id, e.target_id, e.relation_type, e.confidence,
                           src.name as src_name, src.label as src_label,
@@ -879,7 +886,7 @@ class L3KGAdapter(Component):
                    FROM edges e
                    JOIN nodes src ON e.source_id = src.id
                    JOIN nodes tgt ON e.target_id = tgt.id
-                   WHERE e.relation_type LIKE ?
+                   WHERE e.relation_type LIKE ? ESCAPE '\\'
                    LIMIT ?""",
                 (pattern, limit),
             )

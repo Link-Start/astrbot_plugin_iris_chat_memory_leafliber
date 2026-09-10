@@ -30,6 +30,9 @@ def host_all_global(host: str) -> bool:
     IP 字面量直接判定；域名解析所有地址，任一非全局（私网/环回/链路本地/
     云元数据/保留/组播/未指定）即返回 False。供 is_safe_url 与下载 transport
     共用，确保「校验」与「实际连接」采用一致的 SSRF 判据。
+
+    fail-closed：解析结果为空、或某条 sockaddr 无法解析为 IP 时一律拒绝，
+    避免"全部跳过 = 默认放行"的边角。
     """
     try:
         return ipaddress.ip_address(host).is_global
@@ -39,11 +42,13 @@ def host_all_global(host: str) -> bool:
         infos = socket.getaddrinfo(host, None)
     except OSError:
         return False
+    if not infos:
+        return False
     for info in infos:
         try:
             ip = ipaddress.ip_address(info[4][0])
         except (ValueError, IndexError):
-            continue
+            return False
         if not ip.is_global:
             return False
     return True
@@ -102,6 +107,10 @@ async def safe_download(
     1. is_safe_url 前置校验 scheme 与主机解析地址；
     2. GlobalOnlyTransport 在每次实际连接前（含重定向每一跳）再次校验。
 
+    下载采用流式读取并累计字节数，超过 max_bytes 立即中止——响应体
+    （含 gzip/zstd 自动解压后的数据）不会整体进入内存，防止恶意服务器
+    借超大响应造成内存耗尽。
+
     Args:
         url: 目标 URL
         timeout: 超时秒数
@@ -119,17 +128,28 @@ async def safe_download(
         async with httpx.AsyncClient(
             timeout=timeout, follow_redirects=follow_redirects, transport=transport
         ) as client:
-            resp = await client.get(url)
-            if resp.status_code >= 400:
-                logger.debug(f"URL 返回 {resp.status_code}：{url[:80]}")
-                return None
-            content = resp.content
-            if not content:
-                return None
-            if len(content) > max_bytes:
-                logger.warning(f"内容过大（{len(content)} 字节），跳过：{url[:80]}")
-                return None
-            return content
+            async with client.stream("GET", url) as resp:
+                if resp.status_code >= 400:
+                    logger.debug(f"URL 返回 {resp.status_code}：{url[:80]}")
+                    return None
+                declared = resp.headers.get("content-length", "")
+                if declared.isdigit() and int(declared) > max_bytes:
+                    logger.warning(f"内容声明过大（{declared} 字节），跳过：{url[:80]}")
+                    return None
+                chunks: list[bytes] = []
+                received = 0
+                async for chunk in resp.aiter_bytes(64 * 1024):
+                    received += len(chunk)
+                    if received > max_bytes:
+                        logger.warning(
+                            f"内容超过大小上限（>{max_bytes} 字节），中止下载：{url[:80]}"
+                        )
+                        return None
+                    chunks.append(chunk)
+                content = b"".join(chunks)
+                if not content:
+                    return None
+                return content
     except Exception as e:
         logger.debug(f"URL 下载失败：{e}")
         return None

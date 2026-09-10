@@ -12,8 +12,10 @@ Iris Chat Memory - L2 记忆库 FAISS + SQLite 适配器
 """
 
 import asyncio
+import hashlib
 import json
 import os
+import re
 import sqlite3
 import tempfile
 import threading
@@ -30,6 +32,50 @@ from iris_memory.utils import atomic_write_json
 from .models import MemoryEntry, MemorySearchResult
 
 logger = get_logger("l2_memory.adapter")
+
+# persona_id 会拼入持久化目录名（data/faiss/memory_<persona_id>），
+# 这些字符出现在路径组件中存在穿越或跨平台风险
+_PERSONA_FORBIDDEN_CHARS = set('/\\:*?"<>|')
+_PERSONA_MAX_LEN = 64
+
+
+def sanitize_persona_dirname(persona_id: str) -> str:
+    """把 persona_id 清洗为可安全用作目录名的形式。
+
+    persona_id 来自宿主的 conversation 配置（管理员设置），正常值如
+    "default"、UUID、人格名称（含中文）。为不破坏既有部署的数据目录：
+    - 良性值（无路径分隔符、无 ".."、非点开头、可打印、长度受限）原样保留；
+    - 危险值替换为白名单形式并附加原值的短哈希，保证不同 persona_id
+      不会因清洗而碰撞（否则多个人格会共用同一份记忆，破坏隔离）。
+
+    Args:
+        persona_id: 原始 persona_id
+
+    Returns:
+        可安全用作目录名的字符串，空值回退为 "default"
+    """
+    pid = (persona_id or "").strip()
+    if not pid:
+        return "default"
+    is_benign = (
+        len(pid) <= _PERSONA_MAX_LEN
+        and ".." not in pid
+        and not pid.startswith(".")
+        and not pid.endswith(".")
+        and all(
+            ch not in _PERSONA_FORBIDDEN_CHARS and ch.isprintable() and ch != "\x00"
+            for ch in pid
+        )
+    )
+    if is_benign:
+        return pid
+    digest = hashlib.md5(pid.encode("utf-8")).hexdigest()[:12]
+    cleaned = re.sub(r"[^0-9A-Za-z_\-]", "_", pid)[:32].strip("_") or "persona"
+    sanitized = f"{cleaned}_{digest}"
+    logger.warning(
+        f"persona_id 含路径不安全字符，已清洗目录名：{persona_id!r} -> {sanitized!r}"
+    )
+    return sanitized
 
 
 class EmbeddingRetryError(RuntimeError):
@@ -144,7 +190,11 @@ class L2MemoryAdapter(Component):
             )
 
         try:
-            self._persist_dir = config.data_dir / "faiss" / f"memory_{self._persona_id}"
+            self._persist_dir = (
+                config.data_dir
+                / "faiss"
+                / f"memory_{sanitize_persona_dirname(self._persona_id)}"
+            )
             self._persist_dir.mkdir(parents=True, exist_ok=True)
 
             # 初始化嵌入源

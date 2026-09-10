@@ -222,8 +222,12 @@ async def _add_to_l1_buffer(
             metadata["reply_user_id"] = reply_info.user_id
         if reply_info.user_name:
             metadata["reply_user_name"] = reply_info.user_name
+        # 被引用内容同样来自聊天用户，与正文一致地过注入过滤后再入 metadata
+        # （metadata 会进入总结 prompt）
         if reply_info.content:
-            metadata["reply_content"] = reply_info.content
+            metadata["reply_content"] = sanitize_input(
+                reply_info.content, source="user_reply"
+            )
         elif reply_info.message_id:
             _backfill_reply_from_buffer(
                 l1_buffer, session_id, reply_info.message_id, metadata
@@ -232,7 +236,9 @@ async def _add_to_l1_buffer(
                 api_reply = await adapter.get_msg_by_id(event, reply_info.message_id)
                 if api_reply.has_reply:
                     if api_reply.content:
-                        metadata["reply_content"] = api_reply.content
+                        metadata["reply_content"] = sanitize_input(
+                            api_reply.content, source="user_reply"
+                        )
                     if not metadata.get("reply_user_name") and api_reply.user_name:
                         metadata["reply_user_name"] = api_reply.user_name
                     if not metadata.get("reply_user_id") and api_reply.user_id:
@@ -615,7 +621,9 @@ async def _parse_images_if_enabled(
         return
 
     max_parse = cast("int | None", config.get("image_max_parse_per_request"))
-    pending_images = l1_buffer.get_images(session_id, limit=max_parse, only_pending=True)
+    pending_images = l1_buffer.get_images(
+        session_id, limit=max_parse, only_pending=True
+    )
 
     if not pending_images:
         return

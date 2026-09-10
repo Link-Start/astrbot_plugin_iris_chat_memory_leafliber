@@ -25,6 +25,20 @@ logger = get_logger("config")
 _UNCOERCIBLE = object()
 
 
+def _mask_value(value: object) -> str:
+    """把配置值转为可安全写日志的掩码形式。
+
+    数值/布尔为调优参数，保留原值便于排查；字符串值（可能经外部槽位
+    写入任意内容，包括未来的密钥类字段）只保留前两字符与长度提示。
+    """
+    if value is None or isinstance(value, (bool, int, float)):
+        return repr(value)
+    text = str(value)
+    if len(text) <= 4:
+        return "***"
+    return f"{text[:2]}***(len={len(text)})"
+
+
 class HiddenConfigManager:
     """隐藏配置管理器
 
@@ -228,7 +242,10 @@ class HiddenConfigManager:
             self._cache[key] = value
             self._dirty = True
 
-            logger.info(f"隐藏配置已修改: {key} = {value} (原值: {old_value})")
+            logger.info(
+                f"隐藏配置已修改: {key} = {_mask_value(value)} "
+                f"(原值: {_mask_value(old_value)})"
+            )
 
             for observer in self._observers:
                 try:
@@ -280,7 +297,7 @@ class HiddenConfigManager:
             old_value = self._cache.pop(key)
             self._dirty = True
 
-            logger.info(f"已删除隐藏配置: {key} (原值: {old_value})")
+            logger.info(f"已删除隐藏配置: {key} (原值: {_mask_value(old_value)})")
 
             for observer in self._observers:
                 try:

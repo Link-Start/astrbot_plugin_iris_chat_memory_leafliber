@@ -121,46 +121,15 @@ class ImageParser:
         """校验 URL 是否安全（防 SSRF），委托给 url_safety 共用实现。"""
         return await is_safe_url(url)
 
-    async def _check_url_accessible(self, url: str) -> bool:
-        """检查网络图片 URL 是否可达且有内容
-
-        通过流式 GET 请求读取少量数据验证 URL 返回了有效内容，
-        避免 LLM 调用因图片不可下载而浪费 token。同时校验目标主机非
-        内网/保留地址以防 SSRF，并禁用自动重定向（防止重定向到内网）。
-
-        Args:
-            url: 图片 URL
-
-        Returns:
-            URL 是否可访问且有内容
-        """
-        if not await self._is_safe_url(url):
-            logger.warning(
-                f"图片 URL 主机不安全（内网/保留地址），拒绝访问：{url[:80]}"
-            )
-            return False
-        try:
-            async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
-                async with client.stream("GET", url) as resp:
-                    if resp.status_code >= 400:
-                        logger.debug(f"图片 URL 返回 {resp.status_code}：{url[:80]}")
-                        return False
-                    chunk = await anext(resp.aiter_raw(1024), b"")
-                    if not chunk:
-                        logger.debug(f"图片 URL 返回空内容：{url[:80]}")
-                        return False
-                    return True
-        except Exception as e:
-            logger.debug(f"图片 URL 检查失败：{e}")
-            return False
-
     async def _fetch_image_data_url(self, url: str) -> Optional[str]:
         """下载网络图片并以 base64 data URL 返回（SSRF 根本防护）。
 
         可达性检查与实际下载各自独立解析 DNS，存在 DNS rebinding 窗口（检查时
         解析到公网、下载时被切到内网）。本方法用 GlobalOnlyTransport 在下载
         连接前再次强制校验所有解析结果为全局地址，堵死向内网的 rebinding；同时
-        把图片字节转为 data URL，使 LLM provider 不再直连外网 URL。
+        把图片字节转为 data URL，使 LLM provider 不再直连外网 URL。下载采用
+        流式读取并累计字节数，超过 10MB 立即中止，防止恶意服务器借超大响应
+        （含 gzip 解压放大）造成内存耗尽。
 
         Args:
             url: 图片 URL
@@ -178,26 +147,38 @@ class ImageParser:
             async with httpx.AsyncClient(
                 timeout=15, follow_redirects=False, transport=transport
             ) as client:
-                resp = await client.get(url)
-                if resp.status_code >= 400:
-                    logger.debug(f"图片 URL 返回 {resp.status_code}：{url[:80]}")
-                    return None
-                content = resp.content
-                if not content:
-                    return None
-                # 限制 10MB，避免大图撑爆 LLM 上下文
-                if len(content) > 10 * 1024 * 1024:
-                    logger.warning(f"图片过大（{len(content)} 字节），跳过：{url[:80]}")
-                    return None
-                mime = (
-                    (resp.headers.get("content-type") or "image/jpeg")
-                    .split(";")[0]
-                    .strip()
-                )
-                if not mime.startswith("image/"):
-                    mime = "image/jpeg"
-                b64 = base64.b64encode(content).decode("ascii")
-                return f"data:{mime};base64,{b64}"
+                async with client.stream("GET", url) as resp:
+                    if resp.status_code >= 400:
+                        logger.debug(f"图片 URL 返回 {resp.status_code}：{url[:80]}")
+                        return None
+                    declared = resp.headers.get("content-length", "")
+                    if declared.isdigit() and int(declared) > 10 * 1024 * 1024:
+                        logger.warning(
+                            f"图片声明过大（{declared} 字节），跳过：{url[:80]}"
+                        )
+                        return None
+                    chunks: list[bytes] = []
+                    received = 0
+                    async for chunk in resp.aiter_bytes(64 * 1024):
+                        received += len(chunk)
+                        if received > 10 * 1024 * 1024:
+                            logger.warning(
+                                f"图片超过大小上限（>10MB），中止下载：{url[:80]}"
+                            )
+                            return None
+                        chunks.append(chunk)
+                    content = b"".join(chunks)
+                    if not content:
+                        return None
+                    mime = (
+                        (resp.headers.get("content-type") or "image/jpeg")
+                        .split(";")[0]
+                        .strip()
+                    )
+                    if not mime.startswith("image/"):
+                        mime = "image/jpeg"
+                    b64 = base64.b64encode(content).decode("ascii")
+                    return f"data:{mime};base64,{b64}"
         except Exception as e:
             logger.debug(f"下载图片失败：{e}")
             return None

@@ -14,6 +14,14 @@ logger = get_logger("image.utils")
 
 _PIL_AVAILABLE: Optional[bool] = None
 
+# 解压炸弹防护：拒绝解码像素数超过该上限的图片（聊天图片远小于此值，
+# Pillow 自身的 89.5M 像素警告线过宽，且只告警不阻断）
+_MAX_IMAGE_PIXELS = 40_000_000
+
+# 纯色检测只需统计特征，先等比缩到该边长内再转 float64 数组，
+# 避免大图全尺寸灰度 + float64 展开（每百万像素约 8MB）
+_ANALYSIS_MAX_DIMENSION = 512
+
 
 def _check_pil() -> bool:
     """检查 PIL 是否可用（延迟检测，结果缓存）"""
@@ -50,6 +58,13 @@ async def compute_phash(image_data: bytes, hash_size: int = 8) -> Optional[str]:
         import numpy as np
 
         img = Image.open(io.BytesIO(image_data))
+
+        if img.width * img.height > _MAX_IMAGE_PIXELS:
+            logger.warning(
+                f"图片像素数超限（{img.width}x{img.height}），跳过 pHash 计算"
+            )
+            return None
+
         img = img.convert("L").resize(
             (hash_size * 4, hash_size * 4), Image.Resampling.LANCZOS
         )
@@ -151,7 +166,7 @@ async def check_invalid_image(
         std_threshold: 纯色检测标准差阈值，低于此值视为纯色
 
     Returns:
-        (是否无效, 原因描述)
+        (是否无效, 原因描述)；像素数超限时返回 (False, "") 跳过检测
     """
     if not _check_pil():
         return False, ""
@@ -164,6 +179,17 @@ async def check_invalid_image(
 
         if img.width < min_size or img.height < min_size:
             return True, f"图片过小：{img.width}x{img.height}"
+
+        if img.width * img.height > _MAX_IMAGE_PIXELS:
+            logger.warning(
+                f"图片像素数超限（{img.width}x{img.height}），跳过无效图检查"
+            )
+            return False, ""
+
+        # 纯色检测只看整体统计特征：等比缩小后标准差几乎不变，
+        # 纯色图缩放后仍是纯色，避免全尺寸 float64 展开
+        if img.width > _ANALYSIS_MAX_DIMENSION or img.height > _ANALYSIS_MAX_DIMENSION:
+            img.thumbnail((_ANALYSIS_MAX_DIMENSION, _ANALYSIS_MAX_DIMENSION))
 
         gray = img.convert("L")
         pixels = np.array(gray, dtype=np.float64)

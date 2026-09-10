@@ -63,8 +63,9 @@ _INJECTION_PATTERNS = [
 def sanitize_input(text: str, source: str = "unknown") -> str:
     """对外部输入执行 Prompt 注入过滤
 
-    检测并清理潜在的 Prompt 注入攻击内容。
-    不修改原文，仅记录警告日志，由调用方决定是否拒绝。
+    检测并清理潜在的 Prompt 注入攻击内容：
+    超长输入截断，命中的注入模式从文本中移除，均记录警告日志。
+    可通过 input_sanitizer_enable 配置整体关闭（关闭时不做任何修改）。
 
     Args:
         text: 待检查的输入文本

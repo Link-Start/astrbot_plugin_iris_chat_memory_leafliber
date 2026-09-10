@@ -58,6 +58,17 @@ class TestHostAllGlobal:
         with patch("socket.getaddrinfo", side_effect=socket.gaierror):
             assert host_all_global("nonexistent.invalid") is False
 
+    def test_empty_resolution_rejected(self):
+        """解析结果为空列表时 fail-closed，不得默认放行"""
+        with patch("socket.getaddrinfo", return_value=[]):
+            assert host_all_global("weird.example.com") is False
+
+    def test_unparseable_sockaddr_rejected(self):
+        """sockaddr 无法解析为 IP 时 fail-closed（如带 scope 的 IPv6）"""
+        fake_infos = [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("fe80::1%eth0", 0))]
+        with patch("socket.getaddrinfo", return_value=fake_infos):
+            assert host_all_global("scoped.example.com") is False
+
 
 class TestIsSafeUrl:
     """is_safe_url：scheme 与主机校验"""
@@ -111,7 +122,7 @@ class TestGlobalOnlyTransport:
 
 
 class TestSafeDownload:
-    """safe_download：校验 + 下载双保险"""
+    """safe_download：校验 + 下载双保险（流式读取、超限中止）"""
 
     @pytest.mark.asyncio
     async def test_unsafe_url_no_network_call(self):
@@ -121,45 +132,74 @@ class TestSafeDownload:
         assert result is None
         MockClient.assert_not_called()
 
+    @staticmethod
+    def _patch_transport(handler):
+        """把 safe_download 内部的真实 transport 替换为 MockTransport。
+
+        GlobalOnlyTransport 仍会包装它，连接前的全局性校验逻辑照常执行
+        （URL 用公网 IP 字面量，无需真实 DNS）。
+        """
+        return patch(
+            "iris_memory.image.url_safety.httpx.AsyncHTTPTransport",
+            lambda **kwargs: httpx.MockTransport(handler),
+        )
+
     @pytest.mark.asyncio
     async def test_download_success(self):
-        mock_resp = httpx.Response(200, content=b"\xff\xd8jpeg-bytes")
-        with patch("httpx.AsyncClient") as MockClient:
-            client = AsyncMock()
-            client.get = AsyncMock(return_value=mock_resp)
-            MockClient.return_value.__aenter__ = AsyncMock(return_value=client)
-            MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        def handler(request):
+            return httpx.Response(200, content=b"\xff\xd8jpeg-bytes")
+
+        with self._patch_transport(handler):
             result = await safe_download("https://8.8.8.8/img.jpg")
         assert result == b"\xff\xd8jpeg-bytes"
 
     @pytest.mark.asyncio
     async def test_http_error_returns_none(self):
-        mock_resp = httpx.Response(404, content=b"not found")
-        with patch("httpx.AsyncClient") as MockClient:
-            client = AsyncMock()
-            client.get = AsyncMock(return_value=mock_resp)
-            MockClient.return_value.__aenter__ = AsyncMock(return_value=client)
-            MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        def handler(request):
+            return httpx.Response(404, content=b"not found")
+
+        with self._patch_transport(handler):
             result = await safe_download("https://8.8.8.8/img.jpg")
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_oversized_content_returns_none(self):
-        mock_resp = httpx.Response(200, content=b"x" * 1024)
-        with patch("httpx.AsyncClient") as MockClient:
-            client = AsyncMock()
-            client.get = AsyncMock(return_value=mock_resp)
-            MockClient.return_value.__aenter__ = AsyncMock(return_value=client)
-            MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+    async def test_oversized_content_aborts_mid_stream(self):
+        """响应体超过 max_bytes 时流式中止，不返回部分内容"""
+
+        def handler(request):
+            return httpx.Response(200, content=b"x" * 8192)
+
+        with self._patch_transport(handler):
             result = await safe_download("https://8.8.8.8/big.bin", max_bytes=100)
         assert result is None
 
     @pytest.mark.asyncio
+    async def test_declared_content_length_oversize_rejected(self):
+        """content-length 头声明超限时在读体前直接拒绝"""
+
+        def handler(request):
+            return httpx.Response(
+                200, headers={"content-length": "999999999"}, content=b"x"
+            )
+
+        with self._patch_transport(handler):
+            result = await safe_download("https://8.8.8.8/big.bin", max_bytes=100)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_empty_content_returns_none(self):
+        def handler(request):
+            return httpx.Response(200, content=b"")
+
+        with self._patch_transport(handler):
+            result = await safe_download("https://8.8.8.8/empty.bin")
+        assert result is None
+
+    @pytest.mark.asyncio
     async def test_network_error_returns_none(self):
-        with patch("httpx.AsyncClient") as MockClient:
-            client = AsyncMock()
-            client.get = AsyncMock(side_effect=httpx.ConnectError("boom"))
-            MockClient.return_value.__aenter__ = AsyncMock(return_value=client)
-            MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        def handler(request):
+            raise httpx.ConnectError("boom")
+
+        with self._patch_transport(handler):
             result = await safe_download("https://8.8.8.8/img.jpg")
         assert result is None
