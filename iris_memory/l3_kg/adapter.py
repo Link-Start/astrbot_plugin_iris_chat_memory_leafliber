@@ -392,18 +392,16 @@ class L3KGAdapter(Component):
         max_nodes: int = 100,
         max_edges: int = 200,
     ) -> tuple[list[dict], list[dict]]:
-        """BFS 路径扩展检索"""
-        if not self._is_available:
+        """BFS 路径扩展检索；None 为全局范围，空字符串为私聊范围。"""
+        if not self._is_available or not node_ids or max_nodes <= 0:
             return [], []
 
         try:
-            visited = set(node_ids)
-            frontier = list(node_ids)
             nodes_map: dict[str, dict] = {}
             edges_list: list[dict] = []
 
             # 种子节点也必须按 group_id 过滤，否则跨群节点作为种子泄漏
-            if group_id:
+            if group_id is not None:
                 seed_rows = self._db_fetchall(
                     f"SELECT * FROM nodes WHERE id IN ({','.join('?' * len(node_ids))}) AND group_id = ?",
                     (*node_ids, group_id),
@@ -413,20 +411,28 @@ class L3KGAdapter(Component):
                     f"SELECT * FROM nodes WHERE id IN ({','.join('?' * len(node_ids))})",
                     tuple(node_ids),
                 )
-            for row in seed_rows:
-                nodes_map[row["id"]] = dict(row)
+            seeds_by_id = {row["id"]: dict(row) for row in seed_rows}
+            # 种子也占节点预算；按调用方的相关度顺序保留，过滤后再限额。
+            for node_id in dict.fromkeys(node_ids):
+                if node_id in seeds_by_id:
+                    nodes_map[node_id] = seeds_by_id[node_id]
+                    if len(nodes_map) >= max_nodes:
+                        break
+
+            # 只从通过范围过滤的种子出发，不让被排除的 ID 参与后续扩展。
+            visited = set(nodes_map)
+            frontier = list(nodes_map)
 
             for _ in range(max_depth):
                 if (
                     not frontier
-                    or len(nodes_map) >= max_nodes
                     or len(edges_list) >= max_edges
                 ):
                     break
 
                 placeholders = ",".join("?" * len(frontier))
 
-                if group_id:
+                if group_id is not None:
                     query = f"""
                         SELECT e.source_id, e.target_id, e.relation_type,
                                e.weight, e.confidence, e.access_count,
@@ -473,6 +479,14 @@ class L3KGAdapter(Component):
                     edge_key = (source_id, target_id, relation_type)
                     if edge_key in seen_edge_keys:
                         continue
+
+                    neighbor_id = target_id if source_id in frontier_set else source_id
+                    if neighbor_id not in visited:
+                        # visited 同时计入已返回和本层待读取的节点，避免整层超额。
+                        if len(visited) >= max_nodes:
+                            continue
+                        visited.add(neighbor_id)
+                        next_frontier.append(neighbor_id)
                     seen_edge_keys.add(edge_key)
 
                     edge_props = row["properties"]
@@ -498,27 +512,27 @@ class L3KGAdapter(Component):
                         }
                     )
 
-                    neighbor_id = target_id if source_id in frontier_set else source_id
-                    if neighbor_id not in visited and len(nodes_map) < max_nodes:
-                        visited.add(neighbor_id)
-                        next_frontier.append(neighbor_id)
-
                 if next_frontier:
                     ph = ",".join("?" * len(next_frontier))
-                    neighbor_rows = self._db_fetchall(
-                        f"SELECT * FROM nodes WHERE id IN ({ph})",
-                        tuple(next_frontier),
-                    )
+                    neighbor_query = f"SELECT * FROM nodes WHERE id IN ({ph})"
+                    neighbor_params = list(next_frontier)
+                    if group_id is not None:
+                        neighbor_query += " AND group_id = ?"
+                        neighbor_params.append(group_id)
+                    neighbor_rows = self._db_fetchall(neighbor_query, neighbor_params)
                     for node_row in neighbor_rows:
                         nodes_map[node_row["id"]] = dict(node_row)
 
-                frontier = next_frontier
+                frontier = [node_id for node_id in next_frontier if node_id in nodes_map]
 
             nodes = list(nodes_map.values())
 
             seen = set()
             unique_edges = []
             for e in edges_list:
+                # 邻居可能已不存在；只返回两端都有详情的关系。
+                if e["source"] not in nodes_map or e["target"] not in nodes_map:
+                    continue
                 key = f"{e['source']}-{e['relation_type']}-{e['target']}"
                 if key not in seen:
                     seen.add(key)
@@ -719,38 +733,9 @@ class L3KGAdapter(Component):
             return []
 
         try:
-            pattern = f"%{query}%"
-            conditions = ["(name LIKE ? OR content LIKE ? OR properties LIKE ?)"]
-            params: list = [pattern, pattern, pattern]
+            from .query_match import search_nodes
 
-            if label:
-                conditions.append("label = ?")
-                params.append(label)
-
-            if group_id:
-                conditions.append("group_id = ?")
-                params.append(group_id)
-
-            where = " AND ".join(conditions)
-            params.append(limit)
-
-            rows = self._db_fetchall(
-                f"""SELECT id, label, name, content, confidence, group_id
-                    FROM nodes WHERE {where} LIMIT ?""",
-                params,
-            )
-
-            return [
-                {
-                    "id": row["id"],
-                    "label": row["label"],
-                    "name": row["name"],
-                    "content": row["content"],
-                    "confidence": row["confidence"],
-                    "group_id": row["group_id"],
-                }
-                for row in rows
-            ]
+            return search_nodes(self._db_fetchall, query, label, group_id, limit)
         except Exception as e:
             logger.warning(f"搜索节点失败：{e}")
             return []
